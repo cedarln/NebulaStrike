@@ -184,5 +184,6 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
             try { thread.join(500); } catch (InterruptedException ignored) { }
             thread = null;
         }
+        audio.release(); // SoundPool must not outlive the surface
     }
 }
