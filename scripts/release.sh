@@ -41,7 +41,7 @@ command -v python3  >/dev/null || die "缺少 python3"
 git diff --quiet && git diff --cached --quiet \
     || die "工作树有未提交改动,请先提交或暂存"
 if git rev-parse -q --verify origin/main >/dev/null; then
-    [ -z "$(git log origin/main..HEAD --format=x)" ] \
+    [ -z "$(git log origin/main..HEAD --format=%H)" ] \
         || die "存在未推送到 origin/main 的提交,请先 git push"
 else
     log "  (本地无 origin/main 引用,跳过远程同步检查)"
