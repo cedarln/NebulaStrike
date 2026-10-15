@@ -16,7 +16,10 @@ public class GameWorld {
     public enum State { PLAYING, GAME_OVER }
 
     /** Game events consumed by the presentation layer (sfx, haptics, fx). */
-    public enum EventType { ENEMY_KILLED, PLAYER_HIT, GAME_OVER, ENEMY_ESCAPED, FORMATION }
+    public enum EventType {
+        ENEMY_KILLED, PLAYER_HIT, GAME_OVER, ENEMY_ESCAPED, FORMATION,
+        POWERUP_COLLECTED, BOMB
+    }
     public static final class GameEvent {
         public final EventType type;
         public final float x, y;
@@ -39,10 +42,11 @@ public class GameWorld {
     }
 
     public final Ship ship = new Ship();
-    public final Bullet[] bullets = new Bullet[64];
+    public final Bullet[] bullets = new Bullet[96];
     public final EnemyBullet[] enemyBullets = new EnemyBullet[48];
     public final Enemy[] enemies = new Enemy[48];
     public final Particle[] particles = new Particle[256];
+    public final PowerUp[] powerups = new PowerUp[12];
     public final Star[] stars = new Star[90];
 
     public State state = State.PLAYING;
@@ -63,6 +67,8 @@ public class GameWorld {
     // screen shake
     public float shakeTime;
     public float shakeMag;
+    /** white flash overlay after a smart bomb, decays to 0 */
+    public float bombFlash;
 
     private float spawnTimer;
     private float enemySpeedScale = 1f;
@@ -77,6 +83,7 @@ public class GameWorld {
         for (int i = 0; i < bullets.length; i++) bullets[i] = new Bullet();
         for (int i = 0; i < enemyBullets.length; i++) enemyBullets[i] = new EnemyBullet();
         for (int i = 0; i < enemies.length; i++) enemies[i] = new Enemy();
+        for (int i = 0; i < powerups.length; i++) powerups[i] = new PowerUp();
         for (int i = 0; i < particles.length; i++) particles[i] = new Particle();
         for (int i = 0; i < stars.length; i++) {
             stars[i] = new Star();
@@ -111,8 +118,14 @@ public class GameWorld {
 
         for (Bullet b : bullets) {
             if (!b.active) continue;
+            if (b.homing) steerMissile(b);
             b.update(dt);
-            if (b.y < -b.radius) b.active = false;
+            if (b.y < -b.radius || b.x < -40f || b.x > WIDTH + 40f) b.active = false;
+        }
+        for (PowerUp p : powerups) {
+            if (!p.active) continue;
+            p.update(dt, ship.x, ship.y);
+            if (p.offscreen(HEIGHT)) p.active = false;
         }
         for (Enemy e : enemies) {
             if (!e.active) continue;
@@ -140,6 +153,7 @@ public class GameWorld {
             shakeTime -= dt;
             if (shakeTime <= 0f) shakeMag = 0f;
         }
+        if (bombFlash > 0f) bombFlash = Math.max(0f, bombFlash - dt * 2.5f);
 
         resolveCollisions();
         if (score > wave * 500) wave++;
@@ -242,9 +256,55 @@ public class GameWorld {
     }
 
     private void fireBullet() {
-        Bullet b = freeBullet();
-        if (b == null) return;
-        b.init(ship.x, ship.y - Ship.RADIUS - 6f, -1250f);
+        switch (ship.weapon) {
+            case SPREAD: {
+                for (int i = -1; i <= 1; i++) {
+                    Bullet b = freeBullet();
+                    if (b == null) return;
+                    float ang = (float) (-Math.PI / 2 + i * 0.24);
+                    b.init(ship.x, ship.y - Ship.RADIUS - 6f,
+                            (float) Math.cos(ang) * 1150f, (float) Math.sin(ang) * 1150f,
+                            WeaponType.SPREAD.damage, false);
+                }
+                break;
+            }
+            case MISSILE: {
+                for (int i = -1; i <= 1; i += 2) {
+                    Bullet b = freeBullet();
+                    if (b == null) return;
+                    b.init(ship.x + i * 18f, ship.y - Ship.RADIUS - 6f,
+                            i * 220f, -640f, WeaponType.MISSILE.damage, true);
+                }
+                break;
+            }
+            default: {
+                Bullet b = freeBullet();
+                if (b == null) return;
+                b.init(ship.x, ship.y - Ship.RADIUS - 6f, -1250f);
+            }
+        }
+    }
+
+    /** Homing missiles curve toward the closest enemy. */
+    private void steerMissile(Bullet b) {
+        Enemy target = null;
+        float best = Float.MAX_VALUE;
+        for (Enemy e : enemies) {
+            if (!e.active) continue;
+            float dx = e.x - b.x, dy = e.y - b.y;
+            float d = dx * dx + dy * dy;
+            if (d < best) { best = d; target = e; }
+        }
+        if (target == null) return;
+        float desired = (float) Math.atan2(target.y - b.y, target.x - b.x);
+        float cur = (float) Math.atan2(b.vy, b.vx);
+        float diff = desired - cur;
+        while (diff > Math.PI) diff -= 2f * Math.PI;
+        while (diff < -Math.PI) diff += 2f * Math.PI;
+        float turn = 6.5f * (1f / 60f); // frame-normalized steering
+        cur += Math.max(-turn, Math.min(turn, diff));
+        b.vx = (float) Math.cos(cur) * b.speed;
+        b.vy = (float) Math.sin(cur) * b.speed;
     }
 
     private void resolveCollisions() {
@@ -257,7 +317,7 @@ public class GameWorld {
                 float rr = b.radius + e.type.radius;
                 if (dx * dx + dy * dy <= rr * rr) {
                     b.active = false;
-                    e.damage(1);
+                    e.damage(b.damage);
                     spark(b.x, b.y, 3, 0);
                     if (e.hp <= 0) killEnemy(e);
                     break;
@@ -290,6 +350,58 @@ public class GameWorld {
                 }
             }
         }
+        // powerups vs ship
+        for (PowerUp p : powerups) {
+            if (!p.active) continue;
+            float dx = ship.x - p.x, dy = ship.y - p.y;
+            float rr = Ship.RADIUS + 26f;
+            if (dx * dx + dy * dy <= rr * rr) {
+                p.active = false;
+                collect(p);
+            }
+        }
+    }
+
+    private void collect(PowerUp p) {
+        switch (p.kind) {
+            case SPREAD:
+                ship.weapon = WeaponType.SPREAD;
+                ship.weaponTimer = Ship.WEAPON_DURATION;
+                break;
+            case MISSILE:
+                ship.weapon = WeaponType.MISSILE;
+                ship.weaponTimer = Ship.WEAPON_DURATION;
+                break;
+            case SHIELD:
+                ship.hasShield = true;
+                break;
+            case BOMB:
+                if (ship.bombs < Ship.MAX_BOMBS) ship.bombs++;
+                else score += 50; // overflow converts to salvage points
+                break;
+        }
+        events.add(new GameEvent(EventType.POWERUP_COLLECTED, p.x, p.y));
+    }
+
+    /** Second-finger tap: clears bullets, damages everything, huge shake. */
+    public void detonateBomb() {
+        if (state != State.PLAYING || ship.bombs <= 0) return;
+        ship.bombs--;
+        bombFlash = 1f;
+        for (EnemyBullet b : enemyBullets) {
+            if (b.active) {
+                b.active = false;
+                spark(b.x, b.y, 2, 0);
+            }
+        }
+        for (Enemy e : enemies) {
+            if (!e.active) continue;
+            e.damage(3);
+            e.flash = 0.2f;
+            if (e.hp <= 0) killEnemy(e);
+        }
+        addShake(0.55f, 24f);
+        events.add(new GameEvent(EventType.BOMB, ship.x, ship.y));
     }
 
     /** Multiplier earned by chaining kills: +1 every 5 chained kills, capped at x5. */
@@ -306,10 +418,42 @@ public class GameWorld {
         explode(e.x, e.y, e.type.colorHint);
         addShake(e.type == EnemyType.TANK ? 0.22f : 0.05f,
                  e.type == EnemyType.TANK ? 9f : 2.5f);
+        maybeDropPowerUp(e);
         events.add(new GameEvent(EventType.ENEMY_KILLED, e.x, e.y));
     }
 
+    /** Tanks drop often, drones rarely. Weights favour weapons early. */
+    private void maybeDropPowerUp(Enemy e) {
+        float chance = e.type == EnemyType.TANK ? 0.45f
+                : e.type == EnemyType.HUNTER ? 0.12f : 0.05f;
+        if (RNG.get().nextFloat() >= chance) return;
+        float roll = RNG.get().nextFloat();
+        PowerUp.Kind kind;
+        if (roll < 0.32f) kind = PowerUp.Kind.SPREAD;
+        else if (roll < 0.60f) kind = PowerUp.Kind.MISSILE;
+        else if (roll < 0.82f) kind = PowerUp.Kind.SHIELD;
+        else kind = PowerUp.Kind.BOMB;
+        spawnPowerUp(kind, e.x, e.y);
+    }
+
+    /** Public for tests; spawns a pickup at the given spot. */
+    public void spawnPowerUp(PowerUp.Kind kind, float x, float y) {
+        for (PowerUp p : powerups) {
+            if (!p.active) {
+                p.init(kind, x, y);
+                return;
+            }
+        }
+    }
+
     private void onPlayerHit() {
+        if (ship.hasShield) { // bubble eats the hit
+            ship.hasShield = false;
+            ship.makeInvulnerable();
+            addShake(0.25f, 10f);
+            events.add(new GameEvent(EventType.POWERUP_COLLECTED, ship.x, ship.y));
+            return;
+        }
         comboKills = 0;
         comboTimer = 0f;
         addShake(0.4f, 16f);
@@ -344,6 +488,7 @@ public class GameWorld {
         comboTimer = 0f;
         shakeTime = 0f;
         shakeMag = 0f;
+        bombFlash = 0f;
         formationTimer = 8f;
         spawnTimer = 0f;
         state = State.PLAYING;
@@ -351,6 +496,7 @@ public class GameWorld {
         for (Bullet b : bullets) b.active = false;
         for (EnemyBullet b : enemyBullets) b.active = false;
         for (Enemy e : enemies) e.active = false;
+        for (PowerUp p : powerups) p.active = false;
         for (Particle p : particles) p.active = false;
     }
 

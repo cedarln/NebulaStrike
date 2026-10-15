@@ -27,9 +27,20 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
         renderer = new Renderer();
     }
 
+    private long lastBombAt;
+
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         final int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_POINTER_DOWN) {
+            // second finger = smart bomb (with a small debounce)
+            long now = System.nanoTime();
+            if (now - lastBombAt > 400_000_000L) {
+                lastBombAt = now;
+                world.detonateBomb();
+            }
+            return true;
+        }
         if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
             float[] v = renderer.toVirtual(event.getX(), event.getY());
             world.moveShipTo(v[0], v[1]);

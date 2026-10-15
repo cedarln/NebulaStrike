@@ -16,6 +16,14 @@ public class Ship {
     public boolean invulnerable;
     private float invulnTimer;
 
+    // loadout state
+    public WeaponType weapon = WeaponType.VULCAN;
+    public float weaponTimer;      // >0 while a powerup weapon is active
+    public static final float WEAPON_DURATION = 12f;
+    public boolean hasShield;
+    public int bombs = 1;
+    public static final int MAX_BOMBS = 3;
+
     public void reset(float x, float y) {
         this.x = x;
         this.y = y;
@@ -24,6 +32,10 @@ public class Ship {
         cooldown = 0f;
         invulnerable = false;
         invulnTimer = 0f;
+        weapon = WeaponType.VULCAN;
+        weaponTimer = 0f;
+        hasShield = false;
+        bombs = 1;
     }
 
     /** Called on touch drag: sets the desired position (virtual coords). */
@@ -40,13 +52,17 @@ public class Ship {
         boolean fired = false;
         cooldown -= dt;
         if (cooldown <= 0f) {
-            cooldown = FIRE_COOLDOWN;
+            cooldown = weapon.cooldown;
             fired = true;
         }
         moveToward(targetX, targetY, dt, worldW, worldH);
         if (invulnerable) {
             invulnTimer -= dt;
             if (invulnTimer <= 0f) invulnerable = false;
+        }
+        if (weaponTimer > 0f) {
+            weaponTimer -= dt;
+            if (weaponTimer <= 0f) weapon = WeaponType.VULCAN;
         }
         return fired;
     }

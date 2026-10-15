@@ -11,6 +11,7 @@ import com.nebulastrike.game.core.Bullet;
 import com.nebulastrike.game.core.Enemy;
 import com.nebulastrike.game.core.GameWorld;
 import com.nebulastrike.game.core.Particle;
+import com.nebulastrike.game.core.PowerUp;
 import com.nebulastrike.game.core.Ship;
 import com.nebulastrike.game.core.Star;
 
@@ -64,12 +65,20 @@ public class Renderer {
         drawBackground(c, w);
         drawStars(c, w);
         drawParticles(c, w);
+        drawPowerUps(c, w);
         drawEnemyBullets(c, w);
         drawEnemies(c, w);
         drawBullets(c, w);
         drawShip(c, w);
 
         c.restore(); // shake
+
+        // bomb white flash
+        if (w.bombFlash > 0f) {
+            paint.setShader(null);
+            paint.setColor(((int) (160 * w.bombFlash)) << 24);
+            c.drawRect(0, 0, VW, VH, paint);
+        }
 
         drawHud(c, w);
         c.restore();
@@ -116,10 +125,51 @@ public class Renderer {
         paint.setStyle(Paint.Style.FILL);
         for (Bullet b : w.bullets) {
             if (!b.active) continue;
-            paint.setColor(0xFF7DF9FF);
-            c.drawCircle(b.x, b.y, b.radius, paint);
-            paint.setColor(0x66FFFFFF);
-            c.drawCircle(b.x, b.y, b.radius * 0.45f, paint);
+            if (b.homing) {
+                // missile: small rocket with exhaust
+                paint.setColor(0xFFFFD166);
+                float ang = (float) Math.atan2(b.vy, b.vx);
+                c.save();
+                c.translate(b.x, b.y);
+                c.rotate((float) Math.toDegrees(ang) + 90f);
+                android.graphics.Path p = new android.graphics.Path();
+                p.moveTo(0, -14f);
+                p.lineTo(7f, 10f);
+                p.lineTo(-7f, 10f);
+                p.close();
+                c.drawPath(p, paint);
+                paint.setColor(0x887DF9FF);
+                c.drawCircle(0, 14f, 5f, paint);
+                c.restore();
+            } else {
+                paint.setColor(0xFF7DF9FF);
+                c.drawCircle(b.x, b.y, b.radius, paint);
+                paint.setColor(0x66FFFFFF);
+                c.drawCircle(b.x, b.y, b.radius * 0.45f, paint);
+            }
+        }
+    }
+
+    private void drawPowerUps(Canvas c, GameWorld w) {
+        for (PowerUp p : w.powerups) {
+            if (!p.active) continue;
+            float pulse = 1f + 0.12f * (float) Math.sin(p.age * 6f);
+            int color;
+            String label;
+            switch (p.kind) {
+                case SPREAD: color = 0xFF7DF9FF; label = "W"; break;
+                case MISSILE: color = 0xFFFFD166; label = "M"; break;
+                case SHIELD: color = 0xFF7CFF6B; label = "S"; break;
+                default: color = 0xFFFF5C7A; label = "B"; break;
+            }
+            glow.setColor(((color & 0xFFFFFF) | 0x33000000));
+            c.drawCircle(p.x, p.y, 30f * pulse, glow);
+            hexagon(c, p.x, p.y, 22f * pulse, color);
+            paint.setColor(0xFF0A0C18);
+            paint.setTextSize(24f);
+            paint.setTextAlign(Paint.Align.CENTER);
+            c.drawText(label, p.x, p.y + 9f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
         }
     }
 
@@ -194,6 +244,17 @@ public class Renderer {
         triangleAbs(c, 0, flicker, 8f, false);
         c.restore();
 
+        // shield bubble
+        if (s.hasShield) {
+            glow.setColor(0x447CFF6B);
+            c.drawCircle(s.x, s.y, Ship.RADIUS * 2.1f, glow);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(3f);
+            paint.setColor(0xFF7CFF6B);
+            c.drawCircle(s.x, s.y, Ship.RADIUS * 2.1f, paint);
+            paint.setStyle(Paint.Style.FILL);
+        }
+
         // hull: swept-wing fighter
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(0xFFE8F1FF);
@@ -225,6 +286,24 @@ public class Renderer {
             paint.setTextAlign(Paint.Align.LEFT);
         }
 
+        // weapon status + timer bar
+        if (w.ship.weapon != com.nebulastrike.game.core.WeaponType.VULCAN) {
+            String name = w.ship.weapon == com.nebulastrike.game.core.WeaponType.SPREAD ? "SPREAD" : "MISSILES";
+            paint.setColor(0xFFFFD166);
+            paint.setTextSize(26f);
+            c.drawText(name, 40f, 112f, paint);
+            float frac = w.ship.weaponTimer / Ship.WEAPON_DURATION;
+            paint.setColor(0x33FFD166);
+            c.drawRect(40f, 124f, 40f + 180f, 132f, paint);
+            paint.setColor(0xFFFFD166);
+            c.drawRect(40f, 124f, 40f + 180f * frac, 132f, paint);
+        }
+        if (w.ship.hasShield) {
+            paint.setColor(0xFF7CFF6B);
+            paint.setTextSize(26f);
+            c.drawText("SHIELD", 40f, 166f, paint);
+        }
+
         // lives as mini ships
         c.save();
         for (int i = 0; i < w.lives; i++) {
@@ -235,6 +314,19 @@ public class Renderer {
             c.restore();
         }
         c.restore();
+
+        // bombs bottom-left
+        for (int i = 0; i < w.ship.bombs; i++) {
+            paint.setColor(0xFFFF5C7A);
+            c.drawCircle(56f + i * 52f, VH - 52f, 16f, paint);
+            paint.setColor(0xFFFFE08A);
+            c.drawCircle(56f + i * 52f, VH - 52f, 7f, paint);
+        }
+        if (w.ship.bombs > 0) {
+            paint.setColor(0xFF8FA3C8);
+            paint.setTextSize(22f);
+            c.drawText("2ND FINGER = BOMB", 40f, VH - 96f, paint);
+        }
 
         if (w.state == GameWorld.State.GAME_OVER) {
             paint.setColor(0x99000000);
