@@ -10,6 +10,7 @@ import android.graphics.Shader;
 import com.nebulastrike.game.core.Boss;
 import com.nebulastrike.game.core.Bullet;
 import com.nebulastrike.game.core.Enemy;
+import com.nebulastrike.game.core.GameMode;
 import com.nebulastrike.game.core.GameWorld;
 import com.nebulastrike.game.core.Particle;
 import com.nebulastrike.game.core.PowerUp;
@@ -364,8 +365,8 @@ public class Renderer {
         c.drawText(String.valueOf(w.score), 40f, 70f, paint);
 
         paint.setTextSize(30f);
-        paint.setColor(0xFF8FA3C8);
-        c.drawText("WAVE " + w.wave, VW / 2f - 70f, 60f, paint);
+        paint.setColor(w.mode == GameMode.ENDLESS ? 0xFFB08FFF : 0xFF8FA3C8);
+        c.drawText((w.mode == GameMode.ENDLESS ? "ENDLESS " : "WAVE ") + w.wave, VW / 2f - 70f, 60f, paint);
 
         // combo counter
         if (w.comboKills > 1) {
@@ -444,14 +445,15 @@ public class Renderer {
         paint.setTextSize(30f);
         c.drawText("DRAG TO FLY  •  AUTO FIRE  •  2ND FINGER = BOMB", VW / 2f, 430f, paint);
 
-        button(c, Ui.START, "LAUNCH", 0xFF274BFF, 0xFFE8F1FF, true);
+        button(c, Ui.START, "CAMPAIGN", 0xFF274BFF, 0xFFE8F1FF, true);
+        button(c, Ui.START_ENDLESS, "ENDLESS", 0xFF8A2BE2, 0xFFFFD166, true);
         button(c, Ui.SETTINGS, "SETTINGS", 0xFF182040, 0xFF8FA3C8, false);
 
         paint.setTextSize(28f);
         paint.setColor(0xFFFFD166);
-        c.drawText("BEST  " + w.bestScore, VW / 2f, 710f, paint);
+        c.drawText("BEST  " + w.bestScore, VW / 2f, 780f, paint);
 
-        drawLeaderboard(c, w, 1160f, 430f, 330f, 44f, 26f, -1);
+        drawDualBoard(c, w, 1160f, 430f, 330f, 44f, 22f);
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
@@ -516,7 +518,7 @@ public class Renderer {
             c.drawText("BEST  " + w.bestScore, VW / 2f, 475f, paint);
         }
 
-        drawLeaderboard(c, w, VW / 2f - 160f, 515f, 320f, 30f, 22f, w.scoreRank);
+        drawLeaderboard(c, w.board(w.mode), w.mode, VW / 2f - 160f, 515f, 320f, 30f, 22f, w.scoreRank);
 
         paint.setTextSize(40f);
         paint.setColor(0xFF8FA3C8);
@@ -526,8 +528,49 @@ public class Renderer {
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
-    /** Compact top-5 panel shared by the menu and the game-over screen. */
-    private void drawLeaderboard(Canvas c, GameWorld w, float x, float y,
+    /** Menu panel: WAVES and ENDLESS top-5 boards side by side. */
+    private void drawDualBoard(Canvas c, GameWorld w, float x, float y,
+                               float wdt, float rowH, float size) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0x99000011);
+        float h = rowH * 6.8f;
+        c.drawRoundRect(x, y, x + wdt, y + h, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(0x66274BFF);
+        c.drawRoundRect(x, y, x + wdt, y + h, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        paint.setTextSize(size);
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setColor(0xFF7DF9FF);
+        c.drawText("WAVES", x + 15f, y + rowH, paint);
+        paint.setColor(0xFFB08FFF);
+        paint.setTextAlign(Paint.Align.RIGHT);
+        c.drawText("ENDLESS", x + wdt - 15f, y + rowH, paint);
+
+        for (int i = 0; i < 5; i++) {
+            float ry = y + rowH * (i + 2f);
+            drawBoardRow(c, w.leaderboard[i], x + 15f, ry);
+            drawBoardRow(c, w.leaderboardEndless[i], x + wdt - 15f, ry);
+        }
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private void drawBoardRow(Canvas c, int score, float rightEdge, float y) {
+        if (score <= 0) {
+            paint.setColor(0x558FA3C8);
+            paint.setTextAlign(Paint.Align.RIGHT);
+            c.drawText("—", rightEdge, y, paint);
+            return;
+        }
+        paint.setColor(0xFFE8F1FF);
+        paint.setTextAlign(Paint.Align.RIGHT);
+        c.drawText(String.valueOf(score), rightEdge, y, paint);
+    }
+
+    /** Compact one-board panel (game-over screen): the board of the run's mode. */
+    private void drawLeaderboard(Canvas c, int[] board, GameMode mode, float x, float y,
                                  float wdt, float rowH, float size, int highlightRank) {
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(0x99000011);
@@ -541,13 +584,14 @@ public class Renderer {
 
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setTextSize(size * 0.92f);
-        paint.setColor(0xFF7DF9FF);
-        c.drawText("TOP PILOTS", x + 20f, y + rowH, paint);
+        paint.setColor(mode == GameMode.ENDLESS ? 0xFFB08FFF : 0xFF7DF9FF);
+        c.drawText(mode == GameMode.ENDLESS ? "ENDLESS TOP 5" : "CAMPAIGN TOP 5",
+                x + 20f, y + rowH, paint);
 
         paint.setTextSize(size);
         for (int i = 0; i < 5; i++) {
             float ry = y + rowH * (i + 2f);
-            if (w.leaderboard[i] <= 0) {
+            if (board[i] <= 0) {
                 paint.setColor(0x558FA3C8);
                 paint.setTextAlign(Paint.Align.LEFT);
                 c.drawText((i + 1) + ".", x + 20f, ry, paint);
@@ -556,7 +600,7 @@ public class Renderer {
                 paint.setTextAlign(Paint.Align.LEFT);
                 c.drawText((i + 1) + ".", x + 20f, ry, paint);
                 paint.setTextAlign(Paint.Align.RIGHT);
-                c.drawText(String.valueOf(w.leaderboard[i]), x + wdt - 20f, ry, paint);
+                c.drawText(String.valueOf(board[i]), x + wdt - 20f, ry, paint);
             }
         }
         paint.setTextAlign(Paint.Align.LEFT);

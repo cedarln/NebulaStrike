@@ -52,6 +52,8 @@ public class GameWorld {
     public State state = State.PLAYING;
     /** seconds spent in the current non-PLAYING state (UI guards use it) */
     public float stateTimer;
+    /** active play mode; set by restart(mode) when a run launches from the menu */
+    public GameMode mode = GameMode.WAVES;
     public int score;
     public int lives = 3;
     public int kills;
@@ -74,9 +76,10 @@ public class GameWorld {
     // persistence-backed state
     public int bestScore;
     public boolean newBest;
-    /** local top-5 scores, descending; 0 = empty slot */
+    /** local top-5 scores, descending; 0 = empty slot. Two boards: WAVES / ENDLESS */
     public final int[] leaderboard = new int[5];
-    /** 0-based rank of the last finished run, -1 = not on the board */
+    public final int[] leaderboardEndless = new int[5];
+    /** 0-based rank of the last finished run on the board for the active mode; -1 = not on board */
     public int scoreRank = -1;
     public final Settings settings = new Settings();
     public boolean settingsOpen;
@@ -85,7 +88,7 @@ public class GameWorld {
     // boss battle
     public final Boss boss = new Boss();
     public int bossesDefeated;
-    private int nextBossWave = 4;
+    int nextBossWave = 4;
     /** boss dead-flash timer for the renderer */
     public float bossFlash;
 
@@ -199,7 +202,7 @@ public class GameWorld {
         if (!boss.active) {
             // trigger at wave milestones when the screen is calm-ish
             if (wave >= nextBossWave) {
-                nextBossWave += 4;
+                nextBossWave += mode == GameMode.ENDLESS ? 3 : 4;
                 boss.init(bossesDefeated);
                 bossActive = true;
                 events.add(new GameEvent(EventType.BOSS_SPAWNED, boss.x, boss.y));
@@ -340,14 +343,25 @@ public class GameWorld {
      *  0-150s  linear ramp — spawn interval 1.1s -> 0.28s, speed x1.0 -> x1.75
      *  150s+   slow creep — up to ~x2 speed and 0.24s spawns by the 5-minute mark
      * Formation cadence tightens alongside (x1.0 -> x0.8).
+     *
+     * ENDLESS ramps to full pressure in 90s and then creeps without a cap,
+     * but never below a 0.16s spawn floor (roughly 6 spawns/sec).
      */
     private void updateDifficulty() {
-        float t = Math.min(timeAlive / 150f, 1f);
-        float over = Math.min((timeAlive - 150f) / 300f, 1f);
-        if (over < 0f) over = 0f;
-        spawnInterval = (1.1f - 0.82f * t) / (1f + 0.15f * over);
-        enemySpeedScale = 1f + 0.75f * t + 0.25f * over;
-        formationPeriod = 1.15f - 0.35f * t;
+        if (mode == GameMode.ENDLESS) {
+            float t = Math.min(timeAlive / 90f, 1f);
+            float over = Math.max(0f, timeAlive - 90f) / 240f; // uncapped creep
+            spawnInterval = Math.max(0.16f, (1.0f - 0.68f * t) / (1f + 0.35f * over));
+            enemySpeedScale = 1f + 0.85f * t + 0.5f * over;
+            formationPeriod = Math.max(0.55f, 1.1f - 0.45f * t - 0.15f * Math.min(over, 1f));
+        } else {
+            float t = Math.min(timeAlive / 150f, 1f);
+            float over = Math.min((timeAlive - 150f) / 300f, 1f);
+            if (over < 0f) over = 0f;
+            spawnInterval = Math.max(0.16f, (1.1f - 0.82f * t) / (1f + 0.15f * over));
+            enemySpeedScale = 1f + 0.75f * t + 0.25f * over;
+            formationPeriod = 1.15f - 0.35f * t;
+        }
     }
 
     float spawnInterval = 1.1f;
@@ -366,8 +380,10 @@ public class GameWorld {
         if (spawnTimer <= 0f) {
             spawnTimer = spawnInterval;
             spawnEnemy();
-            // late-game pressure: occasional paired spawns
-            if (timeAlive > 60f && RNG.get().nextFloat() < 0.25f) spawnEnemy();
+            // late-game pressure: occasional paired spawns (sooner and more often in endless)
+            double chance = mode == GameMode.ENDLESS ? 0.40f : 0.25f;
+            float after = mode == GameMode.ENDLESS ? 40f : 60f;
+            if (timeAlive > after && RNG.get().nextFloat() < chance) spawnEnemy();
         }
     }
 
@@ -394,12 +410,13 @@ public class GameWorld {
         e.init(type, x, -type.radius - 10f, enemySpeedScale);
     }
 
-    /** Enemy-type mix drifts heavier as the run goes on. */
+    /** Enemy-type mix drifts heavier as the run goes on (1.6x faster in endless). */
     private EnemyType pickEnemyType() {
+        float t = mode == GameMode.ENDLESS ? timeAlive * 1.6f : timeAlive;
         float r = RNG.get().nextFloat();
-        float wTank = timeAlive > 35f ? Math.min(0.20f, 0.12f + (timeAlive - 35f) / 600f) : 0f;
-        float wHunter = timeAlive > 20f ? Math.min(0.32f, 0.25f + (timeAlive - 20f) / 800f) : 0f;
-        float wWeaver = timeAlive > 10f ? Math.min(0.35f, 0.30f + (timeAlive - 10f) / 1000f) : 0f;
+        float wTank = t > 35f ? Math.min(0.20f, 0.12f + (t - 35f) / 600f) : 0f;
+        float wHunter = t > 20f ? Math.min(0.32f, 0.25f + (t - 20f) / 800f) : 0f;
+        float wWeaver = t > 10f ? Math.min(0.35f, 0.30f + (t - 10f) / 1000f) : 0f;
         if (r < wTank) return EnemyType.TANK;
         if (r < wTank + wHunter) return EnemyType.HUNTER;
         if (r < wTank + wHunter + wWeaver) return EnemyType.WEAVER;
@@ -619,34 +636,42 @@ public class GameWorld {
         }
     }
 
-    /** Wires persistence; loads best score, leaderboard and settings. Call once from the app layer. */
+    /** Wires persistence; loads best score, both leaderboards and settings. Call once from the app layer. */
     public void attachStore(SettingsStore s) {
         this.store = s;
         if (s != null) {
             s.load(settings);
             bestScore = s.bestScore();
-            int[] lb = s.leaderboard();
+            int[] lb = s.leaderboard(GameMode.WAVES);
             for (int i = 0; i < leaderboard.length && i < lb.length; i++) leaderboard[i] = lb[i];
+            int[] elb = s.leaderboard(GameMode.ENDLESS);
+            for (int i = 0; i < leaderboardEndless.length && i < elb.length; i++) leaderboardEndless[i] = elb[i];
         }
     }
 
+    /** @return the board for the given mode. */
+    public int[] board(GameMode m) {
+        return m == GameMode.ENDLESS ? leaderboardEndless : leaderboard;
+    }
+
     /**
-     * Inserts a finished-run score into the local top-5 and persists it.
+     * Inserts a finished-run score into the mode's local top-5 and persists it.
      * @return 0-based rank, or -1 if the score didn't make the board
      */
-    int insertScore(int s) {
+    int insertScore(int s, GameMode m) {
         if (s <= 0) return -1;
+        int[] board = board(m);
         int rank = -1;
-        for (int i = 0; i < leaderboard.length; i++) {
-            if (s > leaderboard[i]) {
+        for (int i = 0; i < board.length; i++) {
+            if (s > board[i]) {
                 rank = i;
                 break;
             }
         }
         if (rank < 0) return -1;
-        for (int i = leaderboard.length - 1; i > rank; i--) leaderboard[i] = leaderboard[i - 1];
-        leaderboard[rank] = s;
-        if (store != null) store.saveLeaderboard(leaderboard);
+        for (int i = board.length - 1; i > rank; i--) board[i] = board[i - 1];
+        board[rank] = s;
+        if (store != null) store.saveLeaderboard(m, board);
         return rank;
     }
 
@@ -655,7 +680,11 @@ public class GameWorld {
         switch (a) {
             case START:
                 settingsOpen = false;
-                restart();
+                restart(GameMode.WAVES);
+                break;
+            case START_ENDLESS:
+                settingsOpen = false;
+                restart(GameMode.ENDLESS);
                 break;
             case OPEN_SETTINGS:
                 settingsOpen = true;
@@ -683,7 +712,7 @@ public class GameWorld {
                 state = State.PLAYING;
                 break;
             case RESTART:
-                restart();
+                restart(mode); // restart keeps the current mode
                 break;
             case QUIT_TO_MENU:
                 settingsOpen = false;
@@ -733,7 +762,7 @@ public class GameWorld {
                 newBest = true;
                 if (store != null) store.saveBestScore(bestScore);
             }
-            scoreRank = insertScore(score);
+            scoreRank = insertScore(score, mode);
             events.add(new GameEvent(EventType.GAME_OVER, ship.x, ship.y));
         } else {
             ship.makeInvulnerable();
@@ -747,7 +776,9 @@ public class GameWorld {
         }
     }
 
-    public void restart() {
+    /** Starts a fresh run in the given mode. */
+    public void restart(GameMode m) {
+        mode = m;
         score = 0;
         lives = 3;
         kills = 0;
@@ -766,8 +797,8 @@ public class GameWorld {
         bossActive = false;
         bossFlash = 0f;
         bossesDefeated = 0;
-        nextBossWave = 4;
-        formationTimer = 8f;
+        nextBossWave = m == GameMode.ENDLESS ? 3 : 4; // endless: bosses come faster
+        formationTimer = m == GameMode.ENDLESS ? 6f : 8f;
         spawnTimer = 0f;
         state = State.PLAYING;
         ship.reset(WIDTH / 2f, HEIGHT - 140f);

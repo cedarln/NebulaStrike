@@ -3,6 +3,7 @@ package com.nebulastrike.game;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import com.nebulastrike.game.core.GameMode;
 import com.nebulastrike.game.core.Settings;
 import com.nebulastrike.game.core.SettingsStore;
 
@@ -34,16 +35,18 @@ public class SharedPrefsStore implements SettingsStore {
     }
 
     @Override
-    public int[] leaderboard() {
+    public int[] leaderboard(GameMode mode) {
+        String prefix = mode == GameMode.ENDLESS ? "elb" : "lb";
         int[] out = new int[5];
-        for (int i = 0; i < out.length; i++) out[i] = prefs.getInt("lb" + i, 0);
+        for (int i = 0; i < out.length; i++) out[i] = prefs.getInt(prefix + i, 0);
         return out;
     }
 
     @Override
-    public void saveLeaderboard(int[] scores) {
+    public void saveLeaderboard(GameMode mode, int[] scores) {
+        String prefix = mode == GameMode.ENDLESS ? "elb" : "lb";
         SharedPreferences.Editor e = prefs.edit();
-        for (int i = 0; i < 5 && i < scores.length; i++) e.putInt("lb" + i, scores[i]);
+        for (int i = 0; i < 5 && i < scores.length; i++) e.putInt(prefix + i, scores[i]);
         e.apply();
     }
 

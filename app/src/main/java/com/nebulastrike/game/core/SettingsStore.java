@@ -8,10 +8,10 @@ public interface SettingsStore {
 
     void saveBestScore(int score);
 
-    /** @return the persisted top-5 scores, descending; 0 = empty slot. Never null. */
-    int[] leaderboard();
+    /** @return the persisted top-5 scores for the mode, descending; 0 = empty slot. Never null. */
+    int[] leaderboard(GameMode mode);
 
-    void saveLeaderboard(int[] scores);
+    void saveLeaderboard(GameMode mode, int[] scores);
 
     void save(Settings settings);
 }

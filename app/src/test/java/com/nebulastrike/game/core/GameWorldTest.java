@@ -85,7 +85,7 @@ public class GameWorldTest {
     @Test
     public void restartResetsEverything() {
         hitShip();
-        world.restart();
+        world.restart(GameMode.WAVES);
         assertEquals(GameWorld.State.PLAYING, world.state);
         assertEquals(3, world.lives);
         assertEquals(0, world.score);

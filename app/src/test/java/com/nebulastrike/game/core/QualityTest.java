@@ -45,7 +45,7 @@ public class QualityTest {
     @Test
     public void lowQualityModeEmitsFewerParticles() {
         int high = killOneDroneCountingParticles(1f);
-        world.restart();
+        world.restart(GameMode.WAVES);
         int low = killOneDroneCountingParticles(0.5f);
         assertTrue("low quality should emit fewer particles", low < high);
         assertTrue("explosion burst at low quality should be capped",

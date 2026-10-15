@@ -17,16 +17,20 @@ public class UiStateTest {
     static class FakeStore implements SettingsStore {
         final Settings saved = new Settings();
         final int[] lb = new int[5];
+        final int[] elb = new int[5];
         int best;
-        int bestWrites, settingsWrites, lbWrites;
+        int bestWrites, settingsWrites, lbWrites, elbWrites;
 
         @Override public void load(Settings into) { into.sound = saved.sound; into.particles = saved.particles; into.haptics = saved.haptics; }
         @Override public int bestScore() { return best; }
         @Override public void saveBestScore(int score) { best = score; bestWrites++; }
-        @Override public int[] leaderboard() { return lb.clone(); }
-        @Override public void saveLeaderboard(int[] scores) {
-            System.arraycopy(scores, 0, lb, 0, Math.min(scores.length, lb.length));
-            lbWrites++;
+        @Override public int[] leaderboard(GameMode mode) {
+            return (mode == GameMode.ENDLESS ? elb : lb).clone();
+        }
+        @Override public void saveLeaderboard(GameMode mode, int[] scores) {
+            int[] target = mode == GameMode.ENDLESS ? elb : lb;
+            System.arraycopy(scores, 0, target, 0, Math.min(scores.length, target.length));
+            if (mode == GameMode.ENDLESS) elbWrites++; else lbWrites++;
         }
         @Override public void save(Settings s) {
             saved.sound = s.sound; saved.particles = s.particles; saved.haptics = s.haptics;

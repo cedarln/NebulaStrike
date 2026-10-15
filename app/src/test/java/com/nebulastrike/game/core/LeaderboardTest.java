@@ -19,29 +19,29 @@ public class LeaderboardTest {
 
     @Test
     public void scoresFillBoardInDescendingOrder() {
-        assertEquals(0, world.insertScore(100));
-        assertEquals(0, world.insertScore(300));
-        assertEquals(1, world.insertScore(200));
+        assertEquals(0, world.insertScore(100, GameMode.WAVES));
+        assertEquals(0, world.insertScore(300, GameMode.WAVES));
+        assertEquals(1, world.insertScore(200, GameMode.WAVES));
         assertArrayEquals(new int[]{300, 200, 100, 0, 0}, world.leaderboard);
         assertEquals(3, store.lbWrites);
     }
 
     @Test
     public void boardOverflowShiftsEntriesDown() {
-        world.insertScore(500);
-        world.insertScore(400);
-        world.insertScore(300);
-        world.insertScore(200);
-        world.insertScore(100);
-        assertEquals(-1, world.insertScore(50));   // too small
-        assertEquals(2, world.insertScore(350));   // displaces 300
+        world.insertScore(500, GameMode.WAVES);
+        world.insertScore(400, GameMode.WAVES);
+        world.insertScore(300, GameMode.WAVES);
+        world.insertScore(200, GameMode.WAVES);
+        world.insertScore(100, GameMode.WAVES);
+        assertEquals(-1, world.insertScore(50, GameMode.WAVES));   // too small
+        assertEquals(2, world.insertScore(350, GameMode.WAVES));   // displaces 300
         assertArrayEquals(new int[]{500, 400, 350, 300, 200}, world.leaderboard);
     }
 
     @Test
     public void zeroScoreRunsAreNotRecorded() {
-        assertEquals(-1, world.insertScore(0));
-        assertEquals(-1, world.insertScore(-5));
+        assertEquals(-1, world.insertScore(0, GameMode.WAVES));
+        assertEquals(-1, world.insertScore(-5, GameMode.WAVES));
         assertArrayEquals(new int[]{0, 0, 0, 0, 0}, world.leaderboard);
         assertEquals(0, store.lbWrites);
     }
@@ -65,8 +65,8 @@ public class LeaderboardTest {
 
     @Test
     public void leaderboardSurvivesStoreRoundTrip() {
-        world.insertScore(420);
-        world.insertScore(90);
+        world.insertScore(420, GameMode.WAVES);
+        world.insertScore(90, GameMode.WAVES);
         GameWorld fresh = new GameWorld(7L, true);
         fresh.attachStore(store);
         assertArrayEquals(new int[]{420, 90, 0, 0, 0}, fresh.leaderboard);
@@ -75,9 +75,9 @@ public class LeaderboardTest {
     @Test
     public void restartClearsRankButKeepsBoard() {
         world.handleUiAction(Ui.Action.START);
-        world.scoreRank = world.insertScore(123);
+        world.scoreRank = world.insertScore(123, GameMode.WAVES);
         assertEquals(0, world.scoreRank);
-        world.restart();
+        world.restart(GameMode.WAVES);
         assertEquals(-1, world.scoreRank);
         assertEquals(123, world.leaderboard[0]);
     }
