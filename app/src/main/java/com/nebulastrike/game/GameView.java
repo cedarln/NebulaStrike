@@ -130,6 +130,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                 audio.shoot();
             }
 
+            long renderStart = System.nanoTime();
             SurfaceHolder holder = getHolder();
             Canvas canvas = null;
             try {
@@ -143,12 +144,19 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                 if (canvas != null) holder.unlockCanvasAndPost(canvas);
             }
 
-            // target ~60fps; yields CPU and keeps thermals sane on low-end devices
-            long frameNanos = System.nanoTime() - now;
-            long sleep = 16_000_000L - frameNanos;
-            if (sleep > 0) {
+            // adaptive quality: only gameplay frames feed the governor
+            if (world.state == GameWorld.State.PLAYING) {
+                world.noteFrameCost((System.nanoTime() - renderStart) / 1_000_000_000f);
+            }
+
+            // frame governor: 60fps while playing, low-power 30fps in menus/pause
+            long budget = world.state == GameWorld.State.PLAYING ? 16_666_666L : 33_333_333L;
+            long sleep = budget - (System.nanoTime() - now);
+            if (sleep > 2_000_000L) {
                 try { Thread.sleep(sleep / 1_000_000L, (int) (sleep % 1_000_000L)); }
                 catch (InterruptedException ignored) { Thread.currentThread().interrupt(); return; }
+            } else if (sleep > 0) {
+                Thread.yield(); // sub-2ms waits: sleeping overshoots due to timer granularity
             }
         }
     }

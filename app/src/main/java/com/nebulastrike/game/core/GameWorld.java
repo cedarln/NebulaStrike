@@ -85,6 +85,14 @@ public class GameWorld {
     /** boss dead-flash timer for the renderer */
     public float bossFlash;
 
+    // adaptive quality: frame-cost feedback scales particle emission
+    /** 1 = full juice, 0.5 = reduced emission on slow devices */
+    public float emissionScale = 1f;
+    private float frameCostAvg;
+    private static final float FRAME_BUDGET = 0.017f;   // ~60fps
+    private static final float FRAME_DROP = 0.023f;    // sustained miss -> halve fx
+    private static final float FRAME_RECOVER = 0.015f; // sustained headroom -> restore
+
     private float spawnTimer;
     private float enemySpeedScale = 1f;
     /** when false, no enemies spawn (used by tests and future pause menu) */
@@ -285,15 +293,13 @@ public class GameWorld {
     private void updateShipFx(float dt) {
         fxTimer -= dt;
         if (fxTimer > 0f) return;
-        fxTimer = 0.045f;
+        fxTimer = 0.045f / emissionScale; // halved trail rate in low-quality mode
         Particle p = freeParticle();
-        if (p != null) {
-            p.init(ship.x + (RNG.get().nextFloat() - 0.5f) * 8f,
-                    ship.y + Ship.RADIUS * 0.9f,
-                    (RNG.get().nextFloat() - 0.5f) * 30f,
-                    140f + RNG.get().nextFloat() * 80f,
-                    0.28f, 4.5f, 0);
-        }
+        p.init(ship.x + (RNG.get().nextFloat() - 0.5f) * 8f,
+                ship.y + Ship.RADIUS * 0.9f,
+                (RNG.get().nextFloat() - 0.5f) * 30f,
+                140f + RNG.get().nextFloat() * 80f,
+                0.28f, 4.5f, 0);
     }
 
     private void tryEnemyFire(Enemy e, float dt) {
@@ -722,9 +728,9 @@ public class GameWorld {
     }
 
     private void explode(float x, float y, int color) {
-        for (int i = 0; i < 14; i++) {
+        int n = (int) (14 * emissionScale);
+        for (int i = 0; i < n; i++) {
             Particle p = freeParticle();
-            if (p == null) return;
             float ang = RNG.get().nextFloat() * (float) Math.PI * 2f;
             float spd = 80f + RNG.get().nextFloat() * 320f;
             p.init(x, y, (float) Math.cos(ang) * spd, (float) Math.sin(ang) * spd,
@@ -733,9 +739,9 @@ public class GameWorld {
     }
 
     private void spark(float x, float y, int n, int color) {
+        n = (int) (n * emissionScale);
         for (int i = 0; i < n; i++) {
             Particle p = freeParticle();
-            if (p == null) return;
             float ang = RNG.get().nextFloat() * (float) Math.PI * 2f;
             float spd = 60f + RNG.get().nextFloat() * 160f;
             p.init(x, y, (float) Math.cos(ang) * spd, (float) Math.sin(ang) * spd, 0.22f, 3f, color);
@@ -759,9 +765,44 @@ public class GameWorld {
     }
 
     private Particle freeParticle() {
-        for (Particle p : particles) if (!p.active) return p;
-        return null;
+        // ring cursor: O(1) amortized scan, oldest slots recycled first when full
+        for (int i = 0; i < particles.length; i++) {
+            int idx = (particleCursor + i) % particles.length;
+            Particle p = particles[idx];
+            if (!p.active) {
+                particleCursor = (idx + 1) % particles.length;
+                return p;
+            }
+        }
+        Particle p = particles[particleCursor];
+        particleCursor = (particleCursor + 1) % particles.length;
+        return p;
     }
+
+    private int particleCursor;
+
+    /** Live particle count; used by tests and the adaptive-quality governor. */
+    public int activeParticles() {
+        int n = 0;
+        for (Particle p : particles) if (p.active) n++;
+        return n;
+    }
+
+    /**
+     * Feeds the measured update+render cost of one frame into the adaptive
+     * quality governor. Sustained over-budget frames halve particle emission;
+     * sustained headroom restores full juice. Hysteresis on the moving
+     * average prevents flapping between the two modes.
+     */
+    public void noteFrameCost(float seconds) {
+        if (seconds <= 0f || seconds > 0.5f) return; // ignore outliers (GC, background)
+        frameCostAvg = frameCostAvg == 0f ? seconds : frameCostAvg * 0.93f + seconds * 0.07f;
+        if (++frameSamples < 30) return; // warm-up: don't judge on a handful of frames
+        if (frameCostAvg > FRAME_DROP) emissionScale = 0.5f;
+        else if (frameCostAvg < FRAME_RECOVER) emissionScale = 1f;
+    }
+
+    private int frameSamples;
 
     /** Drains accumulated events so the presentation layer can react (sfx/haptics). */
     public List<GameEvent> pollEvents() {
