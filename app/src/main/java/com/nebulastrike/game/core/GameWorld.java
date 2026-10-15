@@ -74,6 +74,10 @@ public class GameWorld {
     // persistence-backed state
     public int bestScore;
     public boolean newBest;
+    /** local top-5 scores, descending; 0 = empty slot */
+    public final int[] leaderboard = new int[5];
+    /** 0-based rank of the last finished run, -1 = not on the board */
+    public int scoreRank = -1;
     public final Settings settings = new Settings();
     public boolean settingsOpen;
     private SettingsStore store;
@@ -94,7 +98,6 @@ public class GameWorld {
     private static final float FRAME_RECOVER = 0.015f; // sustained headroom -> restore
 
     private float spawnTimer;
-    private float enemySpeedScale = 1f;
     /** when false, no enemies spawn (used by tests and future pause menu) */
     public boolean spawningEnabled = true;
     private float formationTimer = 8f;
@@ -227,6 +230,9 @@ public class GameWorld {
             explode(boss.x + 60f, boss.y - 20f, 0);
             addShake(0.8f, 26f);
             bossFlash = 1f;
+            // breathing room before regular spawns resume
+            spawnTimer = 2.5f;
+            formationTimer = Math.max(formationTimer, 5f);
             // reward: guaranteed pickups
             spawnPowerUp(PowerUp.Kind.SHIELD, boss.x - 50f, boss.y);
             spawnPowerUp(PowerUp.Kind.BOMB, boss.x + 50f, boss.y);
@@ -329,14 +335,24 @@ public class GameWorld {
         }
     }
 
+    /**
+     * Difficulty ramp, tuned in three bands:
+     *  0-150s  linear ramp — spawn interval 1.1s -> 0.28s, speed x1.0 -> x1.75
+     *  150s+   slow creep — up to ~x2 speed and 0.24s spawns by the 5-minute mark
+     * Formation cadence tightens alongside (x1.0 -> x0.8).
+     */
     private void updateDifficulty() {
-        // Over 2 minutes spawn interval shrinks and enemies accelerate up to +60%.
-        float t = Math.min(timeAlive / 120f, 1f);
-        spawnInterval = 1.1f - 0.75f * t;
-        enemySpeedScale = 1f + 0.6f * t;
+        float t = Math.min(timeAlive / 150f, 1f);
+        float over = Math.min((timeAlive - 150f) / 300f, 1f);
+        if (over < 0f) over = 0f;
+        spawnInterval = (1.1f - 0.82f * t) / (1f + 0.15f * over);
+        enemySpeedScale = 1f + 0.75f * t + 0.25f * over;
+        formationPeriod = 1.15f - 0.35f * t;
     }
 
-    private float spawnInterval = 1.1f;
+    float spawnInterval = 1.1f;
+    float enemySpeedScale = 1f;
+    private float formationPeriod = 1f;
 
     private void updateSpawning(float dt) {
         if (!spawningEnabled) return;
@@ -344,12 +360,14 @@ public class GameWorld {
         spawnTimer -= dt;
         formationTimer -= dt;
         if (formationTimer <= 0f) {
-            formationTimer = 11f + RNG.get().nextFloat() * 4f;
+            formationTimer = (11f + RNG.get().nextFloat() * 4f) * formationPeriod;
             spawnFormation();
         }
         if (spawnTimer <= 0f) {
             spawnTimer = spawnInterval;
             spawnEnemy();
+            // late-game pressure: occasional paired spawns
+            if (timeAlive > 60f && RNG.get().nextFloat() < 0.25f) spawnEnemy();
         }
     }
 
@@ -376,10 +394,15 @@ public class GameWorld {
         e.init(type, x, -type.radius - 10f, enemySpeedScale);
     }
 
+    /** Enemy-type mix drifts heavier as the run goes on. */
     private EnemyType pickEnemyType() {
-        if (timeAlive > 35f && RNG.get().nextFloat() < 0.12f) return EnemyType.TANK;
-        if (timeAlive > 20f && RNG.get().nextFloat() < 0.25f) return EnemyType.HUNTER;
-        if (timeAlive > 10f && RNG.get().nextFloat() < 0.30f) return EnemyType.WEAVER;
+        float r = RNG.get().nextFloat();
+        float wTank = timeAlive > 35f ? Math.min(0.20f, 0.12f + (timeAlive - 35f) / 600f) : 0f;
+        float wHunter = timeAlive > 20f ? Math.min(0.32f, 0.25f + (timeAlive - 20f) / 800f) : 0f;
+        float wWeaver = timeAlive > 10f ? Math.min(0.35f, 0.30f + (timeAlive - 10f) / 1000f) : 0f;
+        if (r < wTank) return EnemyType.TANK;
+        if (r < wTank + wHunter) return EnemyType.HUNTER;
+        if (r < wTank + wHunter + wWeaver) return EnemyType.WEAVER;
         return EnemyType.DRONE;
     }
 
@@ -596,13 +619,35 @@ public class GameWorld {
         }
     }
 
-    /** Wires persistence; loads best score and settings. Call once from the app layer. */
+    /** Wires persistence; loads best score, leaderboard and settings. Call once from the app layer. */
     public void attachStore(SettingsStore s) {
         this.store = s;
         if (s != null) {
             s.load(settings);
             bestScore = s.bestScore();
+            int[] lb = s.leaderboard();
+            for (int i = 0; i < leaderboard.length && i < lb.length; i++) leaderboard[i] = lb[i];
         }
+    }
+
+    /**
+     * Inserts a finished-run score into the local top-5 and persists it.
+     * @return 0-based rank, or -1 if the score didn't make the board
+     */
+    int insertScore(int s) {
+        if (s <= 0) return -1;
+        int rank = -1;
+        for (int i = 0; i < leaderboard.length; i++) {
+            if (s > leaderboard[i]) {
+                rank = i;
+                break;
+            }
+        }
+        if (rank < 0) return -1;
+        for (int i = leaderboard.length - 1; i > rank; i--) leaderboard[i] = leaderboard[i - 1];
+        leaderboard[rank] = s;
+        if (store != null) store.saveLeaderboard(leaderboard);
+        return rank;
     }
 
     /** Handles a UI tap action produced by {@link Ui#hit}. */
@@ -684,6 +729,7 @@ public class GameWorld {
                 newBest = true;
                 if (store != null) store.saveBestScore(bestScore);
             }
+            scoreRank = insertScore(score);
             events.add(new GameEvent(EventType.GAME_OVER, ship.x, ship.y));
         } else {
             ship.makeInvulnerable();
@@ -706,6 +752,7 @@ public class GameWorld {
         stateTimer = 0f;
         wave = 1;
         newBest = false;
+        scoreRank = -1;
         comboKills = 0;
         comboTimer = 0f;
         shakeTime = 0f;

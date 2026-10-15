@@ -16,12 +16,18 @@ public class UiStateTest {
     /** In-memory stand-in for SharedPreferences. */
     static class FakeStore implements SettingsStore {
         final Settings saved = new Settings();
+        final int[] lb = new int[5];
         int best;
-        int bestWrites, settingsWrites;
+        int bestWrites, settingsWrites, lbWrites;
 
         @Override public void load(Settings into) { into.sound = saved.sound; into.particles = saved.particles; into.haptics = saved.haptics; }
         @Override public int bestScore() { return best; }
         @Override public void saveBestScore(int score) { best = score; bestWrites++; }
+        @Override public int[] leaderboard() { return lb.clone(); }
+        @Override public void saveLeaderboard(int[] scores) {
+            System.arraycopy(scores, 0, lb, 0, Math.min(scores.length, lb.length));
+            lbWrites++;
+        }
         @Override public void save(Settings s) {
             saved.sound = s.sound; saved.particles = s.particles; saved.haptics = s.haptics;
             settingsWrites++;

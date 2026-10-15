@@ -33,6 +33,20 @@ public class SharedPrefsStore implements SettingsStore {
     }
 
     @Override
+    public int[] leaderboard() {
+        int[] out = new int[5];
+        for (int i = 0; i < out.length; i++) out[i] = prefs.getInt("lb" + i, 0);
+        return out;
+    }
+
+    @Override
+    public void saveLeaderboard(int[] scores) {
+        SharedPreferences.Editor e = prefs.edit();
+        for (int i = 0; i < 5 && i < scores.length; i++) e.putInt("lb" + i, scores[i]);
+        e.apply();
+    }
+
+    @Override
     public void save(Settings s) {
         prefs.edit()
                 .putBoolean("sound", s.sound)

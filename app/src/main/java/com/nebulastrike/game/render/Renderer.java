@@ -440,6 +440,8 @@ public class Renderer {
         paint.setTextSize(28f);
         paint.setColor(0xFFFFD166);
         c.drawText("BEST  " + w.bestScore, VW / 2f, 710f, paint);
+
+        drawLeaderboard(c, w, 1160f, 430f, 330f, 44f, 26f, -1);
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
@@ -503,11 +505,49 @@ public class Renderer {
             c.drawText("BEST  " + w.bestScore, VW / 2f, 475f, paint);
         }
 
+        drawLeaderboard(c, w, VW / 2f - 160f, 515f, 320f, 30f, 22f, w.scoreRank);
+
         paint.setTextSize(40f);
         paint.setColor(0xFF8FA3C8);
         float alpha = 0.4f + 0.6f * Math.abs((float) Math.sin(w.stateTimer * 2.2f));
         paint.setColor(((int) (255 * alpha) << 24) | 0x8FA3C8);
-        c.drawText("Tap to fly again", VW / 2f, 560f, paint);
+        c.drawText("Tap to fly again", VW / 2f, 790f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /** Compact top-5 panel shared by the menu and the game-over screen. */
+    private void drawLeaderboard(Canvas c, GameWorld w, float x, float y,
+                                 float wdt, float rowH, float size, int highlightRank) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0x99000011);
+        float h = rowH * 6.8f;
+        c.drawRoundRect(x, y, x + wdt, y + h, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(0x66274BFF);
+        c.drawRoundRect(x, y, x + wdt, y + h, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setTextSize(size * 0.92f);
+        paint.setColor(0xFF7DF9FF);
+        c.drawText("TOP PILOTS", x + 20f, y + rowH, paint);
+
+        paint.setTextSize(size);
+        for (int i = 0; i < 5; i++) {
+            float ry = y + rowH * (i + 2f);
+            if (w.leaderboard[i] <= 0) {
+                paint.setColor(0x558FA3C8);
+                paint.setTextAlign(Paint.Align.LEFT);
+                c.drawText((i + 1) + ".", x + 20f, ry, paint);
+            } else {
+                paint.setColor(i == highlightRank ? 0xFFFFD166 : 0xFFE8F1FF);
+                paint.setTextAlign(Paint.Align.LEFT);
+                c.drawText((i + 1) + ".", x + 20f, ry, paint);
+                paint.setTextAlign(Paint.Align.RIGHT);
+                c.drawText(String.valueOf(w.leaderboard[i]), x + wdt - 20f, ry, paint);
+            }
+        }
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
