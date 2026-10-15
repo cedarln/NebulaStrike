@@ -11,6 +11,17 @@ public class EnemyBullet {
         this.y = y;
         this.vx = vx;
         this.vy = vy;
+        this.radius = 10f;
+        this.active = true;
+    }
+
+    /** Custom-radius variant (boss shells are bigger). */
+    public void initRadius(float x, float y, float vx, float vy, float radius) {
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.radius = radius;
         this.active = true;
     }
 

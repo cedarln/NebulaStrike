@@ -7,6 +7,7 @@ import android.graphics.Paint;
 import android.graphics.RadialGradient;
 import android.graphics.Shader;
 
+import com.nebulastrike.game.core.Boss;
 import com.nebulastrike.game.core.Bullet;
 import com.nebulastrike.game.core.Enemy;
 import com.nebulastrike.game.core.GameWorld;
@@ -69,6 +70,7 @@ public class Renderer {
         drawPowerUps(c, w);
         drawEnemyBullets(c, w);
         drawEnemies(c, w);
+        if (w.boss.active) drawBoss(c, w);
         drawBullets(c, w);
         drawShip(c, w);
 
@@ -224,6 +226,65 @@ public class Renderer {
                     break;
             }
         }
+    }
+
+    private void drawBoss(Canvas c, GameWorld w) {
+        Boss b = w.boss;
+        boolean flashing = b.flash > 0f;
+        int hullColor = flashing ? 0xFFFFFFFF
+                : b.phase == 3 ? 0xFFFF5C7A : b.phase == 2 ? 0xFFFFB84D : 0xFFB44DFF;
+
+        // engine glow under the hull
+        glow.setColor(0x55B44DFF);
+        c.drawCircle(b.x, b.y + Boss.RADIUS * 0.8f, 60f, glow);
+
+        // rotating outer ring
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(7f);
+        paint.setColor(0x88B44DFF);
+        float ringR = Boss.RADIUS * 1.25f;
+        c.save();
+        c.translate(b.x, b.y);
+        c.rotate(b.age * 18f);
+        for (int i = 0; i < 6; i++) {
+            double a = Math.PI / 3.0 * i;
+            float px = (float) Math.cos(a) * ringR;
+            float py = (float) Math.sin(a) * ringR;
+            c.drawCircle(px, py, 9f, paint);
+        }
+        c.restore();
+
+        // hull: layered hexagons
+        paint.setStyle(Paint.Style.FILL);
+        hexagon(c, b.x, b.y, Boss.RADIUS, 0xFF2A2350);
+        hexagon(c, b.x, b.y, Boss.RADIUS * 0.82f, hullColor);
+        paint.setColor(0xFF0A0C18);
+        c.drawCircle(b.x, b.y, Boss.RADIUS * 0.42f, paint);
+        paint.setColor(hullColor);
+        c.drawCircle(b.x, b.y, Boss.RADIUS * 0.28f * (1f + 0.15f * (float) Math.sin(b.age * 5f)), paint);
+
+        // side pods
+        paint.setColor(0xFF2A2350);
+        c.drawCircle(b.x - Boss.RADIUS * 0.95f, b.y, 26f, paint);
+        c.drawCircle(b.x + Boss.RADIUS * 0.95f, b.y, 26f, paint);
+
+        // top health bar
+        float barW = 720f, barH = 22f;
+        float bx = VW / 2f - barW / 2f, by = 30f;
+        paint.setColor(0x66000000);
+        c.drawRect(bx - 4f, by - 4f, bx + barW + 4f, by + barH + 4f, paint);
+        paint.setColor(0xFF3A1040);
+        c.drawRect(bx, by, bx + barW, by + barH, paint);
+        float frac = Math.max(0f, b.hp / b.maxHp);
+        paint.setColor(b.phase == 3 ? 0xFFFF5C7A : b.phase == 2 ? 0xFFFFB84D : 0xFFB44DFF);
+        c.drawRect(bx, by, bx + barW * frac, by + barH, paint);
+        paint.setColor(0xFFE8F1FF);
+        paint.setTextSize(24f);
+        paint.setTextAlign(Paint.Align.CENTER);
+        c.drawText("DREADNOUGHT MK-" + (b.level + 1) + "   PHASE " + b.phase + "/3",
+                VW / 2f, by + 52f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setStyle(Paint.Style.FILL);
     }
 
     private void drawShip(Canvas c, GameWorld w) {

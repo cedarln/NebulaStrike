@@ -18,7 +18,7 @@ public class GameWorld {
     /** Game events consumed by the presentation layer (sfx, haptics, fx). */
     public enum EventType {
         ENEMY_KILLED, PLAYER_HIT, GAME_OVER, ENEMY_ESCAPED, FORMATION,
-        POWERUP_COLLECTED, BOMB
+        POWERUP_COLLECTED, BOMB, BOSS_SPAWNED, BOSS_DEFEATED, BOSS_PHASE
     }
     public static final class GameEvent {
         public final EventType type;
@@ -77,6 +77,13 @@ public class GameWorld {
     public boolean settingsOpen;
     private SettingsStore store;
 
+    // boss battle
+    public final Boss boss = new Boss();
+    public int bossesDefeated;
+    private int nextBossWave = 4;
+    /** boss dead-flash timer for the renderer */
+    public float bossFlash;
+
     private float spawnTimer;
     private float enemySpeedScale = 1f;
     /** when false, no enemies spawn (used by tests and future pause menu) */
@@ -124,6 +131,7 @@ public class GameWorld {
         timeAlive += dt;
         updateDifficulty();
         updateSpawning(dt);
+        updateBoss(dt);
 
         boolean fired = ship.update(dt, WIDTH, HEIGHT);
         if (fired) fireBullet();
@@ -167,9 +175,108 @@ public class GameWorld {
             if (shakeTime <= 0f) shakeMag = 0f;
         }
         if (bombFlash > 0f) bombFlash = Math.max(0f, bombFlash - dt * 2.5f);
+        if (bossFlash > 0f) bossFlash = Math.max(0f, bossFlash - dt * 2f);
 
         resolveCollisions();
         if (score > wave * 500) wave++;
+    }
+
+    // ---- boss battle ----
+
+    private void updateBoss(float dt) {
+        if (!boss.active) {
+            // trigger at wave milestones when the screen is calm-ish
+            if (wave >= nextBossWave) {
+                nextBossWave += 4;
+                boss.init(bossesDefeated);
+                bossActive = true;
+                events.add(new GameEvent(EventType.BOSS_SPAWNED, boss.x, boss.y));
+            }
+            return;
+        }
+        int before = boss.phase;
+        boss.update(dt);
+        if (boss.phase != before) {
+            events.add(new GameEvent(EventType.BOSS_PHASE, boss.x, boss.y));
+            addShake(0.3f, 8f);
+        }
+        if (boss.readyToAttack()) {
+            bossAttack();
+            boss.resetAttack();
+        }
+        if (boss.readyToSummon()) {
+            summonMinions();
+            boss.resetSummon();
+        }
+        if (boss.hp <= 0) {
+            boss.active = false;
+            bossActive = false;
+            bossesDefeated++;
+            score += 400 + boss.level * 200;
+            explode(boss.x, boss.y, 2);
+            explode(boss.x - 60f, boss.y + 30f, 3);
+            explode(boss.x + 60f, boss.y - 20f, 0);
+            addShake(0.8f, 26f);
+            bossFlash = 1f;
+            // reward: guaranteed pickups
+            spawnPowerUp(PowerUp.Kind.SHIELD, boss.x - 50f, boss.y);
+            spawnPowerUp(PowerUp.Kind.BOMB, boss.x + 50f, boss.y);
+            spawnPowerUp(PowerUp.Kind.MISSILE, boss.x, boss.y + 40f);
+            events.add(new GameEvent(EventType.BOSS_DEFEATED, boss.x, boss.y));
+        }
+    }
+
+    public boolean bossActive;
+
+    private void bossAttack() {
+        switch (boss.phase) {
+            case 1: // wide fan of 7
+                for (int i = -3; i <= 3; i++) {
+                    EnemyBullet b = freeEnemyBullet();
+                    if (b == null) return;
+                    float ang = (float) (Math.PI / 2 + i * 0.22);
+                    b.initRadius(boss.x, boss.y + Boss.RADIUS * 0.7f,
+                            (float) Math.cos(ang) * 300f, (float) Math.sin(ang) * 300f, 13f);
+                }
+                break;
+            case 2: // fan + aimed twin volley
+                for (int i = -2; i <= 2; i++) {
+                    EnemyBullet b = freeEnemyBullet();
+                    if (b == null) return;
+                    float ang = (float) (Math.PI / 2 + i * 0.18);
+                    b.initRadius(boss.x, boss.y + Boss.RADIUS * 0.7f,
+                            (float) Math.cos(ang) * 330f, (float) Math.sin(ang) * 330f, 13f);
+                }
+                for (int i = -1; i <= 1; i += 2) {
+                    EnemyBullet b = freeEnemyBullet();
+                    if (b == null) return;
+                    float dx = ship.x - boss.x, dy = ship.y - boss.y;
+                    float len = (float) Math.sqrt(dx * dx + dy * dy);
+                    b.initRadius(boss.x + i * 40f, boss.y + Boss.RADIUS * 0.5f,
+                            dx / len * 430f, dy / len * 430f, 11f);
+                }
+                break;
+            default: // phase 3: dense double helix
+                float spin = boss.age * 2.4f;
+                for (int i = 0; i < 8; i++) {
+                    EnemyBullet b = freeEnemyBullet();
+                    if (b == null) return;
+                    float ang = (float) (Math.PI / 2 + spin + i * Math.PI / 4);
+                    b.initRadius(boss.x, boss.y + Boss.RADIUS * 0.6f,
+                            (float) Math.cos(ang) * 320f, (float) Math.sin(ang) * 320f, 12f);
+                }
+        }
+    }
+
+    private void summonMinions() {
+        int n = boss.phase >= 3 ? 3 : 2;
+        for (int i = 0; i < n; i++) {
+            Enemy e = freeEnemy();
+            if (e == null) return;
+            e.init(EnemyType.HUNTER,
+                    boss.x + (i - (n - 1) / 2f) * 130f, boss.y + 60f, enemySpeedScale);
+            spawnedCount++;
+        }
     }
 
     /** Engine exhaust trail + subtle muzzle flash; cheap juice, one particle per interval. */
@@ -226,6 +333,7 @@ public class GameWorld {
 
     private void updateSpawning(float dt) {
         if (!spawningEnabled) return;
+        if (bossActive) return; // the boss owns the sky
         spawnTimer -= dt;
         formationTimer -= dt;
         if (formationTimer <= 0f) {
@@ -321,6 +429,27 @@ public class GameWorld {
     }
 
     private void resolveCollisions() {
+        // boss: body vs ship, then bullets vs boss
+        if (boss.active && !ship.invulnerable) {
+            float dx = ship.x - boss.x, dy = ship.y - boss.y;
+            float rr = Ship.RADIUS + Boss.RADIUS;
+            if (dx * dx + dy * dy <= rr * rr) {
+                onPlayerHit();
+            }
+        }
+        if (boss.active) {
+            for (Bullet b : bullets) {
+                if (!b.active) continue;
+                float dx = b.x - boss.x, dy = b.y - boss.y;
+                float rr = b.radius + Boss.RADIUS;
+                if (dx * dx + dy * dy <= rr * rr) {
+                    b.active = false;
+                    boss.damage(b.damage);
+                    spark(b.x, b.y, 2, 2);
+                    if (boss.hp <= 0) break;
+                }
+            }
+        }
         for (Enemy e : enemies) {
             if (!e.active) continue;
             // bullets vs enemies
@@ -574,6 +703,11 @@ public class GameWorld {
         shakeTime = 0f;
         shakeMag = 0f;
         bombFlash = 0f;
+        boss.active = false;
+        bossActive = false;
+        bossFlash = 0f;
+        bossesDefeated = 0;
+        nextBossWave = 4;
         formationTimer = 8f;
         spawnTimer = 0f;
         state = State.PLAYING;
