@@ -38,10 +38,24 @@ scripts/verify.sh   无 SDK 验证：类型检查 + 单元测试 + 模拟基准
 - `scripts/verify.sh` 第 4 步运行 60 秒最坏情况模拟基准
   （CI CPU 上约 5 微秒/帧 —— 相对 60 fps 预算有约 18 倍余量）
 
+## 下载
+
+到 [GitHub Releases 页面](https://github.com/cedarln/NebulaStrike/releases) 下载最新
+`NebulaStrike-vX.Y.Z.apk`（已签名，~270 KB），传到手机安装即可，无需联网运行。
+
+当前版本 **v1.1.0**：
+- 战役模式 + 无尽模式（双榜独立）
+- 三阶段 Boss 战、武器道具、连击系统
+- 8-bit 合成音效与震动反馈
+
 ## 构建
 ```bash
-./gradlew :app:assembleDebug     # APK 输出在 app/build/outputs/apk/debug/
+./gradlew :app:assembleDebug     # debug APK 输出在 app/build/outputs/apk/debug/
+./gradlew :app:assembleRelease   # 签名 release APK 输出在 app/build/outputs/apk/release/
 ```
+
+release 使用仓库自带的演示密钥库（`release.keystore`，密码见 `app/build.gradle`）
+签名，仅供学习与自娱；正式上架请更换为自己的密钥。
 
 ## 验证（无需 Android SDK）
 ```bash
