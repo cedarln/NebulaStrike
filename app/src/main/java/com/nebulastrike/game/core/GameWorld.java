@@ -16,7 +16,7 @@ public class GameWorld {
     public enum State { PLAYING, GAME_OVER }
 
     /** Game events consumed by the presentation layer (sfx, haptics, fx). */
-    public enum EventType { ENEMY_KILLED, PLAYER_HIT, GAME_OVER, ENEMY_ESCAPED }
+    public enum EventType { ENEMY_KILLED, PLAYER_HIT, GAME_OVER, ENEMY_ESCAPED, FORMATION }
     public static final class GameEvent {
         public final EventType type;
         public final float x, y;
@@ -40,6 +40,7 @@ public class GameWorld {
 
     public final Ship ship = new Ship();
     public final Bullet[] bullets = new Bullet[64];
+    public final EnemyBullet[] enemyBullets = new EnemyBullet[48];
     public final Enemy[] enemies = new Enemy[48];
     public final Particle[] particles = new Particle[256];
     public final Star[] stars = new Star[90];
@@ -54,14 +55,27 @@ public class GameWorld {
     public float timeAlive;
     public int wave = 1;
 
+    // combo system: consecutive kills without taking a hit
+    public int comboKills;
+    public float comboTimer;
+    public static final float COMBO_WINDOW = 3f;
+
+    // screen shake
+    public float shakeTime;
+    public float shakeMag;
+
     private float spawnTimer;
     private float enemySpeedScale = 1f;
+    /** when false, no enemies spawn (used by tests and future pause menu) */
+    public boolean spawningEnabled = true;
+    private float formationTimer = 8f;
     private List<GameEvent> events = new ArrayList<>();
     private List<GameEvent> eventsOut = new ArrayList<>();
 
     public GameWorld(long seed) {
         RNG.setSeed(seed);
         for (int i = 0; i < bullets.length; i++) bullets[i] = new Bullet();
+        for (int i = 0; i < enemyBullets.length; i++) enemyBullets[i] = new EnemyBullet();
         for (int i = 0; i < enemies.length; i++) enemies[i] = new Enemy();
         for (int i = 0; i < particles.length; i++) particles[i] = new Particle();
         for (int i = 0; i < stars.length; i++) {
@@ -93,6 +107,7 @@ public class GameWorld {
 
         boolean fired = ship.update(dt, WIDTH, HEIGHT);
         if (fired) fireBullet();
+        updateShipFx(dt);
 
         for (Bullet b : bullets) {
             if (!b.active) continue;
@@ -105,13 +120,72 @@ public class GameWorld {
             if (e.offscreen(HEIGHT)) {
                 e.active = false;
                 events.add(new GameEvent(EventType.ENEMY_ESCAPED, e.x, HEIGHT));
+                continue;
             }
+            tryEnemyFire(e, dt);
+        }
+        for (EnemyBullet b : enemyBullets) {
+            if (!b.active) continue;
+            b.update(dt);
+            if (b.offscreen(WIDTH, HEIGHT)) b.active = false;
         }
         for (Particle p : particles) if (p.active) p.update(dt);
         for (Star s : stars) s.update(dt, HEIGHT);
 
+        if (comboTimer > 0f) {
+            comboTimer -= dt;
+            if (comboTimer <= 0f) comboKills = 0;
+        }
+        if (shakeTime > 0f) {
+            shakeTime -= dt;
+            if (shakeTime <= 0f) shakeMag = 0f;
+        }
+
         resolveCollisions();
         if (score > wave * 500) wave++;
+    }
+
+    /** Engine exhaust trail + subtle muzzle flash; cheap juice, one particle per interval. */
+    private float fxTimer;
+    private void updateShipFx(float dt) {
+        fxTimer -= dt;
+        if (fxTimer > 0f) return;
+        fxTimer = 0.045f;
+        Particle p = freeParticle();
+        if (p != null) {
+            p.init(ship.x + (RNG.get().nextFloat() - 0.5f) * 8f,
+                    ship.y + Ship.RADIUS * 0.9f,
+                    (RNG.get().nextFloat() - 0.5f) * 30f,
+                    140f + RNG.get().nextFloat() * 80f,
+                    0.28f, 4.5f, 0);
+        }
+    }
+
+    private void tryEnemyFire(Enemy e, float dt) {
+        if (e.fireCd <= 0f) return;
+        if (e.y < 60f || e.y > HEIGHT * 0.72f) return; // only fire while on-screen, not too close
+        e.fireCd -= dt;
+        if (e.fireCd > 0f) return;
+        switch (e.type) {
+            case TANK: // slow triple spread straight down
+                for (int i = -1; i <= 1; i++) {
+                    EnemyBullet b = freeEnemyBullet();
+                    if (b == null) break;
+                    b.init(e.x, e.y + e.type.radius, i * 90f, 300f);
+                }
+                e.fireCd = 1.6f + RNG.get().nextFloat() * 0.5f;
+                break;
+            case HUNTER: // aimed shot
+                float dx = ship.x - e.x, dy = ship.y - e.y;
+                float len = (float) Math.sqrt(dx * dx + dy * dy);
+                if (len < 1f) len = 1f;
+                EnemyBullet b = freeEnemyBullet();
+                if (b != null) b.init(e.x, e.y + e.type.radius, dx / len * 380f, dy / len * 380f);
+                e.fireCd = 2.2f + RNG.get().nextFloat() * 0.8f;
+                break;
+            default:
+                e.fireCd = -1f;
+        }
     }
 
     private void updateDifficulty() {
@@ -124,11 +198,30 @@ public class GameWorld {
     private float spawnInterval = 1.1f;
 
     private void updateSpawning(float dt) {
+        if (!spawningEnabled) return;
         spawnTimer -= dt;
+        formationTimer -= dt;
+        if (formationTimer <= 0f) {
+            formationTimer = 11f + RNG.get().nextFloat() * 4f;
+            spawnFormation();
+        }
         if (spawnTimer <= 0f) {
             spawnTimer = spawnInterval;
             spawnEnemy();
         }
+    }
+
+    /** V-formation of five drones sweeping down the screen. */
+    private void spawnFormation() {
+        float cx = 240f + RNG.get().nextFloat() * (WIDTH - 480f);
+        for (int i = 0; i < 5; i++) {
+            Enemy e = freeEnemy();
+            if (e == null) return;
+            int slot = (i + 1) / 2 * (i % 2 == 0 ? 1 : -1); // 0,1,-1,2,-2
+            e.init(EnemyType.DRONE, cx + slot * 110f, -60f - Math.abs(slot) * 90f, enemySpeedScale);
+            spawnedCount++;
+        }
+        events.add(new GameEvent(EventType.FORMATION, cx, 0f));
     }
 
     private void spawnEnemy() {
@@ -142,6 +235,7 @@ public class GameWorld {
     }
 
     private EnemyType pickEnemyType() {
+        if (timeAlive > 35f && RNG.get().nextFloat() < 0.12f) return EnemyType.TANK;
         if (timeAlive > 20f && RNG.get().nextFloat() < 0.25f) return EnemyType.HUNTER;
         if (timeAlive > 10f && RNG.get().nextFloat() < 0.30f) return EnemyType.WEAVER;
         return EnemyType.DRONE;
@@ -182,25 +276,59 @@ public class GameWorld {
                 }
             }
         }
+        // enemy bullets vs ship
+        if (!ship.invulnerable) {
+            for (EnemyBullet b : enemyBullets) {
+                if (!b.active) continue;
+                float dx = ship.x - b.x, dy = ship.y - b.y;
+                float rr = Ship.RADIUS + b.radius;
+                if (dx * dx + dy * dy <= rr * rr) {
+                    b.active = false;
+                    spark(b.x, b.y, 6, 2);
+                    onPlayerHit();
+                    break;
+                }
+            }
+        }
+    }
+
+    /** Multiplier earned by chaining kills: +1 every 5 chained kills, capped at x5. */
+    public int comboMultiplier() {
+        return Math.min(1 + comboKills / 5, 5);
     }
 
     private void killEnemy(Enemy e) {
         e.active = false;
-        score += e.type.score;
+        comboKills++;
+        comboTimer = COMBO_WINDOW;
+        score += e.type.score * comboMultiplier();
         kills++;
         explode(e.x, e.y, e.type.colorHint);
+        addShake(e.type == EnemyType.TANK ? 0.22f : 0.05f,
+                 e.type == EnemyType.TANK ? 9f : 2.5f);
         events.add(new GameEvent(EventType.ENEMY_KILLED, e.x, e.y));
     }
 
     private void onPlayerHit() {
+        comboKills = 0;
+        comboTimer = 0f;
+        addShake(0.4f, 16f);
         lives--;
         events.add(new GameEvent(EventType.PLAYER_HIT, ship.x, ship.y));
         if (lives <= 0) {
             lives = 0;
             state = State.GAME_OVER;
+            addShake(0.6f, 22f);
             events.add(new GameEvent(EventType.GAME_OVER, ship.x, ship.y));
         } else {
             ship.makeInvulnerable();
+        }
+    }
+
+    public void addShake(float time, float mag) {
+        if (time > shakeTime || mag > shakeMag) {
+            shakeTime = Math.max(shakeTime, time);
+            shakeMag = Math.max(shakeMag, mag);
         }
     }
 
@@ -212,10 +340,16 @@ public class GameWorld {
         timeAlive = 0f;
         stateTimer = 0f;
         wave = 1;
+        comboKills = 0;
+        comboTimer = 0f;
+        shakeTime = 0f;
+        shakeMag = 0f;
+        formationTimer = 8f;
         spawnTimer = 0f;
         state = State.PLAYING;
         ship.reset(WIDTH / 2f, HEIGHT - 140f);
         for (Bullet b : bullets) b.active = false;
+        for (EnemyBullet b : enemyBullets) b.active = false;
         for (Enemy e : enemies) e.active = false;
         for (Particle p : particles) p.active = false;
     }
@@ -244,6 +378,11 @@ public class GameWorld {
     // ---- pool helpers ----
     private Bullet freeBullet() {
         for (Bullet b : bullets) if (!b.active) return b;
+        return null;
+    }
+
+    private EnemyBullet freeEnemyBullet() {
+        for (EnemyBullet b : enemyBullets) if (!b.active) return b;
         return null;
     }
 

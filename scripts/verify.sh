@@ -26,8 +26,6 @@ javac -cp "$SDK_JAR:build/verify/main:$LIB/junit.jar:$LIB/hamcrest.jar" \
 echo "tests compile OK"
 
 echo "== 3/3 run unit tests =="
+TEST_CLASSES=$(find app/src/test/java -name '*Test.java' | sed 's#app/src/test/java/##; s#/#.#g; s#\.java$##' | sort | tr '\n' ' ')
 java -cp "$SDK_JAR:build/verify/main:build/verify/test:$LIB/junit.jar:$LIB/hamcrest.jar" \
-  org.junit.runner.JUnitCore \
-  com.nebulastrike.game.core.GameWorldTest \
-  com.nebulastrike.game.core.ShipTest \
-  com.nebulastrike.game.core.EnemyTest
+  org.junit.runner.JUnitCore $TEST_CLASSES

@@ -52,14 +52,26 @@ public class Renderer {
         c.scale(scale, scale);
         c.clipRect(0, 0, VW, VH);
 
+        // screen shake (applied inside the letterbox so bars stay put)
+        c.save();
+        if (w.shakeTime > 0f) {
+            float mag = w.shakeMag * Math.min(1f, w.shakeTime * 3f);
+            float sx = (float) Math.sin(w.timeAlive * 89f) * mag;
+            float sy = (float) Math.cos(w.timeAlive * 71f) * mag * 0.7f;
+            c.translate(sx, sy);
+        }
+
         drawBackground(c, w);
         drawStars(c, w);
         drawParticles(c, w);
+        drawEnemyBullets(c, w);
         drawEnemies(c, w);
         drawBullets(c, w);
         drawShip(c, w);
-        drawHud(c, w);
 
+        c.restore(); // shake
+
+        drawHud(c, w);
         c.restore();
     }
 
@@ -111,6 +123,20 @@ public class Renderer {
         }
     }
 
+    private void drawEnemyBullets(Canvas c, GameWorld w) {
+        for (com.nebulastrike.game.core.EnemyBullet b : w.enemyBullets) {
+            if (!b.active) continue;
+            // fading trail
+            glow.setColor(0x55FF7A4D);
+            c.drawCircle(b.x - b.vx * 0.02f, b.y - b.vy * 0.02f, b.radius * 0.8f, glow);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(0xFFFF7A4D);
+            c.drawCircle(b.x, b.y, b.radius, paint);
+            paint.setColor(0xFFFFE08A);
+            c.drawCircle(b.x, b.y, b.radius * 0.45f, paint);
+        }
+    }
+
     private void drawEnemies(Canvas c, GameWorld w) {
         for (Enemy e : w.enemies) {
             if (!e.active) continue;
@@ -133,10 +159,17 @@ public class Renderer {
                     c.drawCircle(e.x, e.y + r * 0.2f, r * 0.28f, paint);
                     break;
                 case TANK:
-                    // hexagonal brick with hull plates
+                    // hexagonal brick with hull plates + hp pips
                     hexagon(c, e.x, e.y, r, base);
                     paint.setColor(0xFF101528);
                     c.drawCircle(e.x, e.y, r * 0.45f, paint);
+                    paint.setColor(0xFFFFD166);
+                    for (int i = 0; i < (int) e.hp; i++) {
+                        c.drawRect(e.x - r * 0.5f + i * (r * 0.25f),
+                                e.y + r * 0.6f,
+                                e.x - r * 0.5f + i * (r * 0.25f) + r * 0.16f,
+                                e.y + r * 0.6f + 5f, paint);
+                    }
                     break;
             }
         }
@@ -181,6 +214,16 @@ public class Renderer {
         paint.setTextSize(30f);
         paint.setColor(0xFF8FA3C8);
         c.drawText("WAVE " + w.wave, VW / 2f - 70f, 60f, paint);
+
+        // combo counter
+        if (w.comboKills > 1) {
+            int mult = w.comboMultiplier();
+            paint.setTextSize(26f + mult * 2f);
+            paint.setColor(mult >= 3 ? 0xFFFFD166 : 0xFF7DF9FF);
+            paint.setTextAlign(Paint.Align.CENTER);
+            c.drawText("COMBO x" + mult + "  (" + w.comboKills + ")", VW / 2f, 100f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
 
         // lives as mini ships
         c.save();

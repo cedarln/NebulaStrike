@@ -10,6 +10,8 @@ public class Enemy {
     public float age;
     /** hit flash timer for renderer */
     public float flash;
+    /** cooldown until next shot; <=0 means this archetype does not fire */
+    public float fireCd;
     private float originX;
     private float dir = 1f;
 
@@ -24,6 +26,11 @@ public class Enemy {
         this.flash = 0f;
         this.dir = GameWorld.RNG.get().nextBoolean() ? 1f : -1f;
         this.speedScale = speedScale;
+        switch (type) {
+            case TANK: fireCd = 1.4f + GameWorld.RNG.get().nextFloat() * 0.6f; break;
+            case HUNTER: fireCd = 2.0f + GameWorld.RNG.get().nextFloat() * 0.8f; break;
+            default: fireCd = -1f; // does not fire
+        }
     }
 
     private float speedScale;
