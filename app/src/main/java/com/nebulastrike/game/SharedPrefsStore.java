@@ -20,6 +20,7 @@ public class SharedPrefsStore implements SettingsStore {
         into.sound = prefs.getBoolean("sound", true);
         into.particles = prefs.getBoolean("particles", true);
         into.haptics = prefs.getBoolean("haptics", true);
+        into.reducedFx = prefs.getBoolean("reducedFx", false);
     }
 
     @Override
@@ -52,6 +53,7 @@ public class SharedPrefsStore implements SettingsStore {
                 .putBoolean("sound", s.sound)
                 .putBoolean("particles", s.particles)
                 .putBoolean("haptics", s.haptics)
+                .putBoolean("reducedFx", s.reducedFx)
                 .apply();
     }
 }

@@ -33,6 +33,10 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
         setFocusableInTouchMode(true);
         world = new GameWorld(System.nanoTime(), true);
         world.attachStore(new SharedPrefsStore(context));
+        // low-RAM devices start with reduced fx from frame one (auto quality recovers if fast)
+        android.app.ActivityManager am =
+                (android.app.ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+        if (am != null && am.isLowRamDevice()) world.primeQuality(0.5f);
         renderer = new Renderer();
         haptics = new Haptics(context);
         haptics.attach(world.settings);

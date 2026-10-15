@@ -24,7 +24,8 @@ public final class Ui {
     public static final Rect TOGGLE_SOUND = new Rect(GameWorld.WIDTH / 2f - 220f, 470f, 440f, 64f);
     public static final Rect TOGGLE_PARTICLES = new Rect(GameWorld.WIDTH / 2f - 220f, 546f, 440f, 64f);
     public static final Rect TOGGLE_HAPTICS = new Rect(GameWorld.WIDTH / 2f - 220f, 622f, 440f, 64f);
-    public static final Rect SETTINGS_BACK = new Rect(GameWorld.WIDTH / 2f - 140f, 712f, 280f, 64f);
+    public static final Rect TOGGLE_REDUCED_FX = new Rect(GameWorld.WIDTH / 2f - 220f, 698f, 440f, 64f);
+    public static final Rect SETTINGS_BACK = new Rect(GameWorld.WIDTH / 2f - 140f, 786f, 280f, 64f);
     // pause overlay
     public static final Rect RESUME = new Rect(GameWorld.WIDTH / 2f - 220f, 330f, 440f, 88f);
     public static final Rect RESTART = new Rect(GameWorld.WIDTH / 2f - 220f, 436f, 440f, 72f);
@@ -35,7 +36,7 @@ public final class Ui {
     /** Logical UI actions produced by taps. */
     public enum Action {
         START, OPEN_SETTINGS, TOGGLE_SOUND, TOGGLE_PARTICLES, TOGGLE_HAPTICS,
-        SETTINGS_BACK, RESUME, RESTART, QUIT_TO_MENU, PAUSE
+        TOGGLE_REDUCED_FX, SETTINGS_BACK, RESUME, RESTART, QUIT_TO_MENU, PAUSE
     }
 
     /** Maps a tap in virtual space to an action for the given state; null if none. */
@@ -46,6 +47,7 @@ public final class Ui {
                     if (TOGGLE_SOUND.contains(x, y)) return Action.TOGGLE_SOUND;
                     if (TOGGLE_PARTICLES.contains(x, y)) return Action.TOGGLE_PARTICLES;
                     if (TOGGLE_HAPTICS.contains(x, y)) return Action.TOGGLE_HAPTICS;
+                    if (TOGGLE_REDUCED_FX.contains(x, y)) return Action.TOGGLE_REDUCED_FX;
                     if (SETTINGS_BACK.contains(x, y)) return Action.SETTINGS_BACK;
                     return null;
                 }

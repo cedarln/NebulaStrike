@@ -64,6 +64,20 @@ public class QualityTest {
     }
 
     @Test
+    public void reducedFxSettingForcesLowEmission() {
+        world.settings.reducedFx = true;
+        for (int i = 0; i < 90; i++) world.noteFrameCost(0.005f); // even with fast frames
+        assertEquals(0.5f, world.emissionScale, 0.001f);
+    }
+
+    @Test
+    public void primedGovernorSkipsWarmup() {
+        world.primeQuality(1f); // device prior seeds the sample count
+        for (int i = 0; i < 5; i++) world.noteFrameCost(0.030f);
+        assertEquals(0.5f, world.emissionScale, 0.001f);
+    }
+
+    @Test
     public void particlesDieOutAfterTheirLifetime() {
         world.spawningEnabled = false;
         killOneDrone(0f);

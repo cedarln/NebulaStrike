@@ -29,6 +29,15 @@ public class Renderer {
 
     private final Paint paint = new Paint();
     private final Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
+    /** shared scratch path — zero per-frame allocation for all vector shapes */
+    private final android.graphics.Path shapePath = new android.graphics.Path();
+    /** shared scratch buffer for touch mapping */
+    private final float[] touchXY = new float[2];
+    // static nebulae: fixed positions/colors, gradients built once
+    private final RadialGradient nebulaA = new RadialGradient(
+            VW * 0.22f, VH * 0.35f, 420f, new int[]{0x141A3C55, 0x00000000}, null, Shader.TileMode.CLAMP);
+    private final RadialGradient nebulaB = new RadialGradient(
+            VW * 0.78f, VH * 0.72f, 520f, new int[]{0x0F2A1B44, 0x00000000}, null, Shader.TileMode.CLAMP);
 
     public Renderer() {
         paint.setAntiAlias(true);
@@ -43,9 +52,11 @@ public class Renderer {
         offY = (h - VH * scale) / 2f;
     }
 
-    /** Maps screen pixels -> virtual coords (used by touch input). */
+    /** Maps screen pixels -> virtual coords (used by touch input). Reuses a scratch buffer. */
     public float[] toVirtual(float sx, float sy) {
-        return new float[]{(sx - offX) / scale, (sy - offY) / scale};
+        touchXY[0] = (sx - offX) / scale;
+        touchXY[1] = (sy - offY) / scale;
+        return touchXY;
     }
 
     public void draw(Canvas c, GameWorld w) {
@@ -92,14 +103,13 @@ public class Renderer {
         paint.setShader(null);
         paint.setColor(0xFF05060F);
         c.drawRect(0, 0, VW, VH, paint);
-        // two soft nebulae
-        nebula(c, VW * 0.22f, VH * 0.35f, 420f, 0x141A3C55);
-        nebula(c, VW * 0.78f, VH * 0.72f, 520f, 0x0F2A1B44);
+        // two soft nebulae (cached gradients — no per-frame allocation)
+        nebula(c, nebulaA, VW * 0.22f, VH * 0.35f, 420f);
+        nebula(c, nebulaB, VW * 0.78f, VH * 0.72f, 520f);
     }
 
-    private void nebula(Canvas c, float x, float y, float r, int color) {
-        glow.setShader(new RadialGradient(x, y, r,
-                new int[]{color, 0x00000000}, null, Shader.TileMode.CLAMP));
+    private void nebula(Canvas c, RadialGradient g, float x, float y, float r) {
+        glow.setShader(g);
         c.drawCircle(x, y, r, glow);
         glow.setShader(null);
     }
@@ -135,12 +145,12 @@ public class Renderer {
                 c.save();
                 c.translate(b.x, b.y);
                 c.rotate((float) Math.toDegrees(ang) + 90f);
-                android.graphics.Path p = new android.graphics.Path();
-                p.moveTo(0, -14f);
-                p.lineTo(7f, 10f);
-                p.lineTo(-7f, 10f);
-                p.close();
-                c.drawPath(p, paint);
+                shapePath.rewind();
+                shapePath.moveTo(0, -14f);
+                shapePath.lineTo(7f, 10f);
+                shapePath.lineTo(-7f, 10f);
+                shapePath.close();
+                c.drawPath(shapePath, paint);
                 paint.setColor(0x887DF9FF);
                 c.drawCircle(0, 14f, 5f, paint);
                 c.restore();
@@ -459,6 +469,7 @@ public class Renderer {
         toggle(c, Ui.TOGGLE_SOUND, "SOUND", w.settings.sound);
         toggle(c, Ui.TOGGLE_PARTICLES, "PARTICLES", w.settings.particles);
         toggle(c, Ui.TOGGLE_HAPTICS, "HAPTICS", w.settings.haptics);
+        toggle(c, Ui.TOGGLE_REDUCED_FX, "LOW FX", w.settings.reducedFx);
         button(c, Ui.SETTINGS_BACK, "BACK", 0xFF182040, 0xFF8FA3C8, false);
         paint.setTextAlign(Paint.Align.LEFT);
     }
@@ -594,61 +605,60 @@ public class Renderer {
 
     private void triangleAbs(Canvas c, float x, float y, float r, boolean fill) {
         paint.setStyle(Paint.Style.FILL);
-        c.drawCircle(0, 0, 0, paint); // no-op keeps style
-        android.graphics.Path path = new android.graphics.Path();
-        path.moveTo(x, y - r);
-        path.lineTo(x - r * 0.85f, y + r * 0.75f);
-        path.lineTo(x + r * 0.85f, y + r * 0.75f);
-        path.close();
-        c.drawPath(path, paint);
+        shapePath.rewind();
+        shapePath.moveTo(x, y - r);
+        shapePath.lineTo(x - r * 0.85f, y + r * 0.75f);
+        shapePath.lineTo(x + r * 0.85f, y + r * 0.75f);
+        shapePath.close();
+        c.drawPath(shapePath, paint);
     }
 
     private void diamond(Canvas c, float x, float y, float r, int color) {
         paint.setColor(color);
-        android.graphics.Path p = new android.graphics.Path();
-        p.moveTo(x, y - r);
-        p.lineTo(x + r * 0.7f, y);
-        p.lineTo(x, y + r);
-        p.lineTo(x - r * 0.7f, y);
-        p.close();
-        c.drawPath(p, paint);
+        shapePath.rewind();
+        shapePath.moveTo(x, y - r);
+        shapePath.lineTo(x + r * 0.7f, y);
+        shapePath.lineTo(x, y + r);
+        shapePath.lineTo(x - r * 0.7f, y);
+        shapePath.close();
+        c.drawPath(shapePath, paint);
     }
 
     private void hexagon(Canvas c, float x, float y, float r, int color) {
         paint.setColor(color);
-        android.graphics.Path p = new android.graphics.Path();
+        shapePath.rewind();
         for (int i = 0; i < 6; i++) {
             double a = Math.PI / 3.0 * i + Math.PI / 6.0;
             float px = x + (float) Math.cos(a) * r;
             float py = y + (float) Math.sin(a) * r;
-            if (i == 0) p.moveTo(px, py); else p.lineTo(px, py);
+            if (i == 0) shapePath.moveTo(px, py); else shapePath.lineTo(px, py);
         }
-        p.close();
-        c.drawPath(p, paint);
+        shapePath.close();
+        c.drawPath(shapePath, paint);
     }
 
     private void hull(Canvas c, float x, float y) {
-        android.graphics.Path p = new android.graphics.Path();
-        p.moveTo(x, y - Ship.RADIUS);
-        p.lineTo(x + Ship.RADIUS * 0.35f, y - Ship.RADIUS * 0.1f);
-        p.lineTo(x + Ship.RADIUS * 0.95f, y + Ship.RADIUS * 0.8f);
-        p.lineTo(x + Ship.RADIUS * 0.30f, y + Ship.RADIUS * 0.45f);
-        p.lineTo(x, y + Ship.RADIUS * 0.6f);
-        p.lineTo(x - Ship.RADIUS * 0.30f, y + Ship.RADIUS * 0.45f);
-        p.lineTo(x - Ship.RADIUS * 0.95f, y + Ship.RADIUS * 0.8f);
-        p.lineTo(x - Ship.RADIUS * 0.35f, y - Ship.RADIUS * 0.1f);
-        p.close();
-        c.drawPath(p, paint);
+        shapePath.rewind();
+        shapePath.moveTo(x, y - Ship.RADIUS);
+        shapePath.lineTo(x + Ship.RADIUS * 0.35f, y - Ship.RADIUS * 0.1f);
+        shapePath.lineTo(x + Ship.RADIUS * 0.95f, y + Ship.RADIUS * 0.8f);
+        shapePath.lineTo(x + Ship.RADIUS * 0.30f, y + Ship.RADIUS * 0.45f);
+        shapePath.lineTo(x, y + Ship.RADIUS * 0.6f);
+        shapePath.lineTo(x - Ship.RADIUS * 0.30f, y + Ship.RADIUS * 0.45f);
+        shapePath.lineTo(x - Ship.RADIUS * 0.95f, y + Ship.RADIUS * 0.8f);
+        shapePath.lineTo(x - Ship.RADIUS * 0.35f, y - Ship.RADIUS * 0.1f);
+        shapePath.close();
+        c.drawPath(shapePath, paint);
     }
 
     private void hullStripe(Canvas c, float x, float y) {
-        android.graphics.Path p = new android.graphics.Path();
-        p.moveTo(x, y - Ship.RADIUS * 0.75f);
-        p.lineTo(x + Ship.RADIUS * 0.18f, y);
-        p.lineTo(x, y + Ship.RADIUS * 0.4f);
-        p.lineTo(x - Ship.RADIUS * 0.18f, y);
-        p.close();
-        c.drawPath(p, paint);
+        shapePath.rewind();
+        shapePath.moveTo(x, y - Ship.RADIUS * 0.75f);
+        shapePath.lineTo(x + Ship.RADIUS * 0.18f, y);
+        shapePath.lineTo(x, y + Ship.RADIUS * 0.4f);
+        shapePath.lineTo(x - Ship.RADIUS * 0.18f, y);
+        shapePath.close();
+        c.drawPath(shapePath, paint);
     }
 
     private void cockpit(Canvas c, float x, float y, float r, int color) {

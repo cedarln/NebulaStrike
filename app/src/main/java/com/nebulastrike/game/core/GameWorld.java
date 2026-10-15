@@ -672,6 +672,10 @@ public class GameWorld {
                 settings.toggle("haptics");
                 saveSettings();
                 break;
+            case TOGGLE_REDUCED_FX:
+                settings.toggle("reducedFx");
+                saveSettings();
+                break;
             case SETTINGS_BACK:
                 settingsOpen = false;
                 break;
@@ -839,9 +843,14 @@ public class GameWorld {
      * Feeds the measured update+render cost of one frame into the adaptive
      * quality governor. Sustained over-budget frames halve particle emission;
      * sustained headroom restores full juice. Hysteresis on the moving
-     * average prevents flapping between the two modes.
+     * average prevents flapping between the two modes. A forced reduced-fx
+     * setting (user toggle / low-RAM device) overrides the governor.
      */
     public void noteFrameCost(float seconds) {
+        if (settings.reducedFx) {
+            emissionScale = 0.5f;
+            return;
+        }
         if (seconds <= 0f || seconds > 0.5f) return; // ignore outliers (GC, background)
         frameCostAvg = frameCostAvg == 0f ? seconds : frameCostAvg * 0.93f + seconds * 0.07f;
         if (++frameSamples < 30) return; // warm-up: don't judge on a handful of frames
@@ -850,6 +859,16 @@ public class GameWorld {
     }
 
     private int frameSamples;
+
+    /**
+     * Seeds the governor with a device-capability prior (e.g. low-RAM
+     * detection at startup) so slow devices get reduced fx from frame one
+     * instead of after the 30-frame warm-up.
+     */
+    public void primeQuality(float scale) {
+        emissionScale = scale;
+        frameSamples = 30; // skip warm-up
+    }
 
     /** Drains accumulated events so the presentation layer can react (sfx/haptics). */
     public List<GameEvent> pollEvents() {
