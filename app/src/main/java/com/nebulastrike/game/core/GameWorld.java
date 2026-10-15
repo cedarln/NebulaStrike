@@ -56,6 +56,7 @@ public class GameWorld {
     public int lives = 3;
     public int kills;
     public int spawnedCount;
+    public int shotsFired;
     public float timeAlive;
     public int wave = 1;
 
@@ -377,6 +378,7 @@ public class GameWorld {
     }
 
     private void fireBullet() {
+        shotsFired++;
         switch (ship.weapon) {
             case SPREAD: {
                 for (int i = -1; i <= 1; i++) {

@@ -19,9 +19,12 @@ import com.nebulastrike.game.render.Renderer;
 public class GameView extends SurfaceView implements SurfaceHolder.Callback, Runnable {
     private final GameWorld world;
     private final Renderer renderer;
+    private final AudioEngine audio = new AudioEngine();
+    private final Haptics haptics;
     private Thread thread;
     private volatile boolean running;
     private long lastBombAt;
+    private int lastShotsSeen;
 
     public GameView(Context context) {
         super(context);
@@ -31,6 +34,9 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
         world = new GameWorld(System.nanoTime(), true);
         world.attachStore(new SharedPrefsStore(context));
         renderer = new Renderer();
+        haptics = new Haptics(context);
+        haptics.attach(world.settings);
+        audio.init(context, world.settings);
     }
 
     @Override
@@ -53,6 +59,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
             Ui.Action a = Ui.hit(world.state, world.settingsOpen, vx, vy);
             if (a != null) {
                 world.handleUiAction(a);
+                audio.uiTick();
                 return true;
             }
             if (world.state == GameWorld.State.GAME_OVER) {
@@ -106,6 +113,22 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
             last = now;
 
             world.update(dt);
+
+            // presentation: sound + haptics driven by simulation events
+            java.util.List<GameWorld.GameEvent> events = world.pollEvents();
+            audio.consume(events);
+            for (GameWorld.GameEvent e : events) {
+                switch (e.type) {
+                    case PLAYER_HIT: haptics.impact(); audio.bigExplosion(); break;
+                    case BOMB: haptics.bomb(); break;
+                    case GAME_OVER: haptics.death(); break;
+                    case BOSS_DEFEATED: haptics.bomb(); break;
+                }
+            }
+            if (world.shotsFired != lastShotsSeen) {
+                lastShotsSeen = world.shotsFired;
+                audio.shoot();
+            }
 
             SurfaceHolder holder = getHolder();
             Canvas canvas = null;
