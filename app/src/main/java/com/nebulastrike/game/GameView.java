@@ -2,32 +2,36 @@ package com.nebulastrike.game;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 
 import com.nebulastrike.game.core.GameWorld;
+import com.nebulastrike.game.core.Ui;
 import com.nebulastrike.game.render.Renderer;
 
 /**
  * Owns the game thread: fixed loop of [simulate -> render] driving the Surface.
- * Touch input is mapped from screen pixels into the 1600x900 virtual space.
+ * Touch input is mapped from screen pixels into the 1600x900 virtual space and
+ * dispatched to UI hit-testing first, then gameplay.
  */
 public class GameView extends SurfaceView implements SurfaceHolder.Callback, Runnable {
     private final GameWorld world;
     private final Renderer renderer;
     private Thread thread;
     private volatile boolean running;
+    private long lastBombAt;
 
     public GameView(Context context) {
         super(context);
         getHolder().addCallback(this);
         setFocusable(true);
-        world = new GameWorld(System.nanoTime());
+        setFocusableInTouchMode(true);
+        world = new GameWorld(System.nanoTime(), true);
+        world.attachStore(new SharedPrefsStore(context));
         renderer = new Renderer();
     }
-
-    private long lastBombAt;
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
@@ -43,13 +47,54 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
         }
         if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
             float[] v = renderer.toVirtual(event.getX(), event.getY());
-            world.moveShipTo(v[0], v[1]);
-            if (world.state == GameWorld.State.GAME_OVER && world.stateTimer > 0.8f) {
-                world.restart();
+            float vx = v[0], vy = v[1];
+
+            // UI first
+            Ui.Action a = Ui.hit(world.state, world.settingsOpen, vx, vy);
+            if (a != null) {
+                world.handleUiAction(a);
+                return true;
+            }
+            if (world.state == GameWorld.State.GAME_OVER) {
+                if (world.stateTimer > 0.8f) world.handleUiAction(Ui.Action.RESTART);
+                return true;
+            }
+            if (world.state == GameWorld.State.PLAYING) {
+                world.moveShipTo(vx, vy);
             }
             return true;
         }
         return super.onTouchEvent(event);
+    }
+
+    /** Back button: pause/resume in game, exit from menu. Returns true if consumed. */
+    public boolean handleBack() {
+        switch (world.state) {
+            case PLAYING:
+                world.pauseIfPlaying();
+                return true;
+            case PAUSED:
+                world.handleUiAction(Ui.Action.RESUME);
+                return true;
+            case GAME_OVER:
+                world.handleUiAction(Ui.Action.QUIT_TO_MENU);
+                return true;
+            default:
+                return false; // let the activity finish
+        }
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            return handleBack() || super.onKeyDown(keyCode, event);
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    /** Exposed for lifecycle hooks from the activity. */
+    GameWorld getWorld() {
+        return world;
     }
 
     @Override

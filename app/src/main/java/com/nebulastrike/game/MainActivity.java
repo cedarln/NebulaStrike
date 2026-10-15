@@ -34,4 +34,14 @@ public class MainActivity extends Activity {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) hideSystemUi();
     }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (gameView != null) gameView.getWorld().pauseIfPlaying();
+    }
+
+    GameView getGameView() {
+        return gameView;
+    }
 }

@@ -14,6 +14,7 @@ import com.nebulastrike.game.core.Particle;
 import com.nebulastrike.game.core.PowerUp;
 import com.nebulastrike.game.core.Ship;
 import com.nebulastrike.game.core.Star;
+import com.nebulastrike.game.core.Ui;
 
 /**
  * Draws the whole game with Canvas. The simulation lives in a 1600x900 virtual
@@ -265,8 +266,27 @@ public class Renderer {
         c.drawCircle(s.x, s.y + 2f, 6f, paint);
     }
 
-    // ---- HUD ----
+    // ---- HUD & screens ----
     private void drawHud(Canvas c, GameWorld w) {
+        switch (w.state) {
+            case MENU:
+                if (w.settingsOpen) drawSettings(c, w);
+                else drawMenu(c, w);
+                return;
+            case PAUSED:
+                drawInGameHud(c, w);
+                drawPauseOverlay(c, w);
+                return;
+            case GAME_OVER:
+                drawInGameHud(c, w);
+                drawGameOver(c, w);
+                return;
+            default:
+                drawInGameHud(c, w);
+        }
+    }
+
+    private void drawInGameHud(Canvas c, GameWorld w) {
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(0xFFFFFFFF);
         paint.setTextSize(44f);
@@ -315,6 +335,13 @@ public class Renderer {
         }
         c.restore();
 
+        // pause button
+        paint.setColor(0xAA8FA3C8);
+        c.drawRect(Ui.PAUSE_BTN.x + 14f, Ui.PAUSE_BTN.y + 8f,
+                Ui.PAUSE_BTN.x + 26f, Ui.PAUSE_BTN.y + 56f, paint);
+        c.drawRect(Ui.PAUSE_BTN.x + 38f, Ui.PAUSE_BTN.y + 8f,
+                Ui.PAUSE_BTN.x + 50f, Ui.PAUSE_BTN.y + 56f, paint);
+
         // bombs bottom-left
         for (int i = 0; i < w.ship.bombs; i++) {
             paint.setColor(0xFFFF5C7A);
@@ -327,21 +354,132 @@ public class Renderer {
             paint.setTextSize(22f);
             c.drawText("2ND FINGER = BOMB", 40f, VH - 96f, paint);
         }
+    }
 
-        if (w.state == GameWorld.State.GAME_OVER) {
-            paint.setColor(0x99000000);
-            c.drawRect(0, 0, VW, VH, paint);
-            paint.setColor(0xFFFF3355);
-            paint.setTextSize(120f);
-            paint.setTextAlign(Paint.Align.CENTER);
-            c.drawText("GAME OVER", VW / 2f, VH / 2f - 40f, paint);
-            paint.setColor(0xFFFFFFFF);
-            paint.setTextSize(48f);
-            c.drawText("Score " + w.score + "   Kills " + w.kills, VW / 2f, VH / 2f + 40f, paint);
+    private void drawMenu(Canvas c, GameWorld w) {
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0x66000000);
+        c.drawRect(0, 0, VW, VH, paint);
+
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(130f);
+        paint.setColor(0xFF7DF9FF);
+        c.drawText("NEBULA", VW / 2f, 240f, paint);
+        paint.setColor(0xFFFF3355);
+        c.drawText("STRIKE", VW / 2f, 370f, paint);
+
+        paint.setColor(0xFF8FA3C8);
+        paint.setTextSize(30f);
+        c.drawText("DRAG TO FLY  •  AUTO FIRE  •  2ND FINGER = BOMB", VW / 2f, 430f, paint);
+
+        button(c, Ui.START, "LAUNCH", 0xFF274BFF, 0xFFE8F1FF, true);
+        button(c, Ui.SETTINGS, "SETTINGS", 0xFF182040, 0xFF8FA3C8, false);
+
+        paint.setTextSize(28f);
+        paint.setColor(0xFFFFD166);
+        c.drawText("BEST  " + w.bestScore, VW / 2f, 710f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private void drawSettings(Canvas c, GameWorld w) {
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0x88000000);
+        c.drawRect(0, 0, VW, VH, paint);
+
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(64f);
+        paint.setColor(0xFFE8F1FF);
+        c.drawText("SETTINGS", VW / 2f, 400f, paint);
+
+        toggle(c, Ui.TOGGLE_SOUND, "SOUND", w.settings.sound);
+        toggle(c, Ui.TOGGLE_PARTICLES, "PARTICLES", w.settings.particles);
+        toggle(c, Ui.TOGGLE_HAPTICS, "HAPTICS", w.settings.haptics);
+        button(c, Ui.SETTINGS_BACK, "BACK", 0xFF182040, 0xFF8FA3C8, false);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private void drawPauseOverlay(Canvas c, GameWorld w) {
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0x99000000);
+        c.drawRect(0, 0, VW, VH, paint);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(90f);
+        paint.setColor(0xFFE8F1FF);
+        c.drawText("PAUSED", VW / 2f, 270f, paint);
+        button(c, Ui.RESUME, "RESUME", 0xFF274BFF, 0xFFE8F1FF, true);
+        button(c, Ui.RESTART, "RESTART", 0xFF182040, 0xFF8FA3C8, false);
+        button(c, Ui.QUIT_TO_MENU, "MENU", 0xFF182040, 0xFF8FA3C8, false);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private void drawGameOver(Canvas c, GameWorld w) {
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0x99000000);
+        c.drawRect(0, 0, VW, VH, paint);
+        paint.setTextAlign(Paint.Align.CENTER);
+
+        paint.setTextSize(110f);
+        paint.setColor(0xFFFF3355);
+        c.drawText("GAME OVER", VW / 2f, 330f, paint);
+
+        paint.setTextSize(52f);
+        paint.setColor(0xFFFFFFFF);
+        c.drawText("Score " + w.score + "   •   Kills " + w.kills
+                + "   •   Survived " + (int) w.timeAlive + "s", VW / 2f, 410f, paint);
+
+        if (w.newBest) {
+            float pulse = 1f + 0.06f * (float) Math.sin(w.stateTimer * 6f);
+            paint.setTextSize(40f * pulse);
+            paint.setColor(0xFFFFD166);
+            c.drawText("★ NEW BEST " + w.bestScore + " ★", VW / 2f, 480f, paint);
+        } else {
+            paint.setTextSize(36f);
             paint.setColor(0xFF8FA3C8);
-            c.drawText("Tap to restart", VW / 2f, VH / 2f + 130f, paint);
-            paint.setTextAlign(Paint.Align.LEFT);
+            c.drawText("BEST  " + w.bestScore, VW / 2f, 475f, paint);
         }
+
+        paint.setTextSize(40f);
+        paint.setColor(0xFF8FA3C8);
+        float alpha = 0.4f + 0.6f * Math.abs((float) Math.sin(w.stateTimer * 2.2f));
+        paint.setColor(((int) (255 * alpha) << 24) | 0x8FA3C8);
+        c.drawText("Tap to fly again", VW / 2f, 560f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private void button(Canvas c, Ui.Rect r, String label, int bg, int fg, boolean filled) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(bg);
+        if (filled) {
+            c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 18f, 18f, paint);
+        } else {
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(3f);
+            c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 18f, 18f, paint);
+        }
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(fg);
+        paint.setTextSize(42f);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setFakeBoldText(true);
+        c.drawText(label, r.cx(), r.cy() + 15f, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private void toggle(Canvas c, Ui.Rect r, String label, boolean on) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xFF182040);
+        c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 14f, 14f, paint);
+        paint.setColor(on ? 0xFF7CFF6B : 0xFF5A647F);
+        c.drawCircle(r.x + r.w - 46f, r.cy(), 18f, paint);
+        paint.setColor(0xFFE8F1FF);
+        paint.setTextSize(34f);
+        paint.setTextAlign(Paint.Align.LEFT);
+        c.drawText(label, r.x + 30f, r.cy() + 12f, paint);
     }
 
     // ---- shape helpers ----

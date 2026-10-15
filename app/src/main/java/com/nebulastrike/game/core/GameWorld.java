@@ -13,7 +13,7 @@ public class GameWorld {
     public static final float WIDTH = 1600f;
     public static final float HEIGHT = 900f;
 
-    public enum State { PLAYING, GAME_OVER }
+    public enum State { MENU, PLAYING, PAUSED, GAME_OVER }
 
     /** Game events consumed by the presentation layer (sfx, haptics, fx). */
     public enum EventType {
@@ -70,6 +70,13 @@ public class GameWorld {
     /** white flash overlay after a smart bomb, decays to 0 */
     public float bombFlash;
 
+    // persistence-backed state
+    public int bestScore;
+    public boolean newBest;
+    public final Settings settings = new Settings();
+    public boolean settingsOpen;
+    private SettingsStore store;
+
     private float spawnTimer;
     private float enemySpeedScale = 1f;
     /** when false, no enemies spawn (used by tests and future pause menu) */
@@ -79,7 +86,13 @@ public class GameWorld {
     private List<GameEvent> eventsOut = new ArrayList<>();
 
     public GameWorld(long seed) {
+        this(seed, false);
+    }
+
+    /** @param startInMenu true for the real app flow; tests use false to start playing */
+    public GameWorld(long seed, boolean startInMenu) {
         RNG.setSeed(seed);
+        state = startInMenu ? State.MENU : State.PLAYING;
         for (int i = 0; i < bullets.length; i++) bullets[i] = new Bullet();
         for (int i = 0; i < enemyBullets.length; i++) enemyBullets[i] = new EnemyBullet();
         for (int i = 0; i < enemies.length; i++) enemies[i] = new Enemy();
@@ -105,7 +118,7 @@ public class GameWorld {
         dt = Math.min(dt, 1f / 20f);
         if (state != State.PLAYING) {
             stateTimer += dt;
-            for (Star s : stars) s.update(dt * 0.3f, HEIGHT);
+            for (Star s : stars) s.update(dt * (state == State.PAUSED ? 0.1f : 0.3f), HEIGHT);
             return;
         }
         timeAlive += dt;
@@ -446,6 +459,72 @@ public class GameWorld {
         }
     }
 
+    /** Wires persistence; loads best score and settings. Call once from the app layer. */
+    public void attachStore(SettingsStore s) {
+        this.store = s;
+        if (s != null) {
+            s.load(settings);
+            bestScore = s.bestScore();
+        }
+    }
+
+    /** Handles a UI tap action produced by {@link Ui#hit}. */
+    public void handleUiAction(Ui.Action a) {
+        switch (a) {
+            case START:
+                settingsOpen = false;
+                restart();
+                break;
+            case OPEN_SETTINGS:
+                settingsOpen = true;
+                break;
+            case TOGGLE_SOUND:
+                settings.toggle("sound");
+                saveSettings();
+                break;
+            case TOGGLE_PARTICLES:
+                settings.toggle("particles");
+                saveSettings();
+                break;
+            case TOGGLE_HAPTICS:
+                settings.toggle("haptics");
+                saveSettings();
+                break;
+            case SETTINGS_BACK:
+                settingsOpen = false;
+                break;
+            case RESUME:
+                state = State.PLAYING;
+                break;
+            case RESTART:
+                restart();
+                break;
+            case QUIT_TO_MENU:
+                settingsOpen = false;
+                state = State.MENU;
+                stateTimer = 0f;
+                break;
+            case PAUSE:
+                if (state == State.PLAYING) {
+                    state = State.PAUSED;
+                    stateTimer = 0f;
+                }
+                break;
+        }
+    }
+
+    private void saveSettings() {
+        if (store != null) store.save(settings);
+    }
+
+    /** Pauses gameplay (used by lifecycle callbacks). */
+    public void pauseIfPlaying() {
+        if (state == State.PLAYING) {
+            state = State.PAUSED;
+            stateTimer = 0f;
+        }
+    }
+
     private void onPlayerHit() {
         if (ship.hasShield) { // bubble eats the hit
             ship.hasShield = false;
@@ -463,6 +542,11 @@ public class GameWorld {
             lives = 0;
             state = State.GAME_OVER;
             addShake(0.6f, 22f);
+            if (score > bestScore) {
+                bestScore = score;
+                newBest = true;
+                if (store != null) store.saveBestScore(bestScore);
+            }
             events.add(new GameEvent(EventType.GAME_OVER, ship.x, ship.y));
         } else {
             ship.makeInvulnerable();
@@ -484,6 +568,7 @@ public class GameWorld {
         timeAlive = 0f;
         stateTimer = 0f;
         wave = 1;
+        newBest = false;
         comboKills = 0;
         comboTimer = 0f;
         shakeTime = 0f;
