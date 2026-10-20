@@ -16,83 +16,56 @@ public class PortraitAndPowerupsTest {
         assertTrue(GameWorld.HEIGHT > GameWorld.WIDTH);
     }
 
-    // ---- Ship 方向键 ----
+    // ---- 浮动摇杆（相对拖动）与输入冻结 ----
 
     @Test
-    public void moveDirDrivesShipVelocity() {
+    public void moveShipToFollowsRelativeSlide() {
         GameWorld w = new GameWorld(7L, false);
         w.restart(GameMode.WAVES);
-        float x0 = w.ship.x;
-        w.setShipDir(1, 0);
-        w.ship.update(0.1f, GameWorld.WIDTH, GameWorld.HEIGHT);
-        assertEquals(Ship.MAX_SPEED * 0.1f, w.ship.x - x0, 0.01f);
-        assertEquals(w.ship.y, w.ship.y, 0.001f); // y 不变
+        float sx = w.ship.x, sy = w.ship.y;
+        // 手指从锚点滑 120,80 -> 飞船目标 = 锚点飞船位 + 位移
+        w.moveShipTo(sx + 120f, sy + 80f);
+        for (int i = 0; i < 120; i++) w.update(1f / 60f); // 2 秒足够到位
+        assertEquals(sx + 120f, w.ship.x, 2f);
+        assertEquals(sy + 80f, w.ship.y, 2f);
     }
 
     @Test
-    public void moveDirDiagonalIsNormalized() {
+    public void pauseFreezesShipTargetAndJoystick() {
         GameWorld w = new GameWorld(7L, false);
         w.restart(GameMode.WAVES);
-        float x0 = w.ship.x, y0 = w.ship.y;
-        w.setShipDir(1, 1);
-        w.ship.update(0.1f, GameWorld.WIDTH, GameWorld.HEIGHT);
-        float dx = w.ship.x - x0, dy = w.ship.y - y0;
-        float dist = (float) Math.sqrt(dx * dx + dy * dy);
-        assertEquals(Ship.MAX_SPEED * 0.1f, dist, 0.01f); // 对角线总速度不变
-        assertEquals(dx, dy, 0.01f);
+        w.joyActive = true;
+        w.moveShipTo(w.ship.x + 400f, w.ship.y);
+        w.pauseIfPlaying();
+        assertFalse(w.joyActive);
+        float pausedX = w.ship.x;
+        for (int i = 0; i < 30; i++) w.update(1f / 60f); // PAUSED 不推进模拟
+        assertEquals(pausedX, w.ship.x, 0.001f);
+        // 恢复后不漂移（目标已冻结在暂停位置）
+        w.handleUiAction(Ui.Action.RESUME);
+        w.update(1f / 60f);
+        assertEquals(pausedX, w.ship.x, 1.5f);
     }
 
     @Test
-    public void moveDirClampsToPortraitBounds() {
+    public void gameOverClearsJoystickState() {
         GameWorld w = new GameWorld(7L, false);
         w.restart(GameMode.WAVES);
-        w.setShipDir(1, 1);
-        for (int i = 0; i < 600; i++) {
-            w.ship.update(1f / 60f, GameWorld.WIDTH, GameWorld.HEIGHT);
-        }
-        assertTrue("x 越界", w.ship.x <= GameWorld.WIDTH - Ship.RADIUS + 0.01f);
-        assertTrue("y 越界", w.ship.y <= GameWorld.HEIGHT - Ship.RADIUS + 0.01f);
-        w.setShipDir(-1, -1);
-        for (int i = 0; i < 600; i++) {
-            w.ship.update(1f / 60f, GameWorld.WIDTH, GameWorld.HEIGHT);
-        }
-        assertTrue(w.ship.x >= Ship.RADIUS - 0.01f);
-        assertTrue(w.ship.y >= Ship.RADIUS - 0.01f);
+        w.joyActive = true;
+        w.lives = 1;
+        Enemy e = firstFreeEnemy(w);
+        e.init(EnemyType.DRONE, w.ship.x, w.ship.y, 1f);
+        w.update(1f / 60f); // 撞机死亡
+        assertEquals(GameWorld.State.GAME_OVER, w.state);
+        assertFalse(w.joyActive);
     }
 
     @Test
-    public void zeroDirStopsMovement() {
-        GameWorld w = new GameWorld(7L, false);
-        w.restart(GameMode.WAVES);
-        w.setShipDir(1, 0);
-        w.ship.update(0.1f, GameWorld.WIDTH, GameWorld.HEIGHT);
-        float x = w.ship.x;
-        w.setShipDir(0, 0);
-        w.ship.update(0.1f, GameWorld.WIDTH, GameWorld.HEIGHT);
-        assertEquals(x, w.ship.x, 0.001f);
-    }
-
-    @Test
-    public void setShipDirIgnoredOutsidePlaying() {
-        GameWorld w = new GameWorld(7L, false);
-        w.restart(GameMode.WAVES);
-        w.pauseIfPlaying(); // -> PAUSED
-        float x0 = w.ship.x;
-        w.setShipDir(1, 0);
-        assertEquals(x0, w.ship.x, 0.001f);
-        w.clearShipDir();
-        assertEquals(0, w.ship.moveDx);
-    }
-
-    @Test
-    public void resetClearsMoveDirAndRapid() {
+    public void resetClearsRapid() {
         Ship s = new Ship();
         s.reset(100, 100);
-        s.setMoveDir(1, -1);
         s.rapidTimer = 5f;
         s.reset(50, 50);
-        assertEquals(0, s.moveDx);
-        assertEquals(0, s.moveDy);
         assertEquals(0f, s.rapidTimer, 0.001f);
     }
 

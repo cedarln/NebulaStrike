@@ -444,19 +444,36 @@ public class Renderer {
         drawControls(c, w);
     }
 
-    /** 竖屏虚拟操作区：左下十字方向键 + 右下炸弹圆键。 */
+    /** 竖屏操作呈现：浮动摇杆（按下才显示）+ 右下角炸弹圆键。 */
     private void drawControls(Canvas c, GameWorld w) {
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(3f);
-        // 十字方向键（半透明描边 + 按下态更亮）
-        drawPadKey(c, Ui.DPAD_UP, "▲", w.ship.moveDy < 0);
-        drawPadKey(c, Ui.DPAD_DOWN, "▼", w.ship.moveDy > 0);
-        drawPadKey(c, Ui.DPAD_LEFT, "◀", w.ship.moveDx < 0);
-        drawPadKey(c, Ui.DPAD_RIGHT, "▶", w.ship.moveDx > 0);
+        // 浮动摇杆：基座 = 按下锚点，摇杆头朝手指方向偏移（限幅在基座圆内）
+        if (w.joyActive) {
+            float dx = w.joyX - w.joyBaseX, dy = w.joyY - w.joyBaseY;
+            float d = (float) Math.sqrt(dx * dx + dy * dy);
+            float hx = w.joyBaseX, hy = w.joyBaseY;
+            if (d > 1f) {
+                float clamped = Math.min(d, 70f);
+                hx = w.joyBaseX + dx / d * clamped;
+                hy = w.joyBaseY + dy / d * clamped;
+            }
+            glow.setColor(0x337DF9FF);
+            c.drawCircle(w.joyBaseX, w.joyBaseY, 70f, glow);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(3f);
+            paint.setColor(0x667DF9FF);
+            c.drawCircle(w.joyBaseX, w.joyBaseY, 70f, paint);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(0x887DF9FF);
+            c.drawCircle(hx, hy, 26f, paint);
+            paint.setColor(0xCCE8F1FF);
+            c.drawCircle(hx, hy, 12f, paint);
+        }
 
         // 炸弹圆键 + 数量
         Ui.Rect b = Ui.BOMB;
         boolean bombReady = w.ship.bombs > 0;
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3f);
         paint.setColor(bombReady ? 0x88FF5C7A : 0x448FA3C8);
         c.drawCircle(b.cx(), b.cy(), 80f, paint);
         paint.setStyle(Paint.Style.FILL);
@@ -470,21 +487,6 @@ public class Renderer {
         paint.setTextAlign(Paint.Align.CENTER);
         c.drawText(String.valueOf(w.ship.bombs), b.cx(), b.cy() + 44f, paint);
         paint.setFakeBoldText(false);
-        paint.setTextAlign(Paint.Align.LEFT);
-    }
-
-    private void drawPadKey(Canvas c, Ui.Rect r, String arrow, boolean pressed) {
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(3f);
-        paint.setColor(pressed ? 0xCC7DF9FF : 0x558FA3C8);
-        c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 22f, 22f, paint);
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(pressed ? 0x667DF9FF : 0x33182040);
-        c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 22f, 22f, paint);
-        paint.setColor(pressed ? 0xFFE8F1FF : 0xFF8FA3C8);
-        paint.setTextSize(40f);
-        paint.setTextAlign(Paint.Align.CENTER);
-        c.drawText(arrow, r.cx(), r.cy() + 14f, paint);
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
@@ -503,7 +505,7 @@ public class Renderer {
 
         paint.setColor(0xFF8FA3C8);
         paint.setTextSize(28f);
-        c.drawText("D-PAD MOVE  •  AUTO FIRE  •  BOMB BUTTON", VW / 2f, 360f, paint);
+        c.drawText("SLIDE ANYWHERE TO FLY  •  AUTO FIRE  •  BOMB BUTTON", VW / 2f, 360f, paint);
 
         button(c, Ui.START, "CAMPAIGN", 0xFF274BFF, 0xFFE8F1FF, true);
         button(c, Ui.START_ENDLESS, "ENDLESS", 0xFF8A2BE2, 0xFFFFD166, true);
@@ -518,7 +520,7 @@ public class Renderer {
 
         paint.setTextSize(26f);
         paint.setColor(0x668FA3C8);
-        c.drawText("十字键移动 · 自动开火 · 右下角炸弹键", VW / 2f, 1185f, paint);
+        c.drawText("按住屏幕任意位置滑动即可操控飞船 · 自动开火 · 右下角炸弹键", VW / 2f, 1185f, paint);
         paint.setTextAlign(Paint.Align.LEFT);
     }
 

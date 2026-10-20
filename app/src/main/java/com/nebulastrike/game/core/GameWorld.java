@@ -147,25 +147,20 @@ public class GameWorld {
         ship.reset(WIDTH / 2f, HEIGHT - 140f);
     }
 
-    /** Drags the ship via touch input. */
+    /** Drags the ship via touch input (relative slide, virtual coords). */
     public void moveShipTo(float x, float y) {
-        if (state == State.PLAYING) {
-            ship.setTarget(x, y);
-            ship.setMoveDir(0, 0); // 拖拽目标优先，清除方向键状态
-        }
+        if (state == State.PLAYING) ship.setTarget(x, y);
     }
 
-    /** 虚拟方向键：app 层在按键集合变化时调用（dx/dy 各为 -1/0/1）。 */
-    public void setShipDir(int dx, int dy) {
-        if (state == State.PLAYING) {
-            ship.setMoveDir(dx, dy);
-            ship.setTarget(ship.x, ship.y); // 方向键优先，清除残留拖拽目标
-        }
-    }
+    // 浮动摇杆呈现状态：由 app 层写入，Renderer 绘制反馈（不影响模拟）
+    public boolean joyActive;
+    public float joyBaseX, joyBaseY;   // 按下锚点（基座）
+    public float joyX, joyY;           // 当前手指位置（摇杆头朝向）
 
-    /** 暂停/结算时清零方向，避免恢复后飞船漂移。 */
-    public void clearShipDir() {
-        ship.setMoveDir(0, 0);
+    /** 暂停/结算时冻结飞船目标，避免恢复后继续漂移。 */
+    public void clearShipInput() {
+        ship.snapTarget();
+        joyActive = false;
     }
 
     /** Steps the simulation. dt is clamped so backgrounding cannot explode physics. */
@@ -819,6 +814,7 @@ public class GameWorld {
         if (state == State.PLAYING) {
             state = State.PAUSED;
             stateTimer = 0f;
+            clearShipInput();
         }
     }
 
@@ -838,6 +834,8 @@ public class GameWorld {
         if (lives <= 0) {
             lives = 0;
             state = State.GAME_OVER;
+            stateTimer = 0f;
+            clearShipInput();
             addShake(0.6f, 22f);
             if (score > bestScore) {
                 bestScore = score;

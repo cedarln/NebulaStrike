@@ -25,7 +25,9 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
     private volatile boolean running;
     private long lastBombAt;
     private int lastShotsSeen;
-    private boolean padBombHeld;
+    /** 浮动摇杆：拖动中手指的 pointerId（-1 = 未拖动） */
+    private int dragPointer = -1;
+    private float anchorTouchX, anchorTouchY, anchorShipX, anchorShipY;
     private GameWorld.UpdateState lastUpdateState = GameWorld.UpdateState.IDLE;
 
     public GameView(Context context) {
@@ -48,70 +50,94 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
         world.currentVersion = UpdateManager.currentVersion(context);
     }
 
+    /** 手指位移 → 飞船位移 的灵敏度（1.0 = 等距跟随）。 */
+    private static final float DRAG_SENSITIVITY = 1.0f;
+
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         final int action = event.getActionMasked();
+        final int idx = event.getActionIndex();
         switch (action) {
             case MotionEvent.ACTION_DOWN:
             case MotionEvent.ACTION_POINTER_DOWN:
+                handlePress(event, idx);
+                return true;
             case MotionEvent.ACTION_MOVE:
+                handleDrag(event);
+                return true;
             case MotionEvent.ACTION_UP:
             case MotionEvent.ACTION_POINTER_UP:
+                handleRelease(event, idx);
+                return true;
             case MotionEvent.ACTION_CANCEL:
-                updatePadAndUi(event);
+                endDrag();
                 return true;
             default:
                 return super.onTouchEvent(event);
         }
     }
 
-    /**
-     * 统一触摸处理：先扫 UI 点击（仅在按下沿触发一次），再刷新 D-pad 按键集合。
-     * 任意事件类型都重扫全部 pointer，保证滑入/滑出方向键都能被感知。
-     */
-    private void updatePadAndUi(MotionEvent event) {
-        final int action = event.getActionMasked();
+    /** 按下沿：UI 点击 / 炸弹键 / 开始浮动摇杆拖动。 */
+    private void handlePress(MotionEvent event, int idx) {
+        float[] v = renderer.toVirtual(event.getX(idx), event.getY(idx));
 
-        // ---- UI 点击（按下沿一次） ----
-        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
-            float[] v = renderer.toVirtual(event.getX(event.getActionIndex()),
-                    event.getY(event.getActionIndex()));
-            Ui.Action a = Ui.hit(world.state, world.settingsOpen, v[0], v[1]);
-            if (a != null) {
-                world.handleUiAction(a);
-                if (a == Ui.Action.CHECK_UPDATE) dispatchUpdateWork();
-                audio.uiTick();
-                return;
-            }
-            if (world.state == GameWorld.State.GAME_OVER && world.stateTimer > 0.8f) {
-                world.handleUiAction(Ui.Action.RESTART);
-                return;
-            }
-        }
-
-        // ---- D-pad 按键集合重扫 ----
-        boolean up = false, down = false, left = false, right = false, bomb = false;
-        if (world.state == GameWorld.State.PLAYING) {
-            for (int i = 0; i < event.getPointerCount(); i++) {
-                float[] v = renderer.toVirtual(event.getX(i), event.getY(i));
-                if (Ui.DPAD_UP.contains(v[0], v[1])) up = true;
-                else if (Ui.DPAD_DOWN.contains(v[0], v[1])) down = true;
-                else if (Ui.DPAD_LEFT.contains(v[0], v[1])) left = true;
-                else if (Ui.DPAD_RIGHT.contains(v[0], v[1])) right = true;
-                else if (Ui.BOMB.contains(v[0], v[1])) bomb = true;
-            }
-        }
-        // 炸弹键：按下沿触发一次（带去抖）
-        if (bomb && !padBombHeld) {
+        // 炸弹键（按下沿触发一次，带去抖）——优先于摇杆
+        if (world.state == GameWorld.State.PLAYING && Ui.BOMB.contains(v[0], v[1])) {
             long now = System.nanoTime();
             if (now - lastBombAt > 400_000_000L) {
                 lastBombAt = now;
                 world.detonateBomb();
             }
+            return;
         }
-        padBombHeld = bomb;
-        world.setShipDir((right ? 1 : 0) - (left ? 1 : 0), (down ? 1 : 0) - (up ? 1 : 0));
-        if (world.state != GameWorld.State.PLAYING) world.clearShipDir();
+
+        Ui.Action a = Ui.hit(world.state, world.settingsOpen, v[0], v[1]);
+        if (a != null) {
+            world.handleUiAction(a);
+            if (a == Ui.Action.CHECK_UPDATE) dispatchUpdateWork();
+            audio.uiTick();
+            return;
+        }
+        if (world.state == GameWorld.State.GAME_OVER && world.stateTimer > 0.8f) {
+            world.handleUiAction(Ui.Action.RESTART);
+            return;
+        }
+
+        // 任意空白位置按下 = 摇杆锚点（王者荣耀式相对拖动）
+        if (world.state == GameWorld.State.PLAYING && dragPointer < 0) {
+            dragPointer = event.getPointerId(idx);
+            anchorTouchX = v[0];
+            anchorTouchY = v[1];
+            anchorShipX = world.ship.x;
+            anchorShipY = world.ship.y;
+            world.joyActive = true;
+            world.joyBaseX = v[0];
+            world.joyBaseY = v[1];
+            world.joyX = v[0];
+            world.joyY = v[1];
+        }
+    }
+
+    /** MOVE：按锚点→手指的相对位移驱动飞船（限速跟随由 Ship 保证）。 */
+    private void handleDrag(MotionEvent event) {
+        if (dragPointer < 0) return;
+        int idx = event.findPointerIndex(dragPointer);
+        if (idx < 0) return;
+        float[] v = renderer.toVirtual(event.getX(idx), event.getY(idx));
+        float dx = (v[0] - anchorTouchX) * DRAG_SENSITIVITY;
+        float dy = (v[1] - anchorTouchY) * DRAG_SENSITIVITY;
+        world.moveShipTo(anchorShipX + dx, anchorShipY + dy);
+        world.joyX = v[0];
+        world.joyY = v[1];
+    }
+
+    private void handleRelease(MotionEvent event, int idx) {
+        if (dragPointer >= 0 && event.getPointerId(idx) == dragPointer) endDrag();
+    }
+
+    private void endDrag() {
+        dragPointer = -1;
+        world.joyActive = false;
     }
 
     /** 升级检测点击后：按状态机派发后台 IO（检查 / 下载）。 */

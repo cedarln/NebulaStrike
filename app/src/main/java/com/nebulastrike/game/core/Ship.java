@@ -3,7 +3,8 @@ package com.nebulastrike.game.core;
 /**
  * Player ship. Pure simulation object: no Android imports so it is unit-testable.
  * Coordinates are in virtual units: the game runs in a fixed 900x1600 portrait space.
- * 两种移动模式：虚拟方向键（速度语义）与拖拽目标点（平滑跟随，供测试/兼容）。
+ * 移动为"相对拖动"模式：app 层把手指相对按下锚点的位移换算成目标点，
+ * 飞船以限速平滑跟随（MOBA/射击常见的浮动摇杆手感）。
  */
 public class Ship {
     public static final float RADIUS = 34f;
@@ -16,9 +17,6 @@ public class Ship {
     private float cooldown;
     public boolean invulnerable;
     private float invulnTimer;
-
-    // 虚拟方向键：每个轴 -1/0/1，由 app 层根据按键集合计算
-    public int moveDx, moveDy;
 
     // loadout state
     public WeaponType weapon = WeaponType.VULCAN;
@@ -43,27 +41,22 @@ public class Ship {
         weaponTimer = 0f;
         hasShield = false;
         bombs = 1;
-        moveDx = 0;
-        moveDy = 0;
         rapidTimer = 0f;
     }
 
-    /** 虚拟方向键设置移动方向（app 层在按键集合变化时调用）。 */
-    public void setMoveDir(int dx, int dy) {
-        moveDx = dx;
-        moveDy = dy;
-    }
-
-    /** 拖拽模式：设置期望位置。 */
+    /** 拖拽模式：设置期望位置（限速跟随）。 */
     public void setTarget(float tx, float ty) {
         targetX = tx;
         targetY = ty;
     }
 
-    /**
-     * 方向键优先；无方向输入时平滑跟随目标点。
-     * Returns true if the ship fired this frame.
-     */
+    /** 暂停/死亡时冻结目标，避免恢复后继续飞向旧目标点。 */
+    public void snapTarget() {
+        targetX = x;
+        targetY = y;
+    }
+
+    /** Smooth-follows the target with a bounded speed. Returns true if the ship fired. */
     public boolean update(float dt, float worldW, float worldH) {
         boolean fired = false;
         cooldown -= dt;
@@ -71,13 +64,12 @@ public class Ship {
             cooldown = weapon.cooldown * (rapidTimer > 0f ? 0.5f : 1f);
             fired = true;
         }
-        if (moveDx != 0 || moveDy != 0) {
-            float len = (float) Math.sqrt(moveDx * moveDx + moveDy * moveDy);
-            float step = MAX_SPEED * dt;
-            x += moveDx / len * step;
-            y += moveDy / len * step;
-        } else {
-            moveToward(targetX, targetY, dt);
+        float dx = targetX - x, dy = targetY - y;
+        float dist = (float) Math.sqrt(dx * dx + dy * dy);
+        if (dist > 1e-3f) {
+            float step = Math.min(MAX_SPEED * dt, dist);
+            x += dx / dist * step;
+            y += dy / dist * step;
         }
         float margin = RADIUS;
         x = clamp(x, margin, worldW - margin);
@@ -95,16 +87,6 @@ public class Ship {
             if (rapidTimer < 0f) rapidTimer = 0f;
         }
         return fired;
-    }
-
-    private void moveToward(float tx, float ty, float dt) {
-        float dx = tx - x, dy = ty - y;
-        float dist = (float) Math.sqrt(dx * dx + dy * dy);
-        if (dist > 1e-3f) {
-            float step = Math.min(MAX_SPEED * dt, dist);
-            x += dx / dist * step;
-            y += dy / dist * step;
-        }
     }
 
     public void makeInvulnerable() {
