@@ -25,6 +25,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
     private volatile boolean running;
     private long lastBombAt;
     private int lastShotsSeen;
+    private boolean padBombHeld;
     private GameWorld.UpdateState lastUpdateState = GameWorld.UpdateState.IDLE;
 
     public GameView(Context context) {
@@ -50,37 +51,67 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
     @Override
     public boolean onTouchEvent(MotionEvent event) {
         final int action = event.getActionMasked();
-        if (action == MotionEvent.ACTION_POINTER_DOWN) {
-            // second finger = smart bomb (with a small debounce)
+        switch (action) {
+            case MotionEvent.ACTION_DOWN:
+            case MotionEvent.ACTION_POINTER_DOWN:
+            case MotionEvent.ACTION_MOVE:
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_POINTER_UP:
+            case MotionEvent.ACTION_CANCEL:
+                updatePadAndUi(event);
+                return true;
+            default:
+                return super.onTouchEvent(event);
+        }
+    }
+
+    /**
+     * 统一触摸处理：先扫 UI 点击（仅在按下沿触发一次），再刷新 D-pad 按键集合。
+     * 任意事件类型都重扫全部 pointer，保证滑入/滑出方向键都能被感知。
+     */
+    private void updatePadAndUi(MotionEvent event) {
+        final int action = event.getActionMasked();
+
+        // ---- UI 点击（按下沿一次） ----
+        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
+            float[] v = renderer.toVirtual(event.getX(event.getActionIndex()),
+                    event.getY(event.getActionIndex()));
+            Ui.Action a = Ui.hit(world.state, world.settingsOpen, v[0], v[1]);
+            if (a != null) {
+                world.handleUiAction(a);
+                if (a == Ui.Action.CHECK_UPDATE) dispatchUpdateWork();
+                audio.uiTick();
+                return;
+            }
+            if (world.state == GameWorld.State.GAME_OVER && world.stateTimer > 0.8f) {
+                world.handleUiAction(Ui.Action.RESTART);
+                return;
+            }
+        }
+
+        // ---- D-pad 按键集合重扫 ----
+        boolean up = false, down = false, left = false, right = false, bomb = false;
+        if (world.state == GameWorld.State.PLAYING) {
+            for (int i = 0; i < event.getPointerCount(); i++) {
+                float[] v = renderer.toVirtual(event.getX(i), event.getY(i));
+                if (Ui.DPAD_UP.contains(v[0], v[1])) up = true;
+                else if (Ui.DPAD_DOWN.contains(v[0], v[1])) down = true;
+                else if (Ui.DPAD_LEFT.contains(v[0], v[1])) left = true;
+                else if (Ui.DPAD_RIGHT.contains(v[0], v[1])) right = true;
+                else if (Ui.BOMB.contains(v[0], v[1])) bomb = true;
+            }
+        }
+        // 炸弹键：按下沿触发一次（带去抖）
+        if (bomb && !padBombHeld) {
             long now = System.nanoTime();
             if (now - lastBombAt > 400_000_000L) {
                 lastBombAt = now;
                 world.detonateBomb();
             }
-            return true;
         }
-        if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
-            float[] v = renderer.toVirtual(event.getX(), event.getY());
-            float vx = v[0], vy = v[1];
-
-            // UI first
-            Ui.Action a = Ui.hit(world.state, world.settingsOpen, vx, vy);
-            if (a != null) {
-                world.handleUiAction(a);
-                if (a == Ui.Action.CHECK_UPDATE) dispatchUpdateWork();
-                audio.uiTick();
-                return true;
-            }
-            if (world.state == GameWorld.State.GAME_OVER) {
-                if (world.stateTimer > 0.8f) world.handleUiAction(Ui.Action.RESTART);
-                return true;
-            }
-            if (world.state == GameWorld.State.PLAYING) {
-                world.moveShipTo(vx, vy);
-            }
-            return true;
-        }
-        return super.onTouchEvent(event);
+        padBombHeld = bomb;
+        world.setShipDir((right ? 1 : 0) - (left ? 1 : 0), (down ? 1 : 0) - (up ? 1 : 0));
+        if (world.state != GameWorld.State.PLAYING) world.clearShipDir();
     }
 
     /** 升级检测点击后：按状态机派发后台 IO（检查 / 下载）。 */

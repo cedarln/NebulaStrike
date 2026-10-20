@@ -19,8 +19,8 @@ import com.nebulastrike.game.core.Star;
 import com.nebulastrike.game.core.Ui;
 
 /**
- * Draws the whole game with Canvas. The simulation lives in a 1600x900 virtual
- * space; this class letterboxes and scales it onto the real display.
+ * Draws the whole game with Canvas. The simulation lives in a 900x1600 portrait
+ * virtual space; this class letterboxes and scales it onto the real display.
  */
 public class Renderer {
     public static final float VW = GameWorld.WIDTH;
@@ -174,6 +174,9 @@ public class Renderer {
                 case SPREAD: color = 0xFF7DF9FF; label = "W"; break;
                 case MISSILE: color = 0xFFFFD166; label = "M"; break;
                 case SHIELD: color = 0xFF7CFF6B; label = "S"; break;
+                case RAPID:  color = 0xFFFF9D5C; label = "R"; break;
+                case X2:     color = 0xFFB08FFF; label = "×2"; break;
+                case LIFE:   color = 0xFFFF7089; label = "+"; break;
                 default: color = 0xFFFF5C7A; label = "B"; break;
             }
             glow.setColor(((color & 0xFFFFFF) | 0x33000000));
@@ -280,7 +283,7 @@ public class Renderer {
         c.drawCircle(b.x + Boss.RADIUS * 0.95f, b.y, 26f, paint);
 
         // top health bar
-        float barW = 720f, barH = 22f;
+        float barW = 620f, barH = 22f;
         float bx = VW / 2f - barW / 2f, by = 30f;
         paint.setColor(0x66000000);
         c.drawRect(bx - 4f, by - 4f, bx + barW + 4f, by + barH + 4f, paint);
@@ -396,6 +399,30 @@ public class Renderer {
             c.drawText("SHIELD", 40f, 166f, paint);
         }
 
+        // 速射 / 双倍分数 状态条
+        float statusY = w.ship.hasShield ? 204f : 166f;
+        if (w.ship.rapidTimer > 0f) {
+            paint.setColor(0xFFFF9D5C);
+            paint.setTextSize(26f);
+            c.drawText("RAPID", 40f, statusY, paint);
+            float frac = w.ship.rapidTimer / Ship.RAPID_DURATION;
+            paint.setColor(0x33FF9D5C);
+            c.drawRect(40f, statusY + 12f, 40f + 180f, statusY + 20f, paint);
+            paint.setColor(0xFFFF9D5C);
+            c.drawRect(40f, statusY + 12f, 40f + 180f * frac, statusY + 20f, paint);
+            statusY += 38f;
+        }
+        if (w.x2Timer > 0f) {
+            paint.setColor(0xFFB08FFF);
+            paint.setTextSize(26f);
+            c.drawText("SCORE ×2", 40f, statusY, paint);
+            float frac = w.x2Timer / GameWorld.X2_DURATION;
+            paint.setColor(0x33B08FFF);
+            c.drawRect(40f, statusY + 12f, 40f + 180f, statusY + 20f, paint);
+            paint.setColor(0xFFB08FFF);
+            c.drawRect(40f, statusY + 12f, 40f + 180f * frac, statusY + 20f, paint);
+        }
+
         // lives as mini ships
         c.save();
         for (int i = 0; i < w.lives; i++) {
@@ -414,18 +441,51 @@ public class Renderer {
         c.drawRect(Ui.PAUSE_BTN.x + 38f, Ui.PAUSE_BTN.y + 8f,
                 Ui.PAUSE_BTN.x + 50f, Ui.PAUSE_BTN.y + 56f, paint);
 
-        // bombs bottom-left
-        for (int i = 0; i < w.ship.bombs; i++) {
-            paint.setColor(0xFFFF5C7A);
-            c.drawCircle(56f + i * 52f, VH - 52f, 16f, paint);
-            paint.setColor(0xFFFFE08A);
-            c.drawCircle(56f + i * 52f, VH - 52f, 7f, paint);
-        }
-        if (w.ship.bombs > 0) {
-            paint.setColor(0xFF8FA3C8);
-            paint.setTextSize(22f);
-            c.drawText("2ND FINGER = BOMB", 40f, VH - 96f, paint);
-        }
+        drawControls(c, w);
+    }
+
+    /** 竖屏虚拟操作区：左下十字方向键 + 右下炸弹圆键。 */
+    private void drawControls(Canvas c, GameWorld w) {
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3f);
+        // 十字方向键（半透明描边 + 按下态更亮）
+        drawPadKey(c, Ui.DPAD_UP, "▲", w.ship.moveDy < 0);
+        drawPadKey(c, Ui.DPAD_DOWN, "▼", w.ship.moveDy > 0);
+        drawPadKey(c, Ui.DPAD_LEFT, "◀", w.ship.moveDx < 0);
+        drawPadKey(c, Ui.DPAD_RIGHT, "▶", w.ship.moveDx > 0);
+
+        // 炸弹圆键 + 数量
+        Ui.Rect b = Ui.BOMB;
+        boolean bombReady = w.ship.bombs > 0;
+        paint.setColor(bombReady ? 0x88FF5C7A : 0x448FA3C8);
+        c.drawCircle(b.cx(), b.cy(), 80f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(bombReady ? 0xFFFF5C7A : 0x668FA3C8);
+        c.drawCircle(b.cx(), b.cy(), 62f, paint);
+        paint.setColor(0xFFFFE08A);
+        c.drawCircle(b.cx(), b.cy() - 14f, 18f, paint);
+        paint.setColor(0xFF0A0C18);
+        paint.setTextSize(40f);
+        paint.setFakeBoldText(true);
+        paint.setTextAlign(Paint.Align.CENTER);
+        c.drawText(String.valueOf(w.ship.bombs), b.cx(), b.cy() + 44f, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private void drawPadKey(Canvas c, Ui.Rect r, String arrow, boolean pressed) {
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3f);
+        paint.setColor(pressed ? 0xCC7DF9FF : 0x558FA3C8);
+        c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 22f, 22f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(pressed ? 0x667DF9FF : 0x33182040);
+        c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 22f, 22f, paint);
+        paint.setColor(pressed ? 0xFFE8F1FF : 0xFF8FA3C8);
+        paint.setTextSize(40f);
+        paint.setTextAlign(Paint.Align.CENTER);
+        c.drawText(arrow, r.cx(), r.cy() + 14f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
     }
 
     private void drawMenu(Canvas c, GameWorld w) {
@@ -435,15 +495,15 @@ public class Renderer {
         c.drawRect(0, 0, VW, VH, paint);
 
         paint.setTextAlign(Paint.Align.CENTER);
-        paint.setTextSize(130f);
+        paint.setTextSize(120f);
         paint.setColor(0xFF7DF9FF);
-        c.drawText("NEBULA", VW / 2f, 240f, paint);
+        c.drawText("NEBULA", VW / 2f, 190f, paint);
         paint.setColor(0xFFFF3355);
-        c.drawText("STRIKE", VW / 2f, 370f, paint);
+        c.drawText("STRIKE", VW / 2f, 305f, paint);
 
         paint.setColor(0xFF8FA3C8);
-        paint.setTextSize(30f);
-        c.drawText("DRAG TO FLY  •  AUTO FIRE  •  2ND FINGER = BOMB", VW / 2f, 430f, paint);
+        paint.setTextSize(28f);
+        c.drawText("D-PAD MOVE  •  AUTO FIRE  •  BOMB BUTTON", VW / 2f, 360f, paint);
 
         button(c, Ui.START, "CAMPAIGN", 0xFF274BFF, 0xFFE8F1FF, true);
         button(c, Ui.START_ENDLESS, "ENDLESS", 0xFF8A2BE2, 0xFFFFD166, true);
@@ -451,10 +511,14 @@ public class Renderer {
 
         paint.setTextSize(28f);
         paint.setColor(0xFFFFD166);
-        c.drawText("BEST  " + w.bestScore + "    v" + w.currentVersion, VW / 2f, 748f, paint);
+        c.drawText("BEST  " + w.bestScore + "    v" + w.currentVersion, VW / 2f, 690f, paint);
 
         drawUpdateButton(c, w);
-        drawDualBoard(c, w, 1160f, 430f, 330f, 44f, 22f);
+        drawDualBoard(c, w, VW / 2f - 165f, 830f, 330f, 44f, 22f);
+
+        paint.setTextSize(26f);
+        paint.setColor(0x668FA3C8);
+        c.drawText("十字键移动 · 自动开火 · 右下角炸弹键", VW / 2f, 1185f, paint);
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
@@ -464,7 +528,8 @@ public class Renderer {
         int bg, fg;
         switch (w.updateState) {
             case CHECKING:    label = "检查中…"; bg = 0xFF182040; fg = 0xFF8FA3C8; break;
-            case UP_TO_DATE:  label = "已是最新版本"; bg = 0xFF182040; fg = 0xFF6FE38B; break;
+            case UP_TO_DATE:  label = "已是最新版本 v" + w.currentVersion;
+                              bg = 0xFF182040; fg = 0xFF6FE38B; break;
             case AVAILABLE:   label = "发现新版本 " + w.updateVersion + "，点击下载";
                               bg = 0xFF2E7D32; fg = 0xFFE8FFEA; break;
             case DOWNLOADING: label = "下载中 " + w.updateProgress + "%";
@@ -531,33 +596,33 @@ public class Renderer {
         c.drawRect(0, 0, VW, VH, paint);
         paint.setTextAlign(Paint.Align.CENTER);
 
-        paint.setTextSize(110f);
+        paint.setTextSize(96f);
         paint.setColor(0xFFFF3355);
-        c.drawText("GAME OVER", VW / 2f, 330f, paint);
+        c.drawText("GAME OVER", VW / 2f, 440f, paint);
 
-        paint.setTextSize(52f);
+        paint.setTextSize(46f);
         paint.setColor(0xFFFFFFFF);
         c.drawText("Score " + w.score + "   •   Kills " + w.kills
-                + "   •   Survived " + (int) w.timeAlive + "s", VW / 2f, 410f, paint);
+                + "   •   Survived " + (int) w.timeAlive + "s", VW / 2f, 515f, paint);
 
         if (w.newBest) {
             float pulse = 1f + 0.06f * (float) Math.sin(w.stateTimer * 6f);
             paint.setTextSize(40f * pulse);
             paint.setColor(0xFFFFD166);
-            c.drawText("★ NEW BEST " + w.bestScore + " ★", VW / 2f, 480f, paint);
+            c.drawText("★ NEW BEST " + w.bestScore + " ★", VW / 2f, 580f, paint);
         } else {
             paint.setTextSize(36f);
             paint.setColor(0xFF8FA3C8);
-            c.drawText("BEST  " + w.bestScore, VW / 2f, 475f, paint);
+            c.drawText("BEST  " + w.bestScore, VW / 2f, 578f, paint);
         }
 
-        drawLeaderboard(c, w.board(w.mode), w.mode, VW / 2f - 160f, 515f, 320f, 30f, 22f, w.scoreRank);
+        drawLeaderboard(c, w.board(w.mode), w.mode, VW / 2f - 160f, 625f, 320f, 30f, 22f, w.scoreRank);
 
         paint.setTextSize(40f);
         paint.setColor(0xFF8FA3C8);
         float alpha = 0.4f + 0.6f * Math.abs((float) Math.sin(w.stateTimer * 2.2f));
         paint.setColor(((int) (255 * alpha) << 24) | 0x8FA3C8);
-        c.drawText("Tap to fly again", VW / 2f, 790f, paint);
+        c.drawText("Tap to fly again", VW / 2f, 900f, paint);
         paint.setTextAlign(Paint.Align.LEFT);
     }
 

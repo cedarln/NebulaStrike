@@ -18,10 +18,18 @@ public final class Ui {
     }
 
     // menu
-    public static final Rect START = new Rect(GameWorld.WIDTH / 2f - 220f, 460f, 440f, 76f);
-    public static final Rect START_ENDLESS = new Rect(GameWorld.WIDTH / 2f - 220f, 552f, 440f, 76f);
-    public static final Rect SETTINGS = new Rect(GameWorld.WIDTH / 2f - 220f, 644f, 440f, 64f);
-    public static final Rect CHECK_UPDATE = new Rect(GameWorld.WIDTH / 2f - 220f, 768f, 440f, 56f);
+    public static final Rect START = new Rect(GameWorld.WIDTH / 2f - 220f, 400f, 440f, 76f);
+    public static final Rect START_ENDLESS = new Rect(GameWorld.WIDTH / 2f - 220f, 492f, 440f, 76f);
+    public static final Rect SETTINGS = new Rect(GameWorld.WIDTH / 2f - 220f, 584f, 440f, 64f);
+    public static final Rect CHECK_UPDATE = new Rect(GameWorld.WIDTH / 2f - 220f, 715f, 440f, 56f);
+
+    // playing: virtual D-pad (held buttons, handled by GameView's press tracking)
+    // 十字布局，中心 (170, 1320)；BOMB 为右下角大圆键
+    public static final Rect DPAD_UP = new Rect(115f, 1155f, 110f, 110f);
+    public static final Rect DPAD_DOWN = new Rect(115f, 1375f, 110f, 110f);
+    public static final Rect DPAD_LEFT = new Rect(5f, 1265f, 110f, 110f);
+    public static final Rect DPAD_RIGHT = new Rect(225f, 1265f, 110f, 110f);
+    public static final Rect BOMB = new Rect(640f, 1270f, 180f, 180f);
     // settings toggles (drawn on the settings panel in both menu and pause)
     public static final Rect TOGGLE_SOUND = new Rect(GameWorld.WIDTH / 2f - 220f, 470f, 440f, 64f);
     public static final Rect TOGGLE_PARTICLES = new Rect(GameWorld.WIDTH / 2f - 220f, 546f, 440f, 64f);

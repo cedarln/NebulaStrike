@@ -5,13 +5,14 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * Central simulation of the game. Runs in a fixed virtual space (1600x900) that the
+ * Central simulation of the game. Runs in a fixed virtual space (900x1600 portrait) that the
  * renderer scales to the actual display, keeping gameplay identical on every device.
  * Pure Java: fully unit-testable on the JVM.
  */
 public class GameWorld {
-    public static final float WIDTH = 1600f;
-    public static final float HEIGHT = 900f;
+    /** 竖屏虚拟坐标系（v1.3 起从 1600x900 横屏改为 900x1600 竖屏）。 */
+    public static final float WIDTH = 900f;
+    public static final float HEIGHT = 1600f;
 
     public enum State { MENU, PLAYING, PAUSED, GAME_OVER }
 
@@ -72,6 +73,12 @@ public class GameWorld {
     public float shakeMag;
     /** white flash overlay after a smart bomb, decays to 0 */
     public float bombFlash;
+
+    // timed powerup effects
+    /** 双倍分数剩余时间（>0 时得分翻倍） */
+    public float x2Timer;
+    public static final float X2_DURATION = 8f;
+    public static final int MAX_LIVES = 4;
 
     // persistence-backed state
     public int bestScore;
@@ -142,7 +149,23 @@ public class GameWorld {
 
     /** Drags the ship via touch input. */
     public void moveShipTo(float x, float y) {
-        if (state == State.PLAYING) ship.setTarget(x, y);
+        if (state == State.PLAYING) {
+            ship.setTarget(x, y);
+            ship.setMoveDir(0, 0); // 拖拽目标优先，清除方向键状态
+        }
+    }
+
+    /** 虚拟方向键：app 层在按键集合变化时调用（dx/dy 各为 -1/0/1）。 */
+    public void setShipDir(int dx, int dy) {
+        if (state == State.PLAYING) {
+            ship.setMoveDir(dx, dy);
+            ship.setTarget(ship.x, ship.y); // 方向键优先，清除残留拖拽目标
+        }
+    }
+
+    /** 暂停/结算时清零方向，避免恢复后飞船漂移。 */
+    public void clearShipDir() {
+        ship.setMoveDir(0, 0);
     }
 
     /** Steps the simulation. dt is clamped so backgrounding cannot explode physics. */
@@ -207,6 +230,10 @@ public class GameWorld {
             comboTimer -= dt;
             if (comboTimer <= 0f) comboKills = 0;
         }
+        if (x2Timer > 0f) {
+            x2Timer -= dt;
+            if (x2Timer < 0f) x2Timer = 0f;
+        }
         if (shakeTime > 0f) {
             shakeTime -= dt;
             if (shakeTime <= 0f) shakeMag = 0f;
@@ -249,7 +276,7 @@ public class GameWorld {
             boss.active = false;
             bossActive = false;
             bossesDefeated++;
-            score += 400 + boss.level * 200;
+            addScore(400 + boss.level * 200);
             explode(boss.x, boss.y, 2);
             explode(boss.x - 60f, boss.y + 30f, 3);
             explode(boss.x + 60f, boss.y - 20f, 0);
@@ -589,10 +616,25 @@ public class GameWorld {
                 break;
             case BOMB:
                 if (ship.bombs < Ship.MAX_BOMBS) ship.bombs++;
-                else score += 50; // overflow converts to salvage points
+                else addScore(50); // overflow converts to salvage points
+                break;
+            case RAPID:
+                ship.rapidTimer = Ship.RAPID_DURATION;
+                break;
+            case X2:
+                x2Timer = X2_DURATION;
+                break;
+            case LIFE:
+                if (lives < MAX_LIVES) lives++;
+                else addScore(200); // 满命时折算奖励分
                 break;
         }
         events.add(new GameEvent(EventType.POWERUP_COLLECTED, p.x, p.y));
+    }
+
+    /** 统一得分入口：双倍分数道具激活时翻倍。 */
+    void addScore(int base) {
+        score += base * (x2Timer > 0f ? 2 : 1);
     }
 
     /** Second-finger tap: clears bullets, damages everything, huge shake. */
@@ -621,11 +663,14 @@ public class GameWorld {
         return Math.min(1 + comboKills / 5, 5);
     }
 
+    /** 测试用：直接击杀指定敌人（走完整计分/掉落路径）。 */
+    void killEnemyForTest(Enemy e) { killEnemy(e); }
+
     private void killEnemy(Enemy e) {
         e.active = false;
         comboKills++;
         comboTimer = COMBO_WINDOW;
-        score += e.type.score * comboMultiplier();
+        addScore(e.type.score * comboMultiplier());
         kills++;
         explode(e.x, e.y, e.type.colorHint);
         addShake(e.type == EnemyType.TANK ? 0.22f : 0.05f,
@@ -641,10 +686,13 @@ public class GameWorld {
         if (RNG.get().nextFloat() >= chance) return;
         float roll = RNG.get().nextFloat();
         PowerUp.Kind kind;
-        if (roll < 0.32f) kind = PowerUp.Kind.SPREAD;
-        else if (roll < 0.60f) kind = PowerUp.Kind.MISSILE;
-        else if (roll < 0.82f) kind = PowerUp.Kind.SHIELD;
-        else kind = PowerUp.Kind.BOMB;
+        if (roll < 0.26f) kind = PowerUp.Kind.SPREAD;
+        else if (roll < 0.48f) kind = PowerUp.Kind.MISSILE;
+        else if (roll < 0.68f) kind = PowerUp.Kind.SHIELD;
+        else if (roll < 0.82f) kind = PowerUp.Kind.BOMB;
+        else if (roll < 0.92f) kind = PowerUp.Kind.RAPID;
+        else if (roll < 0.98f) kind = PowerUp.Kind.X2;
+        else kind = PowerUp.Kind.LIFE;
         spawnPowerUp(kind, e.x, e.y);
     }
 
@@ -870,6 +918,7 @@ public class GameWorld {
         shakeTime = 0f;
         shakeMag = 0f;
         bombFlash = 0f;
+        x2Timer = 0f;
         boss.active = false;
         bossActive = false;
         bossFlash = 0f;

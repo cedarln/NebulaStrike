@@ -2,7 +2,7 @@ package com.nebulastrike.game.core;
 
 /** Falling pickup. Drifts gently and is attracted when the ship is close. */
 public class PowerUp {
-    public enum Kind { SPREAD, MISSILE, SHIELD, BOMB }
+    public enum Kind { SPREAD, MISSILE, SHIELD, BOMB, RAPID, X2, LIFE }
 
     public Kind kind;
     public float x, y;
