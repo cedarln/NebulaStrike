@@ -13,6 +13,7 @@ import android.widget.Toast;
 
 import com.nebulastrike.game.core.GameWorld;
 import com.nebulastrike.game.core.Ui;
+import com.nebulastrike.game.core.WeaponType;
 import com.nebulastrike.game.render.Renderer;
 
 /**
@@ -230,11 +231,19 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case OVERDRIVE: haptics.bomb(); break;
                     case GAME_OVER: haptics.death(); break;
                     case BOSS_DEFEATED: haptics.bomb(); break;
+                    case BOSS_PART_DESTROYED: haptics.tick(); break;
+                    case BOSS_DISARMED: haptics.impact(); break;
                 }
             }
             if (world.shotsFired != lastShotsSeen) {
                 lastShotsSeen = world.shotsFired;
-                audio.shoot(world.ship.weapon, world.ship.x);
+                // 多武器叠层后同一帧可能有多门武器开火：按位掩码逐个发声
+                int mask = world.weaponVolleyMask;
+                for (int i = 0; i < WeaponType.values().length; i++) {
+                    if ((mask & (1 << i)) != 0) {
+                        audio.shoot(WeaponType.values()[i], world.ship.x);
+                    }
+                }
             }
             if (world.wingmanShots > lastWingmanSeen) {
                 lastWingmanSeen = world.wingmanShots;

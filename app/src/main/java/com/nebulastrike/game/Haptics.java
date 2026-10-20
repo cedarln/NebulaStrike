@@ -31,6 +31,8 @@ public class Haptics {
 
     public void impact() { buzz(40); }
 
+    public void tick() { buzz(20); }
+
     public void bomb() { buzz(90); }
 
     public void death() { buzz(240); }

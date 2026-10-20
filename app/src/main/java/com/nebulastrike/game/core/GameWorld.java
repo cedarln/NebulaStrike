@@ -20,6 +20,7 @@ public class GameWorld {
     public enum EventType {
         ENEMY_KILLED, PLAYER_HIT, GAME_OVER, ENEMY_ESCAPED, FORMATION,
         POWERUP_COLLECTED, BOMB, BOSS_SPAWNED, BOSS_DEFEATED, BOSS_PHASE,
+        BOSS_PART_DESTROYED, BOSS_DISARMED, BOSS_LASER,
         OVERDRIVE, GRAZE, SHIELD_BROKEN, COMBO
     }
     public static final class GameEvent {
@@ -50,7 +51,8 @@ public class GameWorld {
     }
 
     public final Ship ship = new Ship();
-    public final Bullet[] bullets = new Bullet[96];
+    /** 多武器叠加后同屏弹丸更多，池子相应扩充。 */
+    public final Bullet[] bullets = new Bullet[144];
     public final EnemyBullet[] enemyBullets = new EnemyBullet[48];
     public final Enemy[] enemies = new Enemy[48];
     public final Particle[] particles = new Particle[256];
@@ -68,6 +70,8 @@ public class GameWorld {
     public int kills;
     public int spawnedCount;
     public int shotsFired;
+    /** 本帧实际开火的武器位掩码（bit = WeaponType.ordinal()），供音效层区分多武器齐射。 */
+    public int weaponVolleyMask;
     /** wingman volleys (separate counter so the audio layer can use a softer blip). */
     public int wingmanShots;
     /** projectiles actually created (accuracy denominator; volleys are not bullets). */
@@ -131,10 +135,14 @@ public class GameWorld {
 
     // boss battle
     public final Boss boss = new Boss();
+    /** 独立瞄准的 Boss 激光（预警 -> 持续光束）。 */
+    public final BossLaser[] bossLasers = new BossLaser[4];
     public int bossesDefeated;
     int nextBossWave = 4;
     /** boss dead-flash timer for the renderer */
     public float bossFlash;
+    /** 每种特殊武器独立的开火冷却，实现真正的同时叠加。 */
+    private final float[] weaponCd = new float[WeaponType.values().length];
 
     // adaptive quality: frame-cost feedback scales particle emission
     /** 1 = full juice, 0.5 = reduced emission on slow devices */
@@ -160,6 +168,7 @@ public class GameWorld {
         RNG.setSeed(seed);
         state = startInMenu ? State.MENU : State.PLAYING;
         for (int i = 0; i < bullets.length; i++) bullets[i] = new Bullet();
+        for (int i = 0; i < bossLasers.length; i++) bossLasers[i] = new BossLaser();
         for (int i = 0; i < enemyBullets.length; i++) enemyBullets[i] = new EnemyBullet();
         for (int i = 0; i < enemies.length; i++) enemies[i] = new Enemy();
         for (int i = 0; i < powerups.length; i++) powerups[i] = new PowerUp();
@@ -236,11 +245,24 @@ public class GameWorld {
         else if (joyAnim > joyTarget) joyAnim = Math.max(joyTarget, joyAnim - dt * 8f);
 
         boolean fired = ship.update(dt, WIDTH, HEIGHT);
-        if (fired) {
-            int before = activeBulletCount();
-            fireBullet();
-            bulletsFired += activeBulletCount() - before;
+        // 多武器独立射速：VULCAN 用飞船基础节奏，特殊武器各走自己的冷却并叠加
+        for (int i = 1; i < weaponCd.length; i++) {
+            if (weaponCd[i] > 0f) weaponCd[i] = Math.max(0f, weaponCd[i] - dt);
         }
+        int bulletsBefore = activeBulletCount();
+        weaponVolleyMask = 0;
+        if (fired && !ship.hasSpecialWeapon()) {
+            fireWeapon(WeaponType.VULCAN, 1);
+        }
+        for (int i = 1; i < WeaponType.values().length; i++) {
+            WeaponType type = WeaponType.values()[i];
+            if (!ship.isWeaponEquipped(type) || weaponCd[i] > 0f) continue;
+            fireWeapon(type, ship.stackOf(type));
+            weaponCd[i] = type.cooldown
+                    * (ship.rapidTimer > 0f ? 0.5f : 1f)
+                    * (ship.overdriveTimer > 0f ? Ship.OVERDRIVE_FIRE_MULT : 1f);
+        }
+        bulletsFired += activeBulletCount() - bulletsBefore;
         updateWingman(dt);
         updateShipFx(dt);
 
@@ -299,6 +321,7 @@ public class GameWorld {
 
     private void updateBoss(float dt) {
         if (!boss.active) {
+            for (BossLaser l : bossLasers) l.active = false;
             // trigger at wave milestones when the screen is calm-ish
             if (wave >= nextBossWave) {
                 nextBossWave += mode == GameMode.ENDLESS ? 3 : 4;
@@ -314,6 +337,8 @@ public class GameWorld {
             events.add(new GameEvent(EventType.BOSS_PHASE, boss.x, boss.y, boss.phase));
             addShake(0.3f, 8f);
         }
+        updateBossParts(dt);
+        updateBossLasers(dt);
         if (boss.readyToAttack()) {
             bossAttack();
             boss.resetAttack();
@@ -326,62 +351,192 @@ public class GameWorld {
             boss.active = false;
             bossActive = false;
             bossesDefeated++;
-            addScore(400 + boss.level * 200);
+            for (BossLaser l : bossLasers) l.active = false;
+            for (int i = 0; i < boss.partCount; i++) {
+                BossPart p = boss.parts[i];
+                if (p.active) {
+                    p.active = false;
+                    explode(p.worldX(boss), p.worldY(boss), 2);
+                }
+            }
+            addScore(500 + boss.level * 250);
             explode(boss.x, boss.y, 2);
-            explode(boss.x - 60f, boss.y + 30f, 3);
-            explode(boss.x + 60f, boss.y - 20f, 0);
+            explode(boss.x - boss.radius * 0.7f, boss.y + 30f, 3);
+            explode(boss.x + boss.radius * 0.7f, boss.y - 20f, 0);
             addShake(0.8f, 26f);
             bossFlash = 1f;
             // breathing room before regular spawns resume
             spawnTimer = 2.5f;
             formationTimer = Math.max(formationTimer, 5f);
-            // reward: guaranteed pickups
-            spawnPowerUp(PowerUp.Kind.SHIELD, boss.x - 50f, boss.y);
-            spawnPowerUp(PowerUp.Kind.BOMB, boss.x + 50f, boss.y);
-            spawnPowerUp(PowerUp.Kind.MISSILE, boss.x, boss.y + 40f);
+            // reward: guaranteed pickups（武器叠加后多给一发武器）
+            spawnPowerUp(PowerUp.Kind.SHIELD, boss.x - 80f, boss.y);
+            spawnPowerUp(PowerUp.Kind.BOMB, boss.x + 80f, boss.y);
+            spawnPowerUp(PowerUp.Kind.POWER, boss.x, boss.y + 40f);
+            spawnPowerUp(dropWeaponKind(), boss.x, boss.y - 10f);
             events.add(new GameEvent(EventType.BOSS_DEFEATED, boss.x, boss.y));
         }
     }
 
     public boolean bossActive;
 
+    /** Boss 部件开火：炮塔打瞄准弹，激光部件进入预警->光束流程。 */
+    private void updateBossParts(float dt) {
+        if (boss.y < 60f || boss.staggerTimer > 0f) return;
+        for (int i = 0; i < boss.partCount; i++) {
+            BossPart p = boss.parts[i];
+            if (!p.active || p.fireCd > 0f) continue;
+            float px = p.worldX(boss), py = p.worldY(boss);
+            float dx = ship.x - px, dy = ship.y - py;
+            float len = (float) Math.sqrt(dx * dx + dy * dy);
+            if (len < 1f) len = 1f;
+            p.aim = (float) Math.atan2(dy, dx);
+            if (p.kind == BossPart.Kind.GUN) {
+                int shots = boss.phase >= 2 ? 2 : 1;
+                for (int s = 0; s < shots; s++) {
+                    EnemyBullet b = freeEnemyBullet();
+                    if (b == null) break;
+                    float ang = p.aim + (s - (shots - 1) / 2f) * 0.10f;
+                    b.initRadius(px, py,
+                            (float) Math.cos(ang) * (250f + boss.level * 10f),
+                            (float) Math.sin(ang) * (250f + boss.level * 10f),
+                            10f);
+                }
+                p.fireCd = 2.6f - boss.level * 0.08f - boss.phase * 0.12f
+                        + RNG.get().nextFloat() * 0.4f;
+            } else {
+                BossLaser l = freeBossLaser();
+                if (l == null) {
+                    p.fireCd = 0.5f;
+                    continue;
+                }
+                l.init(px, py, p.aim, 0.85f, 0.38f);
+                p.fireCd = 4.6f - boss.phase * 0.35f + RNG.get().nextFloat() * 0.4f;
+            }
+        }
+    }
+
+    private void updateBossLasers(float dt) {
+        for (BossLaser l : bossLasers) {
+            if (!l.active) continue;
+            if (!l.firing) {
+                // 预警期间缓慢跟踪，给玩家留出横向位移的窗口
+                float px = ship.x - l.x, py = ship.y - l.y;
+                float desired = (float) Math.atan2(py, px);
+                l.angle = lerpAngle(l.angle, desired, Math.min(1f, dt * 3.2f));
+            }
+            boolean wasFiring = l.firing;
+            l.update(dt);
+            if (!wasFiring && l.firing) {
+                addShake(0.16f, 6f);
+                events.add(new GameEvent(EventType.BOSS_LASER, l.x, l.y));
+            }
+        }
+    }
+
+    private BossLaser freeBossLaser() {
+        for (BossLaser l : bossLasers) if (!l.active) return l;
+        return null;
+    }
+
     private void bossAttack() {
+        int tier = boss.tier;
         switch (boss.phase) {
-            case 1: // wide fan of 7
-                for (int i = -3; i <= 3; i++) {
-                    EnemyBullet b = freeEnemyBullet();
-                    if (b == null) return;
-                    float ang = (float) (Math.PI / 2 + i * 0.22);
-                    b.initRadius(boss.x, boss.y + Boss.RADIUS * 0.7f,
-                            (float) Math.cos(ang) * 300f, (float) Math.sin(ang) * 300f, 13f);
+            case 1: // 简单扇形：随着 Boss 级别变宽
+                fireFan(5 + tier * 2, 290f + tier * 18f, 0.19f);
+                if (tier >= 2) fireAimed(2, 380f, 0.09f);
+                break;
+            case 2: // 扇形 + 双侧瞄准弹
+                fireFan(5 + tier, 315f + tier * 15f, 0.17f);
+                fireAimed(3, 410f, 0.12f);
+                break;
+            default:
+                if (tier <= 1) {
+                    fireFan(7, 330f, 0.15f);
+                    fireAimed(3, 440f, 0.10f);
+                } else {
+                    fireHelix(8 + tier * 2, 310f + tier * 12f);
+                    fireAimed(3, 450f, 0.12f);
                 }
                 break;
-            case 2: // fan + aimed twin volley
-                for (int i = -2; i <= 2; i++) {
-                    EnemyBullet b = freeEnemyBullet();
-                    if (b == null) return;
-                    float ang = (float) (Math.PI / 2 + i * 0.18);
-                    b.initRadius(boss.x, boss.y + Boss.RADIUS * 0.7f,
-                            (float) Math.cos(ang) * 330f, (float) Math.sin(ang) * 330f, 13f);
-                }
-                for (int i = -1; i <= 1; i += 2) {
-                    EnemyBullet b = freeEnemyBullet();
-                    if (b == null) return;
-                    float dx = ship.x - boss.x, dy = ship.y - boss.y;
-                    float len = (float) Math.sqrt(dx * dx + dy * dy);
-                    b.initRadius(boss.x + i * 40f, boss.y + Boss.RADIUS * 0.5f,
-                            dx / len * 430f, dy / len * 430f, 11f);
-                }
-                break;
-            default: // phase 3: dense double helix
-                float spin = boss.age * 2.4f;
-                for (int i = 0; i < 8; i++) {
-                    EnemyBullet b = freeEnemyBullet();
-                    if (b == null) return;
-                    float ang = (float) (Math.PI / 2 + spin + i * Math.PI / 4);
-                    b.initRadius(boss.x, boss.y + Boss.RADIUS * 0.6f,
-                            (float) Math.cos(ang) * 320f, (float) Math.sin(ang) * 320f, 12f);
-                }
+        }
+    }
+
+    private void fireFan(int count, float speed, float step) {
+        float y0 = boss.y + boss.hitRadius * 0.72f;
+        for (int i = 0; i < count; i++) {
+            EnemyBullet b = freeEnemyBullet();
+            if (b == null) return;
+            float ang = (float) (Math.PI / 2 + (i - (count - 1) / 2f) * step);
+            b.initRadius(boss.x, y0,
+                    (float) Math.cos(ang) * speed, (float) Math.sin(ang) * speed, 13f);
+        }
+    }
+
+    private void fireAimed(int count, float speed, float spread) {
+        for (int i = 0; i < count; i++) {
+            EnemyBullet b = freeEnemyBullet();
+            if (b == null) return;
+            float side = (i % 2 == 0) ? -1f : 1f;
+            float px = boss.x + side * boss.radius * 0.42f;
+            float py = boss.y + boss.hitRadius * 0.45f;
+            float dx = ship.x - px, dy = ship.y - py;
+            float len = (float) Math.sqrt(dx * dx + dy * dy);
+            if (len < 1f) len = 1f;
+            float ang = (float) Math.atan2(dy, dx) + (i - (count - 1) / 2f) * spread;
+            b.initRadius(px, py,
+                    (float) Math.cos(ang) * speed, (float) Math.sin(ang) * speed, 11f);
+        }
+    }
+
+    private void fireHelix(int count, float speed) {
+        float spin = boss.age * 2.4f;
+        float y0 = boss.y + boss.hitRadius * 0.6f;
+        for (int i = 0; i < count; i++) {
+            EnemyBullet b = freeEnemyBullet();
+            if (b == null) return;
+            float ang = (float) (Math.PI / 2 + spin + i * Math.PI * 2f / count);
+            b.initRadius(boss.x, y0,
+                    (float) Math.cos(ang) * speed, (float) Math.sin(ang) * speed, 12f);
+        }
+    }
+
+    private static float lerpAngle(float from, float to, float t) {
+        float diff = to - from;
+        while (diff > Math.PI) diff -= 2f * Math.PI;
+        while (diff < -Math.PI) diff += 2f * Math.PI;
+        return from + diff * t;
+    }
+
+    /** Boss 击杀奖励的随机武器（只从三种特殊武器里挑）。 */
+    private static PowerUp.Kind dropWeaponKind() {
+        float r = RNG.get().nextFloat();
+        if (r < 0.4f) return PowerUp.Kind.SPREAD;
+        if (r < 0.7f) return PowerUp.Kind.LASER;
+        return PowerUp.Kind.MISSILE;
+    }
+
+    /** 部件受伤/摧毁：爆点、计分、掉落，全部武装被毁后 Boss 短暂失能。 */
+    private void damageBossPart(BossPart p, int damage) {
+        p.damage(damage);
+        boss.flash = Math.max(boss.flash, 0.05f);
+        if (p.hp > 0f || !p.active) return;
+        p.active = false;
+        p.hp = 0f;
+        float px = p.worldX(boss), py = p.worldY(boss);
+        explode(px, py, p.kind == BossPart.Kind.LASER ? 2 : 1);
+        explode(px, py, 3);
+        spark(px, py, 8, 2);
+        addShake(0.16f, 7f);
+        addScore(80 + boss.level * 20);
+        events.add(new GameEvent(EventType.BOSS_PART_DESTROYED, px, py, p.kind.ordinal()));
+        if (boss.partsAllDestroyed() && !boss.allPartsDown) {
+            boss.disarm();
+            addScore(300);
+            addShake(0.45f, 16f);
+            spawnPowerUp(PowerUp.Kind.POWER, boss.x, boss.y + 30f);
+            events.add(new GameEvent(EventType.BOSS_DISARMED, boss.x, boss.y));
+        } else if (RNG.get().nextFloat() < 0.22f) {
+            spawnPowerUp(dropKind(RNG.get().nextFloat()), px, py);
         }
     }
 
@@ -571,20 +726,21 @@ public class GameWorld {
         return EnemyType.DRONE;
     }
 
-    /** 弹道生成：武器类型 × 火力等级（1..3）共同决定数量与形状。 */
-    private void fireBullet() {
+    /** 弹道生成：武器类型 × 火力等级 × 同类叠加层数共同决定数量与形状。 */
+    private void fireWeapon(WeaponType type, int stack) {
         shotsFired++;
-        // OVERDRIVE 期间临时提升一级火力，和永久火力等级叠加但不超过上限
-        int lvl = Math.min(Ship.MAX_POWER,
-                ship.powerLevel + (ship.overdriveTimer > 0f ? 1 : 0));
-        switch (ship.weapon) {
+        weaponVolleyMask |= 1 << type.ordinal();
+        // 火力等级（永久 POWER）+ OVERDRIVE 临时等级 + 同类叠层（每层约等于半级）
+        int lvl = ship.powerLevel + (ship.overdriveTimer > 0f ? 1 : 0)
+                + Math.max(0, stack - 1);
+        switch (type) {
             case SPREAD: {
-                // 3 / 5 / 7 向扇形
-                int rays = 1 + lvl;                       // 2..4 → 每侧 rays-1
+                // 叠层/升级会继续加宽扇形，最多 9 / 11 向
+                int rays = Math.min(6, 1 + lvl);
                 for (int i = -(rays - 1); i <= rays - 1; i++) {
                     Bullet b = freeBullet();
                     if (b == null) return;
-                    float ang = (float) (-Math.PI / 2 + i * 0.22);
+                    float ang = (float) (-Math.PI / 2 + i * 0.20);
                     b.init(ship.x, ship.y - Ship.RADIUS - 6f,
                             (float) Math.cos(ang) * 1150f, (float) Math.sin(ang) * 1150f,
                             WeaponType.SPREAD.damage, false);
@@ -592,44 +748,43 @@ public class GameWorld {
                 break;
             }
             case LASER: {
-                // 1 / 2 / 3 束穿透激光
-                int beams = lvl;
+                // 束数随火力/叠层增长，最多 5 束（全部穿透）
+                int beams = Math.min(5, lvl);
                 for (int i = 0; i < beams; i++) {
                     Bullet b = freeBullet();
                     if (b == null) return;
-                    float off = (i - (beams - 1) / 2f) * 26f;
+                    float off = (i - (beams - 1) / 2f) * 24f;
                     b.initLaser(ship.x + off, ship.y - Ship.RADIUS - 10f,
                             0f, -1500f, WeaponType.LASER.damage);
                 }
                 break;
             }
             case MISSILE: {
-                // 2 / 3 / 4 发追踪
-                if (lvl == 1) {
-                    for (int i = -1; i <= 1; i += 2) {
-                        Bullet b = freeBullet();
-                        if (b == null) return;
-                        b.init(ship.x + i * 18f, ship.y - Ship.RADIUS - 6f,
-                                i * 220f, -640f, WeaponType.MISSILE.damage, true);
-                    }
-                } else {
-                    Bullet b = freeBullet(); // 中路直发追踪
+                // 2..6 发追踪；叠层优先加两侧弹道，奇数时补一发中路
+                int total = Math.min(6, lvl + 1);
+                int pairs = total / 2;
+                if (total % 2 == 1) {
+                    Bullet b = freeBullet();
                     if (b == null) return;
                     b.init(ship.x, ship.y - Ship.RADIUS - 6f, 0f, -700f,
                             WeaponType.MISSILE.damage, true);
-                    int pair = lvl == 2 ? 1 : 2;
-                    for (int i = -pair; i <= pair; i += 2) {
-                        b = freeBullet();
+                }
+                for (int p = 1; p <= pairs; p++) {
+                    for (int side = -1; side <= 1; side += 2) {
+                        Bullet b = freeBullet();
                         if (b == null) return;
-                        b.init(ship.x + i * 20f, ship.y - Ship.RADIUS - 6f,
-                                i * 260f, -620f, WeaponType.MISSILE.damage, true);
+                        b.init(ship.x + side * (18f + (p - 1) * 20f),
+                                ship.y - Ship.RADIUS - 6f,
+                                side * (220f + (p - 1) * 90f), -640f,
+                                WeaponType.MISSILE.damage, true);
                     }
                 }
                 break;
             }
             default: {
                 // VULCAN：单发 / 双发平行 / 三向
-                if (lvl == 1) {
+                int vulcanLvl = Math.min(Ship.MAX_POWER, lvl);
+                if (vulcanLvl == 1) {
                     Bullet b = freeBullet();
                     if (b == null) return;
                     b.init(ship.x, ship.y - Ship.RADIUS - 6f, -1250f);
@@ -639,7 +794,7 @@ public class GameWorld {
                         if (b == null) return;
                         b.init(ship.x + i * 16f, ship.y - Ship.RADIUS - 6f, -1250f);
                     }
-                    if (lvl >= 3) {
+                    if (vulcanLvl >= 3) {
                         for (int i = -1; i <= 1; i += 2) {
                             Bullet b = freeBullet();
                             if (b == null) return;
@@ -677,19 +832,50 @@ public class GameWorld {
     }
 
     private void resolveCollisions() {
-        // boss: body vs ship, then bullets vs boss
+        // boss: hull and laser beams vs ship
         if (boss.active && !ship.invulnerable) {
             float dx = ship.x - boss.x, dy = ship.y - boss.y;
-            float rr = Ship.RADIUS + Boss.RADIUS;
+            float rr = Ship.RADIUS + boss.hitRadius;
             if (dx * dx + dy * dy <= rr * rr) {
                 onPlayerHit();
             }
         }
+        if (!ship.invulnerable) {
+            for (BossLaser l : bossLasers) {
+                if (!l.active || !l.firing || l.hitThisShot) continue;
+                float d = distToSegment(ship.x, ship.y,
+                        l.x, l.y, l.endX(), l.endY());
+                if (d <= Ship.RADIUS * 0.55f + 10f) {
+                    l.hitThisShot = true;
+                    spark(ship.x, ship.y, 6, 2);
+                    onPlayerHit();
+                    break;
+                }
+            }
+        }
+        // bullets vs destructible parts first, then the exposed core
         if (boss.active) {
             for (Bullet b : bullets) {
                 if (!b.active || b.hitCooldown > 0f) continue;
+                boolean hitPart = false;
+                for (int i = 0; i < boss.partCount; i++) {
+                    BossPart p = boss.parts[i];
+                    if (!p.active) continue;
+                    float dx = b.x - p.worldX(boss), dy = b.y - p.worldY(boss);
+                    float rr = b.radius + p.radius;
+                    if (dx * dx + dy * dy <= rr * rr) {
+                        if (b.piercing) b.hitCooldown = 0.06f;
+                        else b.active = false;
+                        registerHit(b);
+                        spark(b.x, b.y, 3, 2);
+                        damageBossPart(p, b.damage);
+                        hitPart = true;
+                        break;
+                    }
+                }
+                if (hitPart || !b.active) continue;
                 float dx = b.x - boss.x, dy = b.y - boss.y;
-                float rr = b.radius + Boss.RADIUS;
+                float rr = b.radius + boss.hitRadius;
                 if (dx * dx + dy * dy <= rr * rr) {
                     if (b.piercing) b.hitCooldown = 0.06f; // 激光穿透，冷却防连击
                     else b.active = false;
@@ -780,46 +966,51 @@ public class GameWorld {
     private void collect(PowerUp p) {
         switch (p.kind) {
             case SPREAD:
-                ship.weapon = WeaponType.SPREAD;
-                ship.weaponTimer = Ship.WEAPON_DURATION;
+                ship.addWeapon(WeaponType.SPREAD);
+                weaponCd[WeaponType.SPREAD.ordinal()] = 0f;
                 break;
             case MISSILE:
-                ship.weapon = WeaponType.MISSILE;
-                ship.weaponTimer = Ship.WEAPON_DURATION;
+                ship.addWeapon(WeaponType.MISSILE);
+                weaponCd[WeaponType.MISSILE.ordinal()] = 0f;
                 break;
             case LASER:
-                ship.weapon = WeaponType.LASER;
-                ship.weaponTimer = Ship.WEAPON_DURATION;
+                ship.addWeapon(WeaponType.LASER);
+                weaponCd[WeaponType.LASER.ordinal()] = 0f;
                 break;
             case POWER:
                 if (ship.powerLevel < Ship.MAX_POWER) ship.powerLevel++;
                 else addScore(300); // 满级折算奖励分（雷电式）
                 break;
             case SHIELD:
-                ship.hasShield = true;
+                ship.addShield();
                 break;
             case BOMB:
                 if (ship.bombs < Ship.MAX_BOMBS) ship.bombs++;
                 else addScore(50); // overflow converts to salvage points
                 break;
             case RAPID:
-                ship.rapidTimer = Ship.RAPID_DURATION;
+                ship.rapidTimer = extendTimer(ship.rapidTimer, Ship.RAPID_DURATION);
                 break;
             case X2:
-                x2Timer = X2_DURATION;
+                x2Timer = extendTimer(x2Timer, X2_DURATION);
                 break;
             case LIFE:
                 if (lives < Math.max(MAX_LIVES, settings.startLives)) lives++;
                 else addScore(200); // 满命时折算奖励分
                 break;
             case WINGMAN:
-                ship.wingmanTimer = Ship.WINGMAN_DURATION;
+                ship.wingmanTimer = extendTimer(ship.wingmanTimer, Ship.WINGMAN_DURATION);
                 break;
             case TIME:
-                slowTimer = SLOW_DURATION;
+                slowTimer = extendTimer(slowTimer, SLOW_DURATION);
                 break;
         }
         events.add(new GameEvent(EventType.POWERUP_COLLECTED, p.x, p.y, p.kind.ordinal()));
+    }
+
+    /** 重复拾取延长持续时间，上限为基础时长的 2 倍。 */
+    private static float extendTimer(float current, float duration) {
+        return Math.min(duration * Ship.MAX_TIMER_MULT, current + duration);
     }
 
     /** 统一得分入口：双倍分数道具激活时翻倍。 */
@@ -843,6 +1034,13 @@ public class GameWorld {
             e.damage(3);
             e.flash = 0.2f;
             if (e.hp <= 0) killEnemy(e);
+        }
+        if (boss.active) {
+            boss.damage(3);
+            for (int i = 0; i < boss.partCount; i++) {
+                BossPart p = boss.parts[i];
+                if (p.active) damageBossPart(p, 3);
+            }
         }
         addShake(0.55f, 24f);
         events.add(new GameEvent(EventType.BOMB, ship.x, ship.y));
@@ -1085,8 +1283,7 @@ public class GameWorld {
 
     private void onPlayerHit() {
         if (settings.godMode) return;
-        if (ship.hasShield) { // bubble eats the hit
-            ship.hasShield = false;
+        if (ship.consumeShield()) { // 每一层护盾各挡一次伤害
             ship.makeInvulnerable();
             addShake(0.25f, 10f);
             events.add(new GameEvent(EventType.SHIELD_BROKEN, ship.x, ship.y));
@@ -1207,6 +1404,8 @@ public class GameWorld {
         boss.active = false;
         bossActive = false;
         bossFlash = 0f;
+        for (BossLaser l : bossLasers) l.active = false;
+        for (int i = 0; i < weaponCd.length; i++) weaponCd[i] = 0f;
         bossesDefeated = 0;
         nextBossWave = m == GameMode.ENDLESS ? 3 : 4; // endless: bosses come faster
         formationTimer = m == GameMode.ENDLESS ? 6f : 8f;

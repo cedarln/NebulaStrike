@@ -184,6 +184,15 @@ public class AudioEngine {
                     play(SfxId.BOSS_PHASE, 0.75f,
                             1f + Math.max(0, e.code - 1) * 0.06f, 0f);
                     break;
+                case BOSS_PART_DESTROYED:
+                    play(SfxId.PART_BREAK, 0.80f, vary(0.10f), panFor(e.x));
+                    break;
+                case BOSS_DISARMED:
+                    play(SfxId.SHIELD_BREAK, 0.85f, 0.72f, 0f);
+                    break;
+                case BOSS_LASER:
+                    play(SfxId.BOSS_LASER, 0.90f, 1f, panFor(e.x));
+                    break;
                 case OVERDRIVE:
                     play(SfxId.OVERDRIVE, 0.92f, 1f, panFor(e.x));
                     break;
@@ -278,6 +287,8 @@ public class AudioEngine {
             case EXPLODE_HEAVY: return 50_000_000L;
             case GRAZE: return 45_000_000L;
             case COMBO: return 90_000_000L;
+            case PART_BREAK: return 55_000_000L;
+            case BOSS_LASER: return 120_000_000L;
             case UI: return 40_000_000L;
             default: return 0L;
         }

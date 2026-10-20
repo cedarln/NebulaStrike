@@ -22,16 +22,26 @@ public class Ship {
     private float invulnTimer;
 
     // loadout state
+    /** 当前主武器（最近拾取的特殊武器；没有特殊武器时为 VULCAN）。 */
     public WeaponType weapon = WeaponType.VULCAN;
-    public float weaponTimer;      // >0 while a powerup weapon is active
+    /** 主武器剩余时间（镜像 weaponTimers[weapon]；兼容旧代码/渲染）。 */
+    public float weaponTimer;
     public static final float WEAPON_DURATION = 12f;
+    /** 同类武器重复拾取可叠加的层数上限（每层增加弹道密度）。 */
+    public static final int MAX_WEAPON_STACK = 3;
+    /** 每种特殊武器的剩余时间与叠加层数；VULCAN 槽位恒为 0。 */
+    public final float[] weaponTimers = new float[WeaponType.values().length];
+    public final int[] weaponStacks = new int[WeaponType.values().length];
     /**
      * 火力等级 1..3（雷电式）：扩展弹道数量，永久生效，坠机降 1 级。
-     * POWER 道具 +1（满级 300 分折算），见 GameWorld.collect/fireBullet。
+     * POWER 道具 +1（满级 300 分折算），见 GameWorld.collect/fireWeapon。
      */
     public int powerLevel = 1;
     public static final int MAX_POWER = 3;
     public boolean hasShield;
+    /** 护盾层数（最多 2 层，每层挡一次伤害）。 */
+    public int shieldLayers;
+    public static final int MAX_SHIELD_LAYERS = 2;
     public int bombs = 1;
     public static final int MAX_BOMBS = 3;
     /** 速射道具剩余时间（>0 时射击冷却减半） */
@@ -44,6 +54,8 @@ public class Ship {
     public float overdriveTimer;
     public static final float OVERDRIVE_DURATION = 5f;
     public static final float OVERDRIVE_FIRE_MULT = 0.55f;
+    /** 限时道具重复拾取时最多延长到基础时长的 2 倍。 */
+    public static final float MAX_TIMER_MULT = 2f;
 
     public void reset(float x, float y) {
         this.x = x;
@@ -57,12 +69,73 @@ public class Ship {
         invulnTimer = 0f;
         weapon = WeaponType.VULCAN;
         weaponTimer = 0f;
+        for (int i = 0; i < weaponTimers.length; i++) {
+            weaponTimers[i] = 0f;
+            weaponStacks[i] = 0;
+        }
         powerLevel = 1;
         hasShield = false;
+        shieldLayers = 0;
         bombs = 1;
         rapidTimer = 0f;
         wingmanTimer = 0f;
         overdriveTimer = 0f;
+    }
+
+    /** 拾取特殊武器：不替换已有武器，同类则叠层并刷新持续时间。 */
+    public void addWeapon(WeaponType type) {
+        if (type == WeaponType.VULCAN) return;
+        int i = type.ordinal();
+        weaponStacks[i] = Math.min(MAX_WEAPON_STACK, weaponStacks[i] + 1);
+        weaponTimers[i] = WEAPON_DURATION;
+        weapon = type;
+        weaponTimer = WEAPON_DURATION;
+    }
+
+    /** 当前是否存在任意特殊武器（含手动指定、尚未计时的状态）。 */
+    public boolean hasSpecialWeapon() {
+        if (weapon != WeaponType.VULCAN) return true;
+        for (int i = 1; i < weaponStacks.length; i++) {
+            if (weaponStacks[i] > 0) return true;
+        }
+        return false;
+    }
+
+    /** 该武器本帧是否参与射击（主武器或已叠层的副武器）。 */
+    public boolean isWeaponEquipped(WeaponType type) {
+        if (type == WeaponType.VULCAN) return !hasSpecialWeapon();
+        return weapon == type || weaponStacks[type.ordinal()] > 0;
+    }
+
+    /** 已叠层数；主武器至少按 1 层处理（兼容测试/外部直接指定）。 */
+    public int stackOf(WeaponType type) {
+        if (type == WeaponType.VULCAN) return 0;
+        int s = weaponStacks[type.ordinal()];
+        return weapon == type ? Math.max(1, s) : s;
+    }
+
+    public float timerOf(WeaponType type) {
+        if (type == WeaponType.VULCAN) return 0f;
+        int i = type.ordinal();
+        if (weapon == type && weaponStacks[i] <= 0) return weaponTimer;
+        return weaponTimers[i];
+    }
+
+    public void addShield() {
+        if (!hasShield) {
+            hasShield = true;
+            shieldLayers = 1;
+        } else if (shieldLayers < MAX_SHIELD_LAYERS) {
+            shieldLayers++;
+        }
+    }
+
+    /** @return true if a layer absorbed the hit (hasShield 同步更新) */
+    public boolean consumeShield() {
+        if (!hasShield) return false;
+        shieldLayers = Math.max(0, shieldLayers - 1);
+        if (shieldLayers == 0) hasShield = false;
+        return true;
     }
 
     /** 拖拽模式：设置期望位置（限速跟随）。 */
@@ -113,9 +186,41 @@ public class Ship {
             invulnTimer -= dt;
             if (invulnTimer <= 0f) invulnerable = false;
         }
-        if (weaponTimer > 0f) {
-            weaponTimer -= dt;
-            if (weaponTimer <= 0f) weapon = WeaponType.VULCAN;
+        // 所有特殊武器独立倒计时；主武器耗尽时自动把仍在生效的副武器提升为主武器
+        boolean primaryExpired = false;
+        for (int i = 1; i < weaponTimers.length; i++) {
+            if (weaponTimers[i] <= 0f) continue;
+            weaponTimers[i] -= dt;
+            if (weaponTimers[i] <= 0f) {
+                weaponTimers[i] = 0f;
+                weaponStacks[i] = 0;
+                if (weapon.ordinal() == i) primaryExpired = true;
+            }
+        }
+        if (weapon != WeaponType.VULCAN) {
+            int wi = weapon.ordinal();
+            if (weaponStacks[wi] > 0) {
+                weaponTimer = weaponTimers[wi];
+            } else if (weaponTimer > 0f) {
+                // 兼容旧逻辑/外部直接设置的计时器
+                weaponTimer -= dt;
+                if (weaponTimer <= 0f) {
+                    weaponTimer = 0f;
+                    primaryExpired = true;
+                }
+            }
+        }
+        if (primaryExpired) {
+            WeaponType next = WeaponType.VULCAN;
+            float best = 0f;
+            for (int i = 1; i < weaponTimers.length; i++) {
+                if (weaponStacks[i] > 0 && weaponTimers[i] > best) {
+                    best = weaponTimers[i];
+                    next = WeaponType.values()[i];
+                }
+            }
+            weapon = next;
+            weaponTimer = next == WeaponType.VULCAN ? 0f : weaponTimers[next.ordinal()];
         }
         if (rapidTimer > 0f) {
             rapidTimer -= dt;

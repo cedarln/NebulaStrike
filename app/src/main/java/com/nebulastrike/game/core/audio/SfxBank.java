@@ -31,6 +31,8 @@ public final class SfxBank {
         put(SfxId.ALARM, alarm(0.72, 720, 466, 4), 0.80f);
         put(SfxId.BOSS_PHASE, alarm(0.50, 900, 640, 3), 0.78f);
         put(SfxId.BOSS_DOWN, bossDown(), 0.98f);
+        put(SfxId.BOSS_LASER, bossLaser(), 0.92f);
+        put(SfxId.PART_BREAK, partBreak(), 0.82f);
         put(SfxId.GAME_OVER, gameOver(), 0.88f);
         put(SfxId.UI, ui(), 0.48f);
         put(SfxId.WAVE, wave(), 0.66f);
@@ -376,6 +378,51 @@ public final class SfxBank {
             }
         }
         echo(x, 0.18, 0.30);
+        return x;
+    }
+
+    /** Boss laser: rising charge whine that snaps into a fat metallic beam. */
+    private static float[] bossLaser() {
+        int n = frames(0.95);
+        float[] x = new float[n];
+        Random r = new Random(101);
+        double ph = 0, sub = 0, mod = 0;
+        double fireAt = 0.22;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double p = Math.min(1.0, t / fireAt);
+            double f = 240 + 2600 * p * p;
+            ph += f / SAMPLE_RATE;
+            mod += f * 6.7 / SAMPLE_RATE;
+            sub += f * 0.25 / SAMPLE_RATE;
+            double beam = (0.55 * saw(ph) + 0.45 * sine(ph * 1.01))
+                    * (0.65 + 0.35 * sine(mod));
+            double low = 0.35 * sine(sub);
+            double crack = noise(r) * 0.24 * Math.exp(-Math.abs(t - fireAt) * 26);
+            double amp = t < fireAt ? p * p : Math.exp(-(t - fireAt) * 2.4);
+            x[i] = (float) ((beam + low + crack) * amp * env(t, 0.95, 0.004, 1.2));
+        }
+        echo(x, 0.06, 0.22);
+        return x;
+    }
+
+    /** Destructible boss pod: short metallic blast plus flying shards. */
+    private static float[] partBreak() {
+        float[] x = explosion(0.40, 210, 103, true);
+        Random r = new Random(104);
+        int shards = Math.min(x.length, frames(0.30));
+        double[] freqs = {1320, 1760, 2210, 2790, 3320};
+        double[] ph = new double[freqs.length];
+        for (int i = 0; i < shards; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double s = 0;
+            for (int k = 0; k < freqs.length; k++) {
+                ph[k] += freqs[k] * (1.0 - 0.18 * t / 0.30) / SAMPLE_RATE;
+                s += sine(ph[k]) * Math.exp(-t * (9 + k * 2.2)) * 0.16;
+            }
+            s += noise(r) * Math.exp(-t * 24) * 0.18;
+            x[i] += (float) s;
+        }
         return x;
     }
 

@@ -28,7 +28,98 @@ public class BossTest {
         triggerBoss();
         assertTrue(world.boss.active);
         assertTrue(world.bossActive);
-        assertEquals(110, world.boss.maxHp, 0.001f);
+        assertEquals(420f, world.boss.maxHp, 0.001f);
+    }
+
+    @Test
+    public void bossGrowsWithEachEncounter() {
+        Boss scout = new Boss();
+        scout.init(0);
+        Boss leviathan = new Boss();
+        leviathan.init(3);
+        Boss worldEater = new Boss();
+        worldEater.init(6);
+        Boss dreadnought = new Boss();
+        dreadnought.init(1);
+        assertTrue("later bosses are physically larger", leviathan.radius > scout.radius);
+        assertEquals("size caps at tier 3", leviathan.radius, worldEater.radius, 0.001f);
+        assertTrue("later bosses have more hit points", worldEater.maxHp > leviathan.maxHp);
+        assertTrue("more appendages at higher tiers", worldEater.partCount > scout.partCount);
+        assertEquals("tier 0 starts with two gun pods", 2, scout.partCount);
+        boolean dreadLaser = false;
+        for (int i = 0; i < dreadnought.partCount; i++) {
+            if (dreadnought.parts[i].kind == BossPart.Kind.LASER) dreadLaser = true;
+        }
+        assertTrue("laser pods appear from the second boss", dreadLaser);
+        assertEquals("tier 3 mounts guns and laser pods", 8, worldEater.partCount);
+    }
+
+    @Test
+    public void partsFireAndCanBeDestroyed() {
+        triggerBoss();
+        world.boss.y = 150f;
+        for (int i = 0; i < 60 * 4; i++) world.update(1f / 60f);
+        boolean anyEnemyShot = false;
+        for (EnemyBullet b : world.enemyBullets) if (b.active) { anyEnemyShot = true; break; }
+        assertTrue("gun pods should fire", anyEnemyShot);
+
+        BossPart part = world.boss.parts[0];
+        assertTrue(part.active);
+        part.hp = 1f;
+        float hx = part.worldX(world.boss), hy = part.worldY(world.boss);
+        // put a player bullet right on the pod
+        Bullet shot = null;
+        for (Bullet b : world.bullets) if (!b.active) { shot = b; break; }
+        assertNotNull(shot);
+        shot.init(hx, hy, 0f, -100f, 2, false);
+        world.update(1f / 60f);
+        assertFalse("pod should be destroyed by enough damage", part.active);
+        boolean wreckEvent = world.pollEvents().stream()
+                .anyMatch(e -> e.type == GameWorld.EventType.BOSS_PART_DESTROYED);
+        assertTrue(wreckEvent);
+    }
+
+    @Test
+    public void destroyingEveryPartDisarmsTheBoss() {
+        triggerBoss();
+        world.boss.y = 150f;
+        for (int i = 0; i < world.boss.partCount; i++) {
+            BossPart p = world.boss.parts[i];
+            p.hp = 0.5f;
+            Bullet shot = null;
+            for (Bullet b : world.bullets) if (!b.active) { shot = b; break; }
+            assertNotNull(shot);
+            shot.init(p.worldX(world.boss), p.worldY(world.boss), 0f, -100f, 2, false);
+            world.update(1f / 60f);
+        }
+        assertTrue("all pods destroyed", world.boss.partsAllDestroyed());
+        assertTrue("boss is disarmed", world.boss.allPartsDown);
+        assertTrue("stagger opens a damage window", world.boss.staggerTimer > 0f);
+        assertFalse(world.boss.readyToAttack());
+        boolean disarmedEvent = world.pollEvents().stream()
+                .anyMatch(e -> e.type == GameWorld.EventType.BOSS_DISARMED);
+        assertTrue(disarmedEvent);
+    }
+
+    @Test
+    public void laserPodsChargeThenFireBeam() {
+        triggerBoss();
+        world.boss.y = 150f;
+        world.bossesDefeated = 2; // tier 2 layout keeps laser pods on the field
+        world.boss.init(2);
+        world.boss.y = 150f;
+        world.boss.parts[world.boss.partCount - 1].fireCd = 0.01f; // first laser pod ready
+        boolean sawWarmup = false, sawBeam = false;
+        for (int i = 0; i < 60 * 6; i++) {
+            world.update(1f / 60f);
+            for (BossLaser l : world.bossLasers) {
+                if (!l.active) continue;
+                if (l.firing) sawBeam = true; else sawWarmup = true;
+            }
+            if (sawBeam) break;
+        }
+        assertTrue("laser should show a warning before firing", sawWarmup);
+        assertTrue("laser should eventually fire", sawBeam);
     }
 
     @Test
@@ -55,7 +146,7 @@ public class BossTest {
         float x0 = world.boss.x;
         for (int i = 0; i < 300; i++) world.update(1f / 60f);
         assertTrue("boss should patrol horizontally", Math.abs(world.boss.x - x0) > 50f
-                || world.boss.x <= GameWorld.WIDTH - Boss.RADIUS - 29f);
+                || world.boss.x <= GameWorld.WIDTH - world.boss.radius - 29f);
     }
 
     @Test

@@ -20,6 +20,8 @@ public enum SfxId {
     ALARM,
     BOSS_PHASE,
     BOSS_DOWN,
+    BOSS_LASER,
+    PART_BREAK,
     GAME_OVER,
     UI,
     WAVE,
