@@ -16,6 +16,9 @@ APK 体积仅 ~300 KB。
 - 双榜独立：两模式各自维护本地 Top-5 排行榜（SharedPreferences 持久化），
   菜单并排展示，结算画面高亮本次排名
 - 完整 UI 流程：主菜单 / 暂停 / 设置（音效、粒子、震动、低特效均可开关）/ 结算
+- **应用内升级**：主菜单底部「检查更新」——查询 GitHub Releases，若有新版本
+  直接在应用内下载（带进度条），完成后自动唤起系统安装器（**全程不跳转浏览器**）；
+  升级安装完成或用户取消后，APK 残留自动清理。游戏本体离线可玩，仅此功能按需联网
 
 ## 项目结构
 ```
@@ -26,6 +29,8 @@ app/src/main/java/com/nebulastrike/game/
             逐帧零分配（共享 Path、渐变缓存）
   AudioEngine  SoundPool 音效（res/raw 内为合成 WAV）   Haptics  震动反馈
   GameView  游戏线程 + 触摸输入      MainActivity  入口
+  UpdateManager  应用内升级（检查/下载/唤起系统安装器）  UpdateFileProvider  APK 只读提供器
+  core/UpdateCheck  版本比较与发布 JSON 解析（纯逻辑，可单测）
 app/src/test/   模拟层 JUnit 单元测试（JVM 直接运行）
 scripts/gen_sfx.py  纯 Python 合成全部音效，无需外部素材
 scripts/verify.sh   无 SDK 验证：类型检查 + 单元测试 + 模拟基准

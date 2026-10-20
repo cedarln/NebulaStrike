@@ -451,10 +451,43 @@ public class Renderer {
 
         paint.setTextSize(28f);
         paint.setColor(0xFFFFD166);
-        c.drawText("BEST  " + w.bestScore, VW / 2f, 780f, paint);
+        c.drawText("BEST  " + w.bestScore + "    v" + w.currentVersion, VW / 2f, 748f, paint);
 
+        drawUpdateButton(c, w);
         drawDualBoard(c, w, 1160f, 430f, 330f, 44f, 22f);
         paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /** 菜单底部“检查更新”入口，按升级状态机渲染不同文案与颜色。 */
+    private void drawUpdateButton(Canvas c, GameWorld w) {
+        String label;
+        int bg, fg;
+        switch (w.updateState) {
+            case CHECKING:    label = "检查中…"; bg = 0xFF182040; fg = 0xFF8FA3C8; break;
+            case UP_TO_DATE:  label = "已是最新版本"; bg = 0xFF182040; fg = 0xFF6FE38B; break;
+            case AVAILABLE:   label = "发现新版本 " + w.updateVersion + "，点击下载";
+                              bg = 0xFF2E7D32; fg = 0xFFE8FFEA; break;
+            case DOWNLOADING: label = "下载中 " + w.updateProgress + "%";
+                              bg = 0xFF182040; fg = 0xFFFFD166; break;
+            case READY:       label = "已就绪，正在打开安装…"; bg = 0xFF182040; fg = 0xFF7DF9FF; break;
+            case ERROR:       label = w.updateError != null ? w.updateError : "检查失败，点击重试";
+                              bg = 0xFF401820; fg = 0xFFFF7089; break;
+            default:          label = "检查更新"; bg = 0xFF182040; fg = 0xFF8FA3C8; break;
+        }
+        button(c, Ui.CHECK_UPDATE, label, bg, fg, w.updateState == GameWorld.UpdateState.AVAILABLE,
+                34f);
+
+        // 下载中画进度条
+        if (w.updateState == GameWorld.UpdateState.DOWNLOADING) {
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(0xFFFFD166);
+            float pad = 14f;
+            float frac = Math.max(0.02f, w.updateProgress / 100f);
+            c.drawRoundRect(Ui.CHECK_UPDATE.x + pad,
+                    Ui.CHECK_UPDATE.y + Ui.CHECK_UPDATE.h - 6f,
+                    Ui.CHECK_UPDATE.x + pad + (Ui.CHECK_UPDATE.w - pad * 2f) * frac,
+                    Ui.CHECK_UPDATE.y + Ui.CHECK_UPDATE.h - 2f, 2f, 2f, paint);
+        }
     }
 
     private void drawSettings(Canvas c, GameWorld w) {
@@ -607,6 +640,11 @@ public class Renderer {
     }
 
     private void button(Canvas c, Ui.Rect r, String label, int bg, int fg, boolean filled) {
+        button(c, r, label, bg, fg, filled, 42f);
+    }
+
+    private void button(Canvas c, Ui.Rect r, String label, int bg, int fg, boolean filled,
+                        float textSize) {
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(bg);
         if (filled) {
@@ -618,10 +656,10 @@ public class Renderer {
         }
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(fg);
-        paint.setTextSize(42f);
+        paint.setTextSize(textSize);
         paint.setTextAlign(Paint.Align.CENTER);
         paint.setFakeBoldText(true);
-        c.drawText(label, r.cx(), r.cy() + 15f, paint);
+        c.drawText(label, r.cx(), r.cy() + textSize * 0.36f, paint);
         paint.setFakeBoldText(false);
         paint.setTextAlign(Paint.Align.LEFT);
     }

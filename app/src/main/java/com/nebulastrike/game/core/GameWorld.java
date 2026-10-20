@@ -85,6 +85,16 @@ public class GameWorld {
     public boolean settingsOpen;
     private SettingsStore store;
 
+    // ---- 应用内升级检测（状态机；网络 IO 由 app 层异步执行，这里只存状态） ----
+    public enum UpdateState { IDLE, CHECKING, UP_TO_DATE, AVAILABLE, DOWNLOADING, READY, ERROR }
+    public UpdateState updateState = UpdateState.IDLE;
+    public String updateVersion;          // 检测到的新版本 tag，如 "v1.2.0"
+    public String updateUrl;              // 新 APK 下载地址
+    public String updateError;            // 失败提示
+    public int updateProgress;            // 下载进度 0-100
+    public float updateMsgTimer;          // UP_TO_DATE / ERROR 提示的自动消隐
+    public String currentVersion = "";    // 当前 versionName，由 app 层填入
+
     // boss battle
     public final Boss boss = new Boss();
     public int bossesDefeated;
@@ -141,6 +151,18 @@ public class GameWorld {
         if (state != State.PLAYING) {
             stateTimer += dt;
             for (Star s : stars) s.update(dt * (state == State.PAUSED ? 0.1f : 0.3f), HEIGHT);
+            // 升级提示（已是最新 / 失败）停留 4 秒后回到可点击状态
+            if (updateState == UpdateState.UP_TO_DATE || updateState == UpdateState.ERROR) {
+                updateMsgTimer += dt;
+                if (updateMsgTimer > 4f) updateState = UpdateState.IDLE;
+            } else if (updateState == UpdateState.READY) {
+                // 安装器弹出后用户取消返回：6 秒后允许重新下载触发
+                updateMsgTimer += dt;
+                if (updateMsgTimer > 6f) {
+                    updateState = UpdateState.AVAILABLE;
+                    updateMsgTimer = 0f;
+                }
+            }
             return;
         }
         timeAlive += dt;
@@ -686,6 +708,18 @@ public class GameWorld {
                 settingsOpen = false;
                 restart(GameMode.ENDLESS);
                 break;
+            case CHECK_UPDATE:
+                // IDLE/最新/失败 -> 重新检查；已发现新版本 -> 开始下载；忙碌中忽略
+                if (updateState == UpdateState.IDLE || updateState == UpdateState.UP_TO_DATE
+                        || updateState == UpdateState.ERROR) {
+                    updateState = UpdateState.CHECKING;
+                    updateMsgTimer = 0f;
+                    updateError = null;
+                } else if (updateState == UpdateState.AVAILABLE) {
+                    updateState = UpdateState.DOWNLOADING;
+                    updateProgress = 0;
+                }
+                break;
             case OPEN_SETTINGS:
                 settingsOpen = true;
                 break;
@@ -774,6 +808,49 @@ public class GameWorld {
             shakeTime = Math.max(shakeTime, time);
             shakeMag = Math.max(shakeMag, mag);
         }
+    }
+
+    // ---- 升级检测：app 层异步 IO 完成后调用的回调 ----
+
+    /** 检查结果。upToDate=true 时 tag/url 忽略；失败时 err 非空。 */
+    public void onCheckResult(boolean ok, boolean upToDate, String tag, String url, String err) {
+        if (updateState != UpdateState.CHECKING) return; // 状态已被重置（如回菜单），忽略过期回调
+        if (!ok) {
+            updateState = UpdateState.ERROR;
+            updateError = err != null ? err : "检查失败，点击重试";
+            updateMsgTimer = 0f;
+            return;
+        }
+        if (upToDate) {
+            updateState = UpdateState.UP_TO_DATE;
+            updateMsgTimer = 0f;
+        } else {
+            updateVersion = tag;
+            updateUrl = url;
+            updateState = UpdateState.AVAILABLE;
+        }
+    }
+
+    public void onDownloadProgress(int percent) {
+        if (updateState == UpdateState.DOWNLOADING && percent > updateProgress) {
+            updateProgress = Math.min(percent, 99); // 100 留给 READY
+        }
+    }
+
+    public void onDownloadReady() {
+        if (updateState == UpdateState.DOWNLOADING) updateState = UpdateState.READY;
+    }
+
+    /** READY 后若用户取消安装，允许回到可再次点击下载的状态。 */
+    public void onUpdateDismissed() {
+        if (updateState == UpdateState.READY) {
+            updateState = UpdateState.AVAILABLE;
+        }
+    }
+
+    /** @return true 当处于需要 app 层执行网络 IO 的状态。 */
+    public boolean updateNeedsNetwork() {
+        return updateState == UpdateState.CHECKING || updateState == UpdateState.DOWNLOADING;
     }
 
     /** Starts a fresh run in the given mode. */

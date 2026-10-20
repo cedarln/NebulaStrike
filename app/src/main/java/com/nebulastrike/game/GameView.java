@@ -25,6 +25,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
     private volatile boolean running;
     private long lastBombAt;
     private int lastShotsSeen;
+    private GameWorld.UpdateState lastUpdateState = GameWorld.UpdateState.IDLE;
 
     public GameView(Context context) {
         super(context);
@@ -41,6 +42,9 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
         haptics = new Haptics(context);
         haptics.attach(world.settings);
         audio.init(context, world.settings);
+        // 升级：清理上次安装的 APK 残留，注入当前版本号
+        UpdateManager.cleanup(context);
+        world.currentVersion = UpdateManager.currentVersion(context);
     }
 
     @Override
@@ -63,6 +67,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
             Ui.Action a = Ui.hit(world.state, world.settingsOpen, vx, vy);
             if (a != null) {
                 world.handleUiAction(a);
+                if (a == Ui.Action.CHECK_UPDATE) dispatchUpdateWork();
                 audio.uiTick();
                 return true;
             }
@@ -76,6 +81,15 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
             return true;
         }
         return super.onTouchEvent(event);
+    }
+
+    /** 升级检测点击后：按状态机派发后台 IO（检查 / 下载）。 */
+    private void dispatchUpdateWork() {
+        if (world.updateState == GameWorld.UpdateState.CHECKING) {
+            UpdateManager.checkAsync(getContext(), world, () -> { });
+        } else if (world.updateState == GameWorld.UpdateState.DOWNLOADING) {
+            UpdateManager.downloadAsync(getContext(), world, () -> { });
+        }
     }
 
     /** Back button: pause/resume in game, exit from menu. Returns true if consumed. */
@@ -117,6 +131,13 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
             last = now;
 
             world.update(dt);
+
+            // 升级流：APK 就绪后自动唤起系统安装器（每次进入 READY 只唤起一次）
+            if (world.updateState == GameWorld.UpdateState.READY
+                    && lastUpdateState != GameWorld.UpdateState.READY) {
+                UpdateManager.install(getContext(), world);
+            }
+            lastUpdateState = world.updateState;
 
             // presentation: sound + haptics driven by simulation events
             java.util.List<GameWorld.GameEvent> events = world.pollEvents();

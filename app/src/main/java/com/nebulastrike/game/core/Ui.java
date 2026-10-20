@@ -21,6 +21,7 @@ public final class Ui {
     public static final Rect START = new Rect(GameWorld.WIDTH / 2f - 220f, 460f, 440f, 76f);
     public static final Rect START_ENDLESS = new Rect(GameWorld.WIDTH / 2f - 220f, 552f, 440f, 76f);
     public static final Rect SETTINGS = new Rect(GameWorld.WIDTH / 2f - 220f, 644f, 440f, 64f);
+    public static final Rect CHECK_UPDATE = new Rect(GameWorld.WIDTH / 2f - 220f, 768f, 440f, 56f);
     // settings toggles (drawn on the settings panel in both menu and pause)
     public static final Rect TOGGLE_SOUND = new Rect(GameWorld.WIDTH / 2f - 220f, 470f, 440f, 64f);
     public static final Rect TOGGLE_PARTICLES = new Rect(GameWorld.WIDTH / 2f - 220f, 546f, 440f, 64f);
@@ -37,7 +38,7 @@ public final class Ui {
     /** Logical UI actions produced by taps. */
     public enum Action {
         START, START_ENDLESS, OPEN_SETTINGS, TOGGLE_SOUND, TOGGLE_PARTICLES, TOGGLE_HAPTICS,
-        TOGGLE_REDUCED_FX, SETTINGS_BACK, RESUME, RESTART, QUIT_TO_MENU, PAUSE
+        TOGGLE_REDUCED_FX, SETTINGS_BACK, RESUME, RESTART, QUIT_TO_MENU, PAUSE, CHECK_UPDATE
     }
 
     /** Maps a tap in virtual space to an action for the given state; null if none. */
@@ -55,6 +56,7 @@ public final class Ui {
                 if (START.contains(x, y)) return Action.START;
                 if (START_ENDLESS.contains(x, y)) return Action.START_ENDLESS;
                 if (SETTINGS.contains(x, y)) return Action.OPEN_SETTINGS;
+                if (CHECK_UPDATE.contains(x, y)) return Action.CHECK_UPDATE;
                 return null;
             case PAUSED:
                 if (RESUME.contains(x, y)) return Action.RESUME;
