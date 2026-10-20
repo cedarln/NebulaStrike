@@ -475,33 +475,83 @@ public class GameWorld {
         return EnemyType.DRONE;
     }
 
+    /** 弹道生成：武器类型 × 火力等级（1..3）共同决定数量与形状。 */
     private void fireBullet() {
         shotsFired++;
+        int lvl = ship.powerLevel;
         switch (ship.weapon) {
             case SPREAD: {
-                for (int i = -1; i <= 1; i++) {
+                // 3 / 5 / 7 向扇形
+                int rays = 1 + lvl;                       // 2..4 → 每侧 rays-1
+                for (int i = -(rays - 1); i <= rays - 1; i++) {
                     Bullet b = freeBullet();
                     if (b == null) return;
-                    float ang = (float) (-Math.PI / 2 + i * 0.24);
+                    float ang = (float) (-Math.PI / 2 + i * 0.22);
                     b.init(ship.x, ship.y - Ship.RADIUS - 6f,
                             (float) Math.cos(ang) * 1150f, (float) Math.sin(ang) * 1150f,
                             WeaponType.SPREAD.damage, false);
                 }
                 break;
             }
-            case MISSILE: {
-                for (int i = -1; i <= 1; i += 2) {
+            case LASER: {
+                // 1 / 2 / 3 束穿透激光
+                int beams = lvl;
+                for (int i = 0; i < beams; i++) {
                     Bullet b = freeBullet();
                     if (b == null) return;
-                    b.init(ship.x + i * 18f, ship.y - Ship.RADIUS - 6f,
-                            i * 220f, -640f, WeaponType.MISSILE.damage, true);
+                    float off = (i - (beams - 1) / 2f) * 26f;
+                    b.initLaser(ship.x + off, ship.y - Ship.RADIUS - 10f,
+                            0f, -1500f, WeaponType.LASER.damage);
+                }
+                break;
+            }
+            case MISSILE: {
+                // 2 / 3 / 4 发追踪
+                if (lvl == 1) {
+                    for (int i = -1; i <= 1; i += 2) {
+                        Bullet b = freeBullet();
+                        if (b == null) return;
+                        b.init(ship.x + i * 18f, ship.y - Ship.RADIUS - 6f,
+                                i * 220f, -640f, WeaponType.MISSILE.damage, true);
+                    }
+                } else {
+                    Bullet b = freeBullet(); // 中路直发追踪
+                    if (b == null) return;
+                    b.init(ship.x, ship.y - Ship.RADIUS - 6f, 0f, -700f,
+                            WeaponType.MISSILE.damage, true);
+                    int pair = lvl == 2 ? 1 : 2;
+                    for (int i = -pair; i <= pair; i += 2) {
+                        b = freeBullet();
+                        if (b == null) return;
+                        b.init(ship.x + i * 20f, ship.y - Ship.RADIUS - 6f,
+                                i * 260f, -620f, WeaponType.MISSILE.damage, true);
+                    }
                 }
                 break;
             }
             default: {
-                Bullet b = freeBullet();
-                if (b == null) return;
-                b.init(ship.x, ship.y - Ship.RADIUS - 6f, -1250f);
+                // VULCAN：单发 / 双发平行 / 三向
+                if (lvl == 1) {
+                    Bullet b = freeBullet();
+                    if (b == null) return;
+                    b.init(ship.x, ship.y - Ship.RADIUS - 6f, -1250f);
+                } else {
+                    for (int i = -1; i <= 1; i += 2) {
+                        Bullet b = freeBullet();
+                        if (b == null) return;
+                        b.init(ship.x + i * 16f, ship.y - Ship.RADIUS - 6f, -1250f);
+                    }
+                    if (lvl >= 3) {
+                        for (int i = -1; i <= 1; i += 2) {
+                            Bullet b = freeBullet();
+                            if (b == null) return;
+                            float ang = (float) (-Math.PI / 2 + i * 0.13);
+                            b.init(ship.x, ship.y - Ship.RADIUS - 6f,
+                                    (float) Math.cos(ang) * 1150f, (float) Math.sin(ang) * 1150f,
+                                    1, false);
+                        }
+                    }
+                }
             }
         }
     }
@@ -539,11 +589,12 @@ public class GameWorld {
         }
         if (boss.active) {
             for (Bullet b : bullets) {
-                if (!b.active) continue;
+                if (!b.active || b.hitCooldown > 0f) continue;
                 float dx = b.x - boss.x, dy = b.y - boss.y;
                 float rr = b.radius + Boss.RADIUS;
                 if (dx * dx + dy * dy <= rr * rr) {
-                    b.active = false;
+                    if (b.piercing) b.hitCooldown = 0.06f; // 激光穿透，冷却防连击
+                    else b.active = false;
                     boss.damage(b.damage);
                     spark(b.x, b.y, 2, 2);
                     if (boss.hp <= 0) break;
@@ -552,17 +603,21 @@ public class GameWorld {
         }
         for (Enemy e : enemies) {
             if (!e.active) continue;
-            // bullets vs enemies
+            // bullets vs enemies（穿透激光命中后继续飞行）
             for (Bullet b : bullets) {
-                if (!b.active) continue;
+                if (!b.active || b.hitCooldown > 0f) continue;
                 float dx = b.x - e.x, dy = b.y - e.y;
                 float rr = b.radius + e.type.radius;
                 if (dx * dx + dy * dy <= rr * rr) {
-                    b.active = false;
+                    if (b.piercing) b.hitCooldown = 0.06f;
+                    else b.active = false;
                     e.damage(b.damage);
                     spark(b.x, b.y, 3, 0);
-                    if (e.hp <= 0) killEnemy(e);
-                    break;
+                    if (e.hp <= 0) {
+                        killEnemy(e);
+                        if (b.piercing) continue; // 激光穿过残骸继续命中后面的敌机
+                        break;
+                    }
                 }
             }
             if (!e.active) continue;
@@ -613,6 +668,14 @@ public class GameWorld {
             case MISSILE:
                 ship.weapon = WeaponType.MISSILE;
                 ship.weaponTimer = Ship.WEAPON_DURATION;
+                break;
+            case LASER:
+                ship.weapon = WeaponType.LASER;
+                ship.weaponTimer = Ship.WEAPON_DURATION;
+                break;
+            case POWER:
+                if (ship.powerLevel < Ship.MAX_POWER) ship.powerLevel++;
+                else addScore(300); // 满级折算奖励分（雷电式）
                 break;
             case SHIELD:
                 ship.hasShield = true;
@@ -682,21 +745,25 @@ public class GameWorld {
         events.add(new GameEvent(EventType.ENEMY_KILLED, e.x, e.y));
     }
 
-    /** Tanks drop often, drones rarely. Weights favour weapons early. */
+    /** Tanks drop often, drones rarely. 武器/火力类道具权重最高（雷电式成长曲线）。 */
     private void maybeDropPowerUp(Enemy e) {
         float chance = e.type == EnemyType.TANK ? 0.45f
                 : e.type == EnemyType.HUNTER ? 0.12f : 0.05f;
         if (RNG.get().nextFloat() >= chance) return;
-        float roll = RNG.get().nextFloat();
-        PowerUp.Kind kind;
-        if (roll < 0.26f) kind = PowerUp.Kind.SPREAD;
-        else if (roll < 0.48f) kind = PowerUp.Kind.MISSILE;
-        else if (roll < 0.68f) kind = PowerUp.Kind.SHIELD;
-        else if (roll < 0.82f) kind = PowerUp.Kind.BOMB;
-        else if (roll < 0.92f) kind = PowerUp.Kind.RAPID;
-        else if (roll < 0.98f) kind = PowerUp.Kind.X2;
-        else kind = PowerUp.Kind.LIFE;
-        spawnPowerUp(kind, e.x, e.y);
+        spawnPowerUp(dropKind(RNG.get().nextFloat()), e.x, e.y);
+    }
+
+    /** 掉落分布（9 种）。独立成纯函数便于测试边界。 */
+    public static PowerUp.Kind dropKind(float roll) {
+        if (roll < 0.18f) return PowerUp.Kind.SPREAD;
+        if (roll < 0.34f) return PowerUp.Kind.POWER;
+        if (roll < 0.48f) return PowerUp.Kind.LASER;
+        if (roll < 0.60f) return PowerUp.Kind.MISSILE;
+        if (roll < 0.72f) return PowerUp.Kind.SHIELD;
+        if (roll < 0.82f) return PowerUp.Kind.BOMB;
+        if (roll < 0.90f) return PowerUp.Kind.RAPID;
+        if (roll < 0.96f) return PowerUp.Kind.X2;
+        return PowerUp.Kind.LIFE;
     }
 
     /** Public for tests; spawns a pickup at the given spot. */
@@ -838,6 +905,8 @@ public class GameWorld {
         comboTimer = 0f;
         addShake(0.4f, 16f);
         lives--;
+        // 雷电式惩罚：坠机火力降 1 级
+        if (ship.powerLevel > 1) ship.powerLevel--;
         events.add(new GameEvent(EventType.PLAYER_HIT, ship.x, ship.y));
         if (lives <= 0) {
             lives = 0;

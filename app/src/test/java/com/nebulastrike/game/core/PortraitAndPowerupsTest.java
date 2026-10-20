@@ -188,26 +188,17 @@ public class PortraitAndPowerupsTest {
         assertEquals(200, w.score); // 满命折算
     }
 
-    // ---- 掉落权重覆盖所有 7 种 ----
+    // ---- 掉落权重覆盖所有 9 种 ----
 
     @Test
-    public void dropTableCoversAllSevenKinds() {
-        // 权重边界单调：各分支互斥且总和 <= 1
-        java.util.Random r = new java.util.Random(3);
+    public void dropTableCoversAllNineKinds() {
+        // 纯函数 dropKind：每个区段取一个边界点，必须覆盖全部 9 种枚举
+        float[] boundary = {0f, 0.19f, 0.35f, 0.49f, 0.61f, 0.73f, 0.83f, 0.93f, 0.999f};
         java.util.Set<PowerUp.Kind> seen = java.util.EnumSet.noneOf(PowerUp.Kind.class);
-        for (int i = 0; i < 20000 && seen.size() < 7; i++) {
-            float roll = r.nextFloat();
-            PowerUp.Kind k;
-            if (roll < 0.26f) k = PowerUp.Kind.SPREAD;
-            else if (roll < 0.48f) k = PowerUp.Kind.MISSILE;
-            else if (roll < 0.68f) k = PowerUp.Kind.SHIELD;
-            else if (roll < 0.82f) k = PowerUp.Kind.BOMB;
-            else if (roll < 0.92f) k = PowerUp.Kind.RAPID;
-            else if (roll < 0.98f) k = PowerUp.Kind.X2;
-            else k = PowerUp.Kind.LIFE;
-            seen.add(k);
-        }
+        for (float r : boundary) seen.add(GameWorld.dropKind(r));
         assertEquals(java.util.EnumSet.allOf(PowerUp.Kind.class), seen);
+        assertEquals(PowerUp.Kind.SPREAD, GameWorld.dropKind(0.0f));
+        assertEquals(PowerUp.Kind.LIFE, GameWorld.dropKind(1.0f));
     }
 
     private Enemy firstFreeEnemy(GameWorld w) {
@@ -215,5 +206,168 @@ public class PortraitAndPowerupsTest {
             if (!e.active) return e;
         }
         throw new AssertionError("no free enemy slot");
+    }
+
+    private int activeBullets(GameWorld w) {
+        int n = 0;
+        for (Bullet b : w.bullets) if (b.active) n++;
+        return n;
+    }
+
+    /** 清掉场上所有玩家子弹（隔离"上一轮发射"对计数的影响）。 */
+    private void clearBullets(GameWorld w) {
+        for (Bullet b : w.bullets) b.active = false;
+    }
+
+    // ---- 火力等级 POWER（子弹数量） ----
+
+    @Test
+    public void powerUpsLevelAndVulcanBarrageGrows() {
+        GameWorld w = new GameWorld(7L, false);
+        w.restart(GameMode.WAVES);
+        w.ship.reset(GameWorld.WIDTH / 2f, GameWorld.HEIGHT - 140f);
+        assertEquals(1, w.ship.powerLevel);
+
+        w.spawnPowerUp(PowerUp.Kind.POWER, w.ship.x, w.ship.y);
+        w.update(1f / 60f); // 收集
+        assertEquals(2, w.ship.powerLevel);
+        clearBullets(w);
+        w.ship.resetCooldown();
+        w.update(1f / 60f); // L2：双发平行
+        assertEquals(2, activeBullets(w));
+
+        w.spawnPowerUp(PowerUp.Kind.POWER, w.ship.x, w.ship.y);
+        w.update(1f / 60f);
+        assertEquals(3, w.ship.powerLevel);
+        clearBullets(w);
+        w.ship.resetCooldown();
+        w.update(1f / 60f); // L3：双平行 + 双斜
+        assertEquals(4, activeBullets(w));
+    }
+
+    @Test
+    public void powerAtMaxLevelConvertsToScore() {
+        GameWorld w = new GameWorld(7L, false);
+        w.restart(GameMode.WAVES);
+        w.ship.powerLevel = Ship.MAX_POWER;
+        int s0 = w.score;
+        w.spawnPowerUp(PowerUp.Kind.POWER, w.ship.x, w.ship.y);
+        w.update(1f / 60f);
+        assertEquals(Ship.MAX_POWER, w.ship.powerLevel); // 不超上限
+        assertEquals(300, w.score - s0);
+    }
+
+    @Test
+    public void crashDropsPowerLevel() {
+        GameWorld w = new GameWorld(7L, false);
+        w.restart(GameMode.WAVES);
+        w.ship.powerLevel = 3;
+        w.lives = 2;
+        w.ship.hasShield = false;
+        w.ship.invulnerable = false;
+        Enemy e = firstFreeEnemy(w);
+        e.init(EnemyType.DRONE, w.ship.x, w.ship.y, 1f);
+        w.update(1f / 60f); // 撞机
+        assertEquals(2, w.ship.powerLevel); // 降 1 级
+    }
+
+    @Test
+    public void resetRestoresPowerLevelOne() {
+        Ship s = new Ship();
+        s.reset(100, 100);
+        s.powerLevel = 3;
+        s.reset(50, 50);
+        assertEquals(1, s.powerLevel);
+    }
+
+    // ---- 穿透激光 LASER（子弹类型） ----
+
+    @Test
+    public void laserCollectSwitchesWeaponAndFiresBeams() {
+        GameWorld w = new GameWorld(7L, false);
+        w.restart(GameMode.WAVES);
+        w.ship.reset(GameWorld.WIDTH / 2f, GameWorld.HEIGHT - 140f);
+        w.spawnPowerUp(PowerUp.Kind.LASER, w.ship.x, w.ship.y);
+        w.update(1f / 60f);
+        assertEquals(WeaponType.LASER, w.ship.weapon);
+        assertEquals(Ship.WEAPON_DURATION, w.ship.weaponTimer, 0.01f);
+
+        clearBullets(w);
+        w.ship.resetCooldown();
+        w.update(1f / 60f); // L1：单束
+        assertEquals(1, activeBullets(w));
+        for (Bullet b : w.bullets) {
+            if (b.active) {
+                assertTrue(b.piercing);
+                assertEquals(0f, b.vx, 0.001f);
+                assertTrue(b.vy < 0f);
+                break;
+            }
+        }
+    }
+
+    @Test
+    public void laserBeamsGrowWithPowerLevel() {
+        GameWorld w = new GameWorld(7L, false);
+        w.restart(GameMode.WAVES);
+        w.ship.reset(GameWorld.WIDTH / 2f, GameWorld.HEIGHT - 140f);
+        w.ship.weapon = WeaponType.LASER;
+        w.ship.weaponTimer = 5f;
+        w.ship.powerLevel = 3;
+        w.ship.resetCooldown();
+        w.update(1f / 60f); // L3：三束
+        assertEquals(3, activeBullets(w));
+        int lasers = 0;
+        for (Bullet b : w.bullets) if (b.active && b.piercing) lasers++;
+        assertEquals(3, lasers);
+    }
+
+    @Test
+    public void laserPiercesThroughEnemy() {
+        GameWorld w = new GameWorld(7L, false);
+        w.restart(GameMode.WAVES);
+        w.ship.reset(GameWorld.WIDTH / 2f, GameWorld.HEIGHT - 140f);
+        w.ship.weapon = WeaponType.LASER;
+        w.ship.weaponTimer = 5f;
+        // TANK 高血量，放在飞船正上方
+        Enemy tank = firstFreeEnemy(w);
+        tank.init(EnemyType.TANK, w.ship.x, w.ship.y - 140f, 1f);
+        int hp0 = (int) tank.hp;
+
+        clearBullets(w);
+        w.ship.resetCooldown();
+        for (int i = 0; i < 12; i++) w.update(1f / 60f); // 0.2s：激光飞过并命中
+        assertTrue("激光应命中并造成伤害", tank.hp < hp0);
+        assertTrue("穿透弹命中后应继续存在", tank.hp > 0); // TANK 不死，弹未消失
+        boolean beamAlive = false;
+        for (Bullet b : w.bullets) if (b.active && b.piercing) beamAlive = true;
+        assertTrue("激光命中后仍应飞行（穿透）", beamAlive);
+    }
+
+    // ---- 掉落表 9 种全覆盖 ----
+
+    @Test
+    public void allNinePowerupKindsSpawn() {
+        GameWorld w = new GameWorld(7L, false);
+        w.restart(GameMode.WAVES);
+        int i = 0;
+        for (PowerUp.Kind kind : PowerUp.Kind.values()) {
+            w.spawnPowerUp(kind, 100f + (i++) * 60f, 400f);
+        }
+        int spawned = 0;
+        for (PowerUp p : w.powerups) if (p.active) spawned++;
+        assertEquals(PowerUp.Kind.values().length, spawned);
+        assertEquals(9, spawned);
+    }
+
+    @Test
+    public void magnetAttractsAndMarksPickup() {
+        GameWorld w = new GameWorld(7L, false);
+        w.restart(GameMode.WAVES);
+        w.spawnPowerUp(PowerUp.Kind.POWER, w.ship.x + 50f, w.ship.y + 10f);
+        PowerUp p = null;
+        for (PowerUp q : w.powerups) if (q.active) p = q;
+        p.update(1f / 60f, w.ship.x, w.ship.y); // 在磁吸范围内
+        assertTrue(p.attracted);
     }
 }

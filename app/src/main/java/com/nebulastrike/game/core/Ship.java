@@ -22,6 +22,12 @@ public class Ship {
     public WeaponType weapon = WeaponType.VULCAN;
     public float weaponTimer;      // >0 while a powerup weapon is active
     public static final float WEAPON_DURATION = 12f;
+    /**
+     * 火力等级 1..3（雷电式）：扩展弹道数量，永久生效，坠机降 1 级。
+     * POWER 道具 +1（满级 300 分折算），见 GameWorld.collect/fireBullet。
+     */
+    public int powerLevel = 1;
+    public static final int MAX_POWER = 3;
     public boolean hasShield;
     public int bombs = 1;
     public static final int MAX_BOMBS = 3;
@@ -39,6 +45,7 @@ public class Ship {
         invulnTimer = 0f;
         weapon = WeaponType.VULCAN;
         weaponTimer = 0f;
+        powerLevel = 1;
         hasShield = false;
         bombs = 1;
         rapidTimer = 0f;
@@ -54,6 +61,11 @@ public class Ship {
     public void snapTarget() {
         targetX = x;
         targetY = y;
+    }
+
+    /** 清零射击冷却，下一帧立即开火（测试与重生流程用）。 */
+    public void resetCooldown() {
+        cooldown = 0f;
     }
 
     /** Smooth-follows the target with a bounded speed. Returns true if the ship fired. */

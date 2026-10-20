@@ -139,7 +139,15 @@ public class Renderer {
         paint.setStyle(Paint.Style.FILL);
         for (Bullet b : w.bullets) {
             if (!b.active) continue;
-            if (b.homing) {
+            if (b.piercing) {
+                // laser: vertical light beam, white core + cyan sheath
+                glow.setColor(0x557DF9FF);
+                c.drawCircle(b.x, b.y, 20f, glow);
+                paint.setColor(0xFF7DF9FF);
+                c.drawRoundRect(b.x - 5f, b.y - b.len, b.x + 5f, b.y + 8f, 5f, 5f, paint);
+                paint.setColor(0xE6FFFFFF);
+                c.drawRoundRect(b.x - 2f, b.y - b.len + 6f, b.x + 2f, b.y + 4f, 2f, 2f, paint);
+            } else if (b.homing) {
                 // missile: small rocket with exhaust
                 paint.setColor(0xFFFFD166);
                 float ang = (float) Math.atan2(b.vy, b.vx);
@@ -164,28 +172,65 @@ public class Renderer {
         }
     }
 
+    /**
+     * 道具呈现（与敌机强区分）：旋转六边形胶囊 + 双层脉冲光环 + 闪烁描边。
+     * 磁吸中（可收集）时：闪烁频率加倍、光环变亮、外圈出现第三道捕获环。
+     * 敌机是恒定描边的几何体，不发光不闪烁——动效即"可拾取"信号。
+     */
     private void drawPowerUps(Canvas c, GameWorld w) {
         for (PowerUp p : w.powerups) {
             if (!p.active) continue;
-            float pulse = 1f + 0.12f * (float) Math.sin(p.age * 6f);
             int color;
             String label;
             switch (p.kind) {
                 case SPREAD: color = 0xFF7DF9FF; label = "W"; break;
                 case MISSILE: color = 0xFFFFD166; label = "M"; break;
+                case LASER:  color = 0xFF66E0FF; label = "L"; break;
+                case POWER:  color = 0xFFFFB03A; label = "P"; break;
                 case SHIELD: color = 0xFF7CFF6B; label = "S"; break;
                 case RAPID:  color = 0xFFFF9D5C; label = "R"; break;
                 case X2:     color = 0xFFB08FFF; label = "×2"; break;
                 case LIFE:   color = 0xFFFF7089; label = "+"; break;
                 default: color = 0xFFFF5C7A; label = "B"; break;
             }
-            glow.setColor(((color & 0xFFFFFF) | 0x33000000));
-            c.drawCircle(p.x, p.y, 30f * pulse, glow);
-            hexagon(c, p.x, p.y, 22f * pulse, color);
+            boolean hot = p.attracted;
+            // 呼吸缩放 + 闪烁频率（磁吸时翻倍）
+            float freq = hot ? 12f : 6f;
+            float pulse = 1f + 0.12f * (float) Math.sin(p.age * freq);
+            float blink = 0.55f + 0.45f * (0.5f + 0.5f * (float) Math.sin(p.age * freq * 2.2f));
+
+            // 光环（两层）：alpha 随闪烁呼吸
+            glow.setColor(((int) ((hot ? 0x55 : 0x33) * blink) << 24) | (color & 0xFFFFFF));
+            c.drawCircle(p.x, p.y, 34f * pulse, glow);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(hot ? 4f : 2.5f);
+            paint.setColor((blink >= 0.8f ? 0xB4 : 0x66) << 24 | (color & 0xFFFFFF));
+            c.drawCircle(p.x, p.y, 30f * pulse, paint);
+            // 外圈扩散环：从 44 收缩到 30 循环（雷达捕获感），磁吸时更亮
+            float ringT = (p.age * (hot ? 2.4f : 1.2f)) % 1f;
+            paint.setStrokeWidth(2f);
+            paint.setColor(((int) ((hot ? 0x88 : 0x44) * (1f - ringT)) << 24) | (color & 0xFFFFFF));
+            c.drawCircle(p.x, p.y, 30f + 16f * (1f - ringT), paint);
+
+            // 主体：旋转六边形（敌机从不旋转）+ 白色高光描边
+            c.save();
+            c.rotate(p.age * 40f, p.x, p.y);
+            paint.setStyle(Paint.Style.FILL);
+            hexagon(c, p.x, p.y, 20f * pulse, ((int) (0xD9 * blink) << 24) | (color & 0xFFFFFF));
+            c.restore();
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2f);
+            paint.setColor(0xFFFFFFFF);
+            hexPath(p.x, p.y, 20f * pulse);
+            c.drawPath(shapePath, paint);
+            paint.setStyle(Paint.Style.FILL);
+
             paint.setColor(0xFF0A0C18);
-            paint.setTextSize(24f);
+            paint.setTextSize(23f);
+            paint.setFakeBoldText(true);
             paint.setTextAlign(Paint.Align.CENTER);
-            c.drawText(label, p.x, p.y + 9f, paint);
+            c.drawText(label, p.x, p.y + 8f, paint);
+            paint.setFakeBoldText(false);
             paint.setTextAlign(Paint.Align.LEFT);
         }
     }
@@ -383,7 +428,12 @@ public class Renderer {
 
         // weapon status + timer bar
         if (w.ship.weapon != com.nebulastrike.game.core.WeaponType.VULCAN) {
-            String name = w.ship.weapon == com.nebulastrike.game.core.WeaponType.SPREAD ? "SPREAD" : "MISSILES";
+            String name;
+            switch (w.ship.weapon) {
+                case SPREAD: name = "SPREAD"; break;
+                case LASER: name = "LASER"; break;
+                default: name = "MISSILES"; break;
+            }
             paint.setColor(0xFFFFD166);
             paint.setTextSize(26f);
             c.drawText(name, 40f, 112f, paint);
@@ -392,6 +442,12 @@ public class Renderer {
             c.drawRect(40f, 124f, 40f + 180f, 132f, paint);
             paint.setColor(0xFFFFD166);
             c.drawRect(40f, 124f, 40f + 180f * frac, 132f, paint);
+        }
+        // 火力等级 pips（雷电式）：右上角 3 格
+        for (int i = 0; i < Ship.MAX_POWER; i++) {
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(i < w.ship.powerLevel ? 0xFFFFB03A : 0x33FFB03A);
+            c.drawCircle(VW - 46f - i * 30f, 58f, 9f, paint);
         }
         if (w.ship.hasShield) {
             paint.setColor(0xFF7CFF6B);
@@ -807,8 +863,8 @@ public class Renderer {
         c.drawPath(shapePath, paint);
     }
 
-    private void hexagon(Canvas c, float x, float y, float r, int color) {
-        paint.setColor(color);
+    /** Builds a hexagon into shapePath (no drawing). */
+    private void hexPath(float x, float y, float r) {
         shapePath.rewind();
         for (int i = 0; i < 6; i++) {
             double a = Math.PI / 3.0 * i + Math.PI / 6.0;
@@ -817,6 +873,11 @@ public class Renderer {
             if (i == 0) shapePath.moveTo(px, py); else shapePath.lineTo(px, py);
         }
         shapePath.close();
+    }
+
+    private void hexagon(Canvas c, float x, float y, float r, int color) {
+        hexPath(x, y, r);
+        paint.setColor(color);
         c.drawPath(shapePath, paint);
     }
 

@@ -1,13 +1,17 @@
 package com.nebulastrike.game.core;
 
-/** Falling pickup. Drifts gently and is attracted when the ship is close. */
+/**
+ * Falling pickup. Drifts gently and is attracted when the ship is close.
+ * attracted 标志供渲染层区分"磁吸中"状态（光环加速闪烁 = 可收集反馈）。
+ */
 public class PowerUp {
-    public enum Kind { SPREAD, MISSILE, SHIELD, BOMB, RAPID, X2, LIFE }
+    public enum Kind { SPREAD, MISSILE, LASER, POWER, SHIELD, BOMB, RAPID, X2, LIFE }
 
     public Kind kind;
     public float x, y;
     public float age;
     public boolean active;
+    public boolean attracted;
 
     public void init(Kind kind, float x, float y) {
         this.kind = kind;
@@ -15,6 +19,7 @@ public class PowerUp {
         this.y = y;
         this.age = 0f;
         this.active = true;
+        this.attracted = false;
     }
 
     public void update(float dt, float shipX, float shipY) {
@@ -23,9 +28,11 @@ public class PowerUp {
         y += 110f * dt;
         x += (float) Math.sin(age * 2.6f) * 46f * dt;
         // magnet: accelerate toward ship when close
+        attracted = false;
         float dx = shipX - x, dy = shipY - y;
         float d2 = dx * dx + dy * dy;
         if (d2 < 260f * 260f) {
+            attracted = true;
             float d = (float) Math.sqrt(d2);
             if (d > 1f) {
                 x += dx / d * 520f * dt;
