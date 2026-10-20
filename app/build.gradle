@@ -2,6 +2,17 @@ plugins {
     id 'com.android.application'
 }
 
+// 签名密码不写入仓库：优先 local.properties（已 gitignore），其次环境变量
+def localProps = new Properties()
+def localPropsFile = rootProject.file('local.properties')
+if (localPropsFile.exists()) {
+    localPropsFile.withInputStream { localProps.load(it) }
+}
+def releaseStorePassword =
+        localProps.getProperty('RELEASE_STORE_PASSWORD') ?: System.getenv('RELEASE_STORE_PASSWORD')
+def releaseKeyPassword =
+        localProps.getProperty('RELEASE_KEY_PASSWORD') ?: System.getenv('RELEASE_KEY_PASSWORD')
+
 android {
     namespace 'com.nebulastrike.game'
     compileSdk 34
@@ -19,13 +30,13 @@ android {
         abortOnError false
     }
 
-    // 发布签名（演示用密钥库，已随仓库提供，便于任何人本地构建签名 APK）
+    // 密钥库随仓库提供（个人项目）；密码从本地配置读取
     signingConfigs {
         release {
             storeFile rootProject.file('release.keystore')
-            storePassword 'nebulastrike2024'
             keyAlias 'nebulastrike'
-            keyPassword 'nebulastrike2024'
+            if (releaseStorePassword) storePassword releaseStorePassword
+            if (releaseKeyPassword) keyPassword releaseKeyPassword
         }
     }
 
@@ -33,13 +44,22 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
+            if (releaseStorePassword && releaseKeyPassword) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+gradle.taskGraph.whenReady { graph ->
+    if (graph.hasTask(':app:assembleRelease') && (!releaseStorePassword || !releaseKeyPassword)) {
+        throw new GradleException(
+                '缺少签名密码：在 local.properties 或环境变量设置 RELEASE_STORE_PASSWORD / RELEASE_KEY_PASSWORD')
     }
 }
 

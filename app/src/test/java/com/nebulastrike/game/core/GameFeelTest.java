@@ -95,6 +95,21 @@ public class GameFeelTest {
         assertEquals(0f, world.shakeMag, 0.001f);
     }
 
+    @Test
+    public void gameOverSettlesShake() {
+        world.lives = 1;
+        world.ship.hasShield = false;
+        Enemy e = firstFreeEnemy();
+        e.init(EnemyType.DRONE, world.ship.x, world.ship.y, 1f);
+        world.update(1f / 60f);
+        assertEquals(GameWorld.State.GAME_OVER, world.state);
+        assertTrue(world.shakeTime > 0f);
+
+        // 结算界面仍需推进特效，否则整块屏幕会永久偏移
+        for (int i = 0; i < 120; i++) world.update(1f / 60f);
+        assertEquals(0f, world.shakeMag, 0.001f);
+    }
+
     // ---- helpers ----
 
     private void stepToFire() {

@@ -32,7 +32,7 @@ app/src/main/java/com/nebulastrike/game/
   core/     纯 Java 模拟层（不依赖 android.*）：实体、刷怪、碰撞、
             Boss AI、难度曲线、自适应画质调节器
   render/   Canvas 渲染器（900x1600 竖屏虚拟坐标系，任意屏幕自动留边适配），
-            逐帧零分配（共享 Path、渐变缓存）
+            矢量图形零分配（共享 Path、缓存渐变）
   AudioEngine  SoundPool 音效（res/raw 内为合成 WAV）   Haptics  震动反馈
   GameView  游戏线程 + 触摸输入      MainActivity  入口
   UpdateManager  应用内升级（检查/下载/唤起系统安装器）  UpdateFileProvider  APK 只读提供器
@@ -43,7 +43,7 @@ scripts/verify.sh   无 SDK 验证：类型检查 + 单元测试 + 模拟基准
 ```
 
 ## 性能
-- 固定虚拟坐标系；所有实体走对象池；固定时间步长 + dt 钳位
+- 固定虚拟坐标系；所有实体走对象池；dt 钳位（后台恢复不会炸物理）
 - 帧率调节器：游戏中 60 fps、菜单 30 fps；按帧耗时反馈自适应粒子发射量；
   低内存设备自动降特效
 - `scripts/verify.sh` 第 4 步运行 60 秒最坏情况模拟基准
@@ -67,8 +67,16 @@ scripts/verify.sh   无 SDK 验证：类型检查 + 单元测试 + 模拟基准
 ./gradlew :app:assembleRelease   # 签名 release APK 输出在 app/build/outputs/apk/release/
 ```
 
-release 使用仓库自带的演示密钥库（`release.keystore`，密码见 `app/build.gradle`）
-签名，仅供学习与自娱；正式上架请更换为自己的密钥。
+release 使用仓库自带的密钥库 `release.keystore` 签名。密码**不写入仓库**，请放在
+`local.properties`（已 gitignore）或环境变量里：
+
+```properties
+RELEASE_STORE_PASSWORD=你的密码
+RELEASE_KEY_PASSWORD=你的密码
+```
+
+缺少密码时 `assembleRelease` 会直接失败，避免产出未签名 APK。仅供学习与自娱；
+正式上架请更换为自己的密钥。
 
 ## 验证（无需 Android SDK）
 ```bash

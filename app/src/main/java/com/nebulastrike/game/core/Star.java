@@ -14,14 +14,14 @@ public class Star {
         this.size = size;
         this.speed = speed;
         this.layer = layer;
-        this.twinklePhase = (float) (Math.random() * Math.PI * 2);
+        this.twinklePhase = GameWorld.RNG.get().nextFloat() * (float) Math.PI * 2f;
     }
 
     public void update(float dt, float worldH) {
         y += speed * dt;
         if (y > worldH + size) {
             y = -size;
-            x = (float) Math.random() * GameWorld.WIDTH;
+            x = GameWorld.RNG.get().nextFloat() * GameWorld.WIDTH;
         }
     }
 }

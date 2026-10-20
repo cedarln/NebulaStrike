@@ -4,7 +4,18 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-SDK_JAR="${SDK_JAR:-/opt/android-sdk/platforms/android-34/android.jar}"
+# 类型检查只需 android.jar；优先 compileSdk 34，其次本机任意已安装平台
+if [ -z "${SDK_JAR:-}" ]; then
+    for root in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" /opt/android-sdk "$HOME/Library/Android/sdk"; do
+        [ -n "$root" ] || continue
+        for jar in "$root"/platforms/android-34/android.jar "$root"/platforms/android-*/android.jar; do
+            [ -f "$jar" ] && { SDK_JAR="$jar"; break 2; }
+        done
+    done
+fi
+[ -n "${SDK_JAR:-}" ] && [ -f "$SDK_JAR" ] \
+    || { echo "未找到 android.jar，请设置 SDK_JAR 指向它" >&2; exit 1; }
+echo "android.jar: $SDK_JAR"
 LIB=".verify-libs"
 mkdir -p "$LIB" "build/verify"
 

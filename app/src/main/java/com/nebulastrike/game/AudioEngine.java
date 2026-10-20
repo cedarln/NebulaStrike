@@ -18,16 +18,22 @@ public class AudioEngine {
     private int shootId, explodeId, bigExplodeId, hitId, powerupId,
             bombId, alarmId, gameoverId, uiId, bossdownId;
     private Settings settings;
-    private boolean ready;
+    private volatile boolean ready;
 
+    /** Idempotent: safe to call again after {@link #release()} when the surface is recreated. */
     public void init(Context context, Settings settings) {
         this.settings = settings;
+        if (pool != null) return;
+        ready = false;
         AudioAttributes attrs = new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_GAME)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build();
         pool = new SoundPool.Builder().setMaxStreams(6).setAudioAttributes(attrs).build();
-        pool.setOnLoadCompleteListener((sp, sampleId, status) -> ready = status == 0);
+        // 任意一个样本加载成功即可播放；失败的样本 play() 会静默返回 0
+        pool.setOnLoadCompleteListener((sp, sampleId, status) -> {
+            if (status == 0) ready = true;
+        });
         shootId = load(context, "sfx_shoot");
         explodeId = load(context, "sfx_explode");
         bigExplodeId = load(context, "sfx_big_explode");
@@ -78,6 +84,7 @@ public class AudioEngine {
         if (pool != null) {
             pool.release();
             pool = null;
+            ready = false;
         }
     }
 }

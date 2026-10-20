@@ -1,12 +1,12 @@
 package com.nebulastrike.game.core;
 
-/** Player preferences, persisted by a {@link SettingsStore}. */
+/** Player preferences, persisted by a {@link SettingsStore}. Written on the UI thread, read on the game thread. */
 public class Settings {
-    public boolean sound = true;
-    public boolean particles = true;
-    public boolean haptics = true;
+    public volatile boolean sound = true;
+    public volatile boolean particles = true;
+    public volatile boolean haptics = true;
     /** force reduced particle emission (for low-end devices); off = auto quality */
-    public boolean reducedFx = false;
+    public volatile boolean reducedFx = false;
 
     public void toggle(String key) {
         switch (key) {

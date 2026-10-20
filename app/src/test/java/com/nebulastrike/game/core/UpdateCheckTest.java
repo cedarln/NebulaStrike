@@ -133,6 +133,21 @@ public class UpdateCheckTest {
     }
 
     @Test
+    public void downloadFailureReturnsToRetryableError() {
+        world = world();
+        world.updateState = GameWorld.UpdateState.DOWNLOADING;
+        world.onDownloadError("下载失败，点击重试");
+        assertEquals(GameWorld.UpdateState.ERROR, world.updateState);
+        assertEquals("下载失败，点击重试", world.updateError);
+
+        // 提示 4 秒后自动回到 IDLE，按钮恢复可点
+        for (int i = 0; i < 320; i++) world.update(1f / 60f);
+        assertEquals(GameWorld.UpdateState.IDLE, world.updateState);
+        world.handleUiAction(Ui.Action.CHECK_UPDATE);
+        assertEquals(GameWorld.UpdateState.CHECKING, world.updateState);
+    }
+
+    @Test
     public void staleCallbacksAreIgnored() {
         world = world();
         world.handleUiAction(Ui.Action.CHECK_UPDATE);

@@ -68,6 +68,18 @@ public class UiStateTest {
     }
 
     @Test
+    public void pauseClearsFloatingJoystick() {
+        world.handleUiAction(Ui.Action.START);
+        world.joyActive = true;
+        world.joyBaseX = 120f;
+        world.joyBaseY = 300f;
+        world.joyAnim = 1f;
+        world.handleUiAction(Ui.Action.PAUSE);
+        assertFalse("暂停后摇杆不应残留在遮罩下", world.joyActive);
+        assertEquals(0f, world.joyAnim, 1e-6f);
+    }
+
+    @Test
     public void quitToMenuThenRestart() {
         world.handleUiAction(Ui.Action.START);
         world.score = 123;

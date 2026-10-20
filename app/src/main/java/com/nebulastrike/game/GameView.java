@@ -2,6 +2,8 @@ package com.nebulastrike.game;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.os.Build;
+import android.os.Process;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
@@ -44,7 +46,6 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
         renderer = new Renderer();
         haptics = new Haptics(context);
         haptics.attach(world.settings);
-        audio.init(context, world.settings);
         // 升级：清理上次安装的 APK 残留，注入当前版本号
         UpdateManager.cleanup(context);
         world.currentVersion = UpdateManager.currentVersion(context);
@@ -181,6 +182,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
 
     @Override
     public void run() {
+        Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY);
         long last = System.nanoTime();
         while (running) {
             long now = System.nanoTime();
@@ -216,7 +218,10 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
             SurfaceHolder holder = getHolder();
             Canvas canvas = null;
             try {
-                canvas = holder.lockHardwareCanvas();
+                // lockHardwareCanvas 需要 API 23；更老的设备退回软件 Canvas，避免崩在启动画面
+                canvas = Build.VERSION.SDK_INT >= 23
+                        ? holder.lockHardwareCanvas()
+                        : holder.lockCanvas();
                 if (canvas != null) {
                     synchronized (holder) {
                         renderer.draw(canvas, world);
@@ -245,6 +250,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
+        // Surface 重建（切后台回来、锁屏解锁）后 SoundPool 已被释放，必须重新初始化
+        audio.init(getContext().getApplicationContext(), world.settings);
         running = true;
         thread = new Thread(this, "game-loop");
         thread.start();

@@ -91,6 +91,14 @@ public class QualityTest {
         assertEquals(0, world.activeParticles());
     }
 
+    @Test
+    public void particleToggleStopsEmission() {
+        world.settings.particles = false;
+        world.spawningEnabled = false;
+        killOneDrone(1f);
+        assertEquals("关闭粒子后不应再产生爆炸/尾焰粒子", 0, world.activeParticles());
+    }
+
     // ---- helpers ----
 
     private int killOneDroneCountingParticles(float scale) {

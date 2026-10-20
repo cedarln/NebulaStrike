@@ -26,7 +26,8 @@ public class Renderer {
     public static final float VW = GameWorld.WIDTH;
     public static final float VH = GameWorld.HEIGHT;
 
-    private float scale = 1f, offX = 0f, offY = 0f;
+    // surfaceChanged（UI 线程）写入，draw（游戏线程）读取
+    private volatile float scale = 1f, offX = 0f, offY = 0f;
 
     private final Paint paint = new Paint();
     private final Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -126,7 +127,7 @@ public class Renderer {
     }
 
     private void drawParticles(Canvas c, GameWorld w) {
-        glow.setXfermode(null);
+        if (!w.settings.particles) return;
         for (Particle p : w.particles) {
             if (!p.active) continue;
             float t = p.life / p.maxLife;
@@ -443,11 +444,11 @@ public class Renderer {
             paint.setColor(0xFFFFD166);
             c.drawRect(40f, 124f, 40f + 180f * frac, 132f, paint);
         }
-        // 火力等级 pips（雷电式）：右上角 3 格
+        // 火力等级 pips（雷电式）：右上角 3 格，放在残机图标下方避免重叠
         for (int i = 0; i < Ship.MAX_POWER; i++) {
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(i < w.ship.powerLevel ? 0xFFFFB03A : 0x33FFB03A);
-            c.drawCircle(VW - 46f - i * 30f, 58f, 9f, paint);
+            c.drawCircle(VW - 46f - i * 30f, 96f, 9f, paint);
         }
         if (w.ship.hasShield) {
             paint.setColor(0xFF7CFF6B);
@@ -711,7 +712,6 @@ public class Renderer {
         drawLeaderboard(c, w.board(w.mode), w.mode, VW / 2f - 160f, 625f, 320f, 30f, 22f, w.scoreRank);
 
         paint.setTextSize(40f);
-        paint.setColor(0xFF8FA3C8);
         float alpha = 0.4f + 0.6f * Math.abs((float) Math.sin(w.stateTimer * 2.2f));
         paint.setColor(((int) (255 * alpha) << 24) | 0x8FA3C8);
         c.drawText("Tap to fly again", VW / 2f, 900f, paint);
@@ -741,22 +741,16 @@ public class Renderer {
 
         for (int i = 0; i < 5; i++) {
             float ry = y + rowH * (i + 2f);
-            drawBoardRow(c, w.leaderboard[i], x + 15f, ry);
-            drawBoardRow(c, w.leaderboardEndless[i], x + wdt - 15f, ry);
+            drawBoardRow(c, w.leaderboard[i], x + 15f, ry, Paint.Align.LEFT);
+            drawBoardRow(c, w.leaderboardEndless[i], x + wdt - 15f, ry, Paint.Align.RIGHT);
         }
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
-    private void drawBoardRow(Canvas c, int score, float rightEdge, float y) {
-        if (score <= 0) {
-            paint.setColor(0x558FA3C8);
-            paint.setTextAlign(Paint.Align.RIGHT);
-            c.drawText("—", rightEdge, y, paint);
-            return;
-        }
-        paint.setColor(0xFFE8F1FF);
-        paint.setTextAlign(Paint.Align.RIGHT);
-        c.drawText(String.valueOf(score), rightEdge, y, paint);
+    private void drawBoardRow(Canvas c, int score, float edge, float y, Paint.Align align) {
+        paint.setTextAlign(align);
+        paint.setColor(score <= 0 ? 0x558FA3C8 : 0xFFE8F1FF);
+        c.drawText(score <= 0 ? "—" : String.valueOf(score), edge, y, paint);
     }
 
     /** Compact one-board panel (game-over screen): the board of the run's mode. */

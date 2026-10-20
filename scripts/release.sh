@@ -74,6 +74,15 @@ BT="$ANDROID_HOME/build-tools/34.0.0"
 [ -x "$BT/apksigner" ] || die "未找到 build-tools 34.0.0 的 apksigner"
 log "  Android SDK: $ANDROID_HOME"
 
+# ---- 签名密码（不写入仓库，从 local.properties 或环境变量读取） ----
+STORE_PW="${RELEASE_STORE_PASSWORD:-$(sed -n 's/^RELEASE_STORE_PASSWORD=//p' local.properties 2>/dev/null | tail -1)}"
+KEY_PW="${RELEASE_KEY_PASSWORD:-$(sed -n 's/^RELEASE_KEY_PASSWORD=//p' local.properties 2>/dev/null | tail -1)}"
+[ -n "$STORE_PW" ] && [ -n "$KEY_PW" ] \
+    || die "缺少签名密码: 在 local.properties 或环境变量设置 RELEASE_STORE_PASSWORD / RELEASE_KEY_PASSWORD"
+export RELEASE_STORE_PASSWORD="$STORE_PW"
+export RELEASE_KEY_PASSWORD="$KEY_PW"
+log "  签名密码: 已从本地配置读取"
+
 # 沙箱/内网环境: 从 http_proxy 解析代理给 Gradle 用
 if [ -z "${GRADLE_OPTS:-}" ] && [ -n "${http_proxy:-}" ]; then
     PX="${http_proxy#http://}"; PX="${PX%/}"

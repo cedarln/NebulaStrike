@@ -82,20 +82,25 @@ public final class UpdateManager {
     public static void downloadAsync(final Context ctx, final GameWorld world,
                                      final Runnable uiCallback) {
         new Thread(() -> {
+            final String url = world.updateUrl;
+            final String version = world.updateVersion;
             try {
+                if (url == null || version == null) throw new IllegalStateException("no release");
                 File dir = new File(ctx.getFilesDir(), "update");
                 dir.mkdirs();
-                File out = new File(dir, "NebulaStrike-" + world.updateVersion + ".apk");
-                HttpURLConnection conn = (HttpURLConnection) new URL(world.updateUrl)
-                        .openConnection();
+                File out = new File(dir, "NebulaStrike-" + version + ".apk");
+                HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
                 conn.setConnectTimeout(TIMEOUT_MS);
                 conn.setReadTimeout(TIMEOUT_MS);
                 conn.setInstanceFollowRedirects(true);
-                long total = conn.getContentLengthLong();
+                int code = conn.getResponseCode();
+                if (code >= 400) throw new IllegalStateException("HTTP " + code);
+                // getContentLengthLong() 需要 API 24，minSdk 21 只能用 int 版本（APK 远小于 2GB）
+                long total = conn.getContentLength();
+                long read = 0;
                 try (InputStream in = conn.getInputStream();
                      FileOutputStream fos = new FileOutputStream(out)) {
                     byte[] buf = new byte[16384];
-                    long read = 0;
                     int n;
                     while ((n = in.read(buf)) > 0) {
                         fos.write(buf, 0, n);
@@ -109,13 +114,18 @@ public final class UpdateManager {
                         }
                     }
                 }
+                if (read == 0 || (total > 0 && read != total)) {
+                    throw new IllegalStateException("incomplete apk");
+                }
                 ((Activity) ctx).runOnUiThread(() -> {
                     world.onDownloadReady();
                     uiCallback.run();
                 });
             } catch (Exception e) {
+                // 半截文件留着会被当成可安装包，直接清掉
+                deleteTree(new File(ctx.getFilesDir(), "update"));
                 ((Activity) ctx).runOnUiThread(() -> {
-                    world.onCheckResult(false, false, null, null, "下载失败，点击重试");
+                    world.onDownloadError("下载失败，点击重试");
                     uiCallback.run();
                 });
             }

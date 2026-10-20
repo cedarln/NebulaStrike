@@ -50,11 +50,12 @@ public class GameWorld {
     public final PowerUp[] powerups = new PowerUp[12];
     public final Star[] stars = new Star[90];
 
-    public State state = State.PLAYING;
+    /** 输入/升级状态在 UI 线程写入、游戏线程读取，必须 volatile 保证可见性。 */
+    public volatile State state = State.PLAYING;
     /** seconds spent in the current non-PLAYING state (UI guards use it) */
     public float stateTimer;
     /** active play mode; set by restart(mode) when a run launches from the menu */
-    public GameMode mode = GameMode.WAVES;
+    public volatile GameMode mode = GameMode.WAVES;
     public int score;
     public int lives = 3;
     public int kills;
@@ -89,17 +90,17 @@ public class GameWorld {
     /** 0-based rank of the last finished run on the board for the active mode; -1 = not on board */
     public int scoreRank = -1;
     public final Settings settings = new Settings();
-    public boolean settingsOpen;
+    public volatile boolean settingsOpen;
     private SettingsStore store;
 
     // ---- 应用内升级检测（状态机；网络 IO 由 app 层异步执行，这里只存状态） ----
     public enum UpdateState { IDLE, CHECKING, UP_TO_DATE, AVAILABLE, DOWNLOADING, READY, ERROR }
-    public UpdateState updateState = UpdateState.IDLE;
-    public String updateVersion;          // 检测到的新版本 tag，如 "v1.2.0"
-    public String updateUrl;              // 新 APK 下载地址
-    public String updateError;            // 失败提示
-    public int updateProgress;            // 下载进度 0-100
-    public float updateMsgTimer;          // UP_TO_DATE / ERROR 提示的自动消隐
+    public volatile UpdateState updateState = UpdateState.IDLE;
+    public volatile String updateVersion;          // 检测到的新版本 tag，如 "v1.2.0"
+    public volatile String updateUrl;              // 新 APK 下载地址
+    public volatile String updateError;            // 失败提示
+    public volatile int updateProgress;            // 下载进度 0-100
+    public volatile float updateMsgTimer;          // UP_TO_DATE / ERROR 提示的自动消隐
     public String currentVersion = "";    // 当前 versionName，由 app 层填入
 
     // boss battle
@@ -153,9 +154,9 @@ public class GameWorld {
     }
 
     // 浮动摇杆呈现状态：由 app 层写入，Renderer 绘制反馈（不影响模拟）
-    public boolean joyActive;
-    public float joyBaseX, joyBaseY;   // 按下锚点（基座）
-    public float joyX, joyY;           // 当前手指位置（摇杆头朝向）
+    public volatile boolean joyActive;
+    public volatile float joyBaseX, joyBaseY;   // 按下锚点（基座）
+    public volatile float joyX, joyY;           // 当前手指位置（摇杆头朝向）
     /** 摇杆出现/消失动画进度 0..1（按下渐入、松手渐出），由 update 推进 */
     public float joyAnim;
 
@@ -172,6 +173,16 @@ public class GameWorld {
         if (state != State.PLAYING) {
             stateTimer += dt;
             for (Star s : stars) s.update(dt * (state == State.PAUSED ? 0.1f : 0.3f), HEIGHT);
+            // 结算/菜单界面让死亡爆炸与屏幕震动自然收尾；暂停则完全冻结
+            if (state != State.PAUSED) {
+                for (Particle p : particles) if (p.active) p.update(dt);
+                if (shakeTime > 0f) {
+                    shakeTime -= dt;
+                    if (shakeTime <= 0f) shakeMag = 0f;
+                }
+                if (bombFlash > 0f) bombFlash = Math.max(0f, bombFlash - dt * 2.5f);
+                if (bossFlash > 0f) bossFlash = Math.max(0f, bossFlash - dt * 2f);
+            }
             // 升级提示（已是最新 / 失败）停留 4 秒后回到可点击状态
             if (updateState == UpdateState.UP_TO_DATE || updateState == UpdateState.ERROR) {
                 updateMsgTimer += dt;
@@ -202,7 +213,7 @@ public class GameWorld {
 
         for (Bullet b : bullets) {
             if (!b.active) continue;
-            if (b.homing) steerMissile(b);
+            if (b.homing) steerMissile(b, dt);
             b.update(dt);
             if (b.y < -b.radius || b.x < -40f || b.x > WIDTH + 40f) b.active = false;
         }
@@ -352,6 +363,7 @@ public class GameWorld {
     /** Engine exhaust trail + subtle muzzle flash; cheap juice, one particle per interval. */
     private float fxTimer;
     private void updateShipFx(float dt) {
+        if (!settings.particles) return;
         fxTimer -= dt;
         if (fxTimer > 0f) return;
         fxTimer = 0.045f / emissionScale; // halved trail rate in low-quality mode
@@ -557,7 +569,7 @@ public class GameWorld {
     }
 
     /** Homing missiles curve toward the closest enemy. */
-    private void steerMissile(Bullet b) {
+    private void steerMissile(Bullet b, float dt) {
         Enemy target = null;
         float best = Float.MAX_VALUE;
         for (Enemy e : enemies) {
@@ -572,7 +584,7 @@ public class GameWorld {
         float diff = desired - cur;
         while (diff > Math.PI) diff -= 2f * Math.PI;
         while (diff < -Math.PI) diff += 2f * Math.PI;
-        float turn = 6.5f * (1f / 60f); // frame-normalized steering
+        float turn = 6.5f * dt; // 每秒 6.5 弧度，帧率无关
         cur += Math.max(-turn, Math.min(turn, diff));
         b.vx = (float) Math.cos(cur) * b.speed;
         b.vy = (float) Math.sin(cur) * b.speed;
@@ -875,6 +887,7 @@ public class GameWorld {
                 if (state == State.PLAYING) {
                     state = State.PAUSED;
                     stateTimer = 0f;
+                    clearShipInput(); // 否则摇杆残影会留在暂停遮罩下
                 }
                 break;
         }
@@ -964,6 +977,14 @@ public class GameWorld {
         if (updateState == UpdateState.DOWNLOADING) updateState = UpdateState.READY;
     }
 
+    /** 下载失败：DOWNLOADING -> ERROR，否则界面会永久停在“下载中”。 */
+    public void onDownloadError(String err) {
+        if (updateState != UpdateState.DOWNLOADING) return;
+        updateState = UpdateState.ERROR;
+        updateError = err != null ? err : "下载失败，点击重试";
+        updateMsgTimer = 0f;
+    }
+
     /** READY 后若用户取消安装，允许回到可再次点击下载的状态。 */
     public void onUpdateDismissed() {
         if (updateState == UpdateState.READY) {
@@ -1013,6 +1034,7 @@ public class GameWorld {
     }
 
     private void explode(float x, float y, int color) {
+        if (!settings.particles) return;
         int n = (int) (14 * emissionScale);
         for (int i = 0; i < n; i++) {
             Particle p = freeParticle();
@@ -1024,6 +1046,7 @@ public class GameWorld {
     }
 
     private void spark(float x, float y, int n, int color) {
+        if (!settings.particles) return;
         n = (int) (n * emissionScale);
         for (int i = 0; i < n; i++) {
             Particle p = freeParticle();
