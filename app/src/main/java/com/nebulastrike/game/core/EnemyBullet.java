@@ -5,6 +5,8 @@ public class EnemyBullet {
     public float x, y, vx, vy;
     public float radius = 10f;
     public boolean active;
+    /** set once the bullet has been close enough to graze, so it only charges once. */
+    public boolean grazed;
 
     public void init(float x, float y, float vx, float vy) {
         this.x = x;
@@ -13,6 +15,7 @@ public class EnemyBullet {
         this.vy = vy;
         this.radius = 10f;
         this.active = true;
+        this.grazed = false;
     }
 
     /** Custom-radius variant (boss shells are bigger). */
@@ -23,6 +26,7 @@ public class EnemyBullet {
         this.vy = vy;
         this.radius = radius;
         this.active = true;
+        this.grazed = false;
     }
 
     public void update(float dt) {

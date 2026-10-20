@@ -83,7 +83,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
         float[] v = renderer.toVirtual(event.getX(idx), event.getY(idx));
 
         // 炸弹键（按下沿触发一次，带去抖）——优先于摇杆
-        if (world.state == GameWorld.State.PLAYING && Ui.BOMB.contains(v[0], v[1])) {
+        if (world.state == GameWorld.State.PLAYING
+                && Ui.bomb(world.settings.leftHanded).contains(v[0], v[1])) {
             long now = System.nanoTime();
             if (now - lastBombAt > 400_000_000L) {
                 lastBombAt = now;
@@ -209,6 +210,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                 switch (e.type) {
                     case PLAYER_HIT: haptics.impact(); audio.bigExplosion(); break;
                     case BOMB: haptics.bomb(); break;
+                    case OVERDRIVE: haptics.bomb(); break;
                     case GAME_OVER: haptics.death(); break;
                     case BOSS_DEFEATED: haptics.bomb(); break;
                 }

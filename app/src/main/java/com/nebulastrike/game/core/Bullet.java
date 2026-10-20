@@ -14,6 +14,8 @@ public class Bullet {
     public boolean drone;
     public float speed;
     public boolean active;
+    /** true once this projectile has hit something (accuracy stat; piercing counts once). */
+    public boolean landed;
     // laser
     public boolean piercing;
     public float hitCooldown;   // >0 时跳过命中结算（防止单敌多扣血）
@@ -36,6 +38,7 @@ public class Bullet {
         this.piercing = false;
         this.hitCooldown = 0f;
         this.len = 0f;
+        this.landed = false;
     }
 
     public void initDrone(float x, float y, float vx, float vy) {

@@ -19,7 +19,7 @@ public class GameWorld {
     /** Game events consumed by the presentation layer (sfx, haptics, fx). */
     public enum EventType {
         ENEMY_KILLED, PLAYER_HIT, GAME_OVER, ENEMY_ESCAPED, FORMATION,
-        POWERUP_COLLECTED, BOMB, BOSS_SPAWNED, BOSS_DEFEATED, BOSS_PHASE
+        POWERUP_COLLECTED, BOMB, BOSS_SPAWNED, BOSS_DEFEATED, BOSS_PHASE, OVERDRIVE
     }
     public static final class GameEvent {
         public final EventType type;
@@ -61,6 +61,13 @@ public class GameWorld {
     public int kills;
     public int spawnedCount;
     public int shotsFired;
+    /** projectiles actually created (accuracy denominator; volleys are not bullets). */
+    public int bulletsFired;
+    /** projectiles that hit at least once (piercing counted once). */
+    public int shotsHit;
+    public int maxCombo;
+    public int hitsTaken;
+    public int grazes;
     public float timeAlive;
     public int wave = 1;
 
@@ -84,6 +91,11 @@ public class GameWorld {
     public float slowTimer;
     public static final float SLOW_DURATION = 6f;
     public static final float SLOW_TIME_SCALE = 0.45f;
+
+    // 擦弹充能：敌弹擦身而过积攒，满槽自动进入 OVERDRIVE
+    public static final float GRAZE_BAND = 26f;
+    public static final float GRAZE_CHARGE_PER_BULLET = 0.08f;
+    public float grazeCharge;
 
     // persistence-backed state
     public int bestScore;
@@ -215,7 +227,11 @@ public class GameWorld {
         else if (joyAnim > joyTarget) joyAnim = Math.max(joyTarget, joyAnim - dt * 8f);
 
         boolean fired = ship.update(dt, WIDTH, HEIGHT);
-        if (fired) fireBullet();
+        if (fired) {
+            int before = activeBulletCount();
+            fireBullet();
+            bulletsFired += activeBulletCount() - before;
+        }
         updateWingman(dt);
         updateShipFx(dt);
 
@@ -264,6 +280,9 @@ public class GameWorld {
         if (bossFlash > 0f) bossFlash = Math.max(0f, bossFlash - dt * 2f);
 
         resolveCollisions();
+        if (state == State.PLAYING && grazeCharge >= 1f && ship.overdriveTimer <= 0f) {
+            activateOverdrive();
+        }
         if (score > wave * 500) wave++;
     }
 
@@ -368,10 +387,41 @@ public class GameWorld {
             Bullet b = freeBullet();
             if (b == null) return;
             b.initDrone(ship.x + i * 52f, ship.y + 2f, i * 30f, -1080f);
+            bulletsFired++;
         }
     }
 
     private float wingmanCd;
+
+    /** 擦弹槽满：清空敌弹并进入短时火力爆发。 */
+    private void activateOverdrive() {
+        grazeCharge = 0f;
+        ship.overdriveTimer = Ship.OVERDRIVE_DURATION;
+        for (EnemyBullet b : enemyBullets) {
+            if (!b.active) continue;
+            b.active = false;
+            spark(b.x, b.y, 3, 2);
+        }
+        addShake(0.35f, 14f);
+        events.add(new GameEvent(EventType.OVERDRIVE, ship.x, ship.y));
+    }
+
+    /** 命中统计：每颗子弹只记一次（穿透激光不重复）。 */
+    private void registerHit(Bullet b) {
+        if (b.landed) return;
+        b.landed = true;
+        shotsHit++;
+    }
+
+    public int accuracyPct() {
+        return bulletsFired <= 0 ? 0 : Math.round(100f * shotsHit / bulletsFired);
+    }
+
+    private int activeBulletCount() {
+        int n = 0;
+        for (Bullet b : bullets) if (b.active) n++;
+        return n;
+    }
 
     private void summonMinions() {
         int n = boss.phase >= 3 ? 3 : 2;
@@ -515,7 +565,9 @@ public class GameWorld {
     /** 弹道生成：武器类型 × 火力等级（1..3）共同决定数量与形状。 */
     private void fireBullet() {
         shotsFired++;
-        int lvl = ship.powerLevel;
+        // OVERDRIVE 期间临时提升一级火力，和永久火力等级叠加但不超过上限
+        int lvl = Math.min(Ship.MAX_POWER,
+                ship.powerLevel + (ship.overdriveTimer > 0f ? 1 : 0));
         switch (ship.weapon) {
             case SPREAD: {
                 // 3 / 5 / 7 向扇形
@@ -632,6 +684,7 @@ public class GameWorld {
                 if (dx * dx + dy * dy <= rr * rr) {
                     if (b.piercing) b.hitCooldown = 0.06f; // 激光穿透，冷却防连击
                     else b.active = false;
+                    registerHit(b);
                     boss.damage(b.damage);
                     spark(b.x, b.y, 2, 2);
                     if (boss.hp <= 0) break;
@@ -648,6 +701,7 @@ public class GameWorld {
                 if (dx * dx + dy * dy <= rr * rr) {
                     if (b.piercing) b.hitCooldown = 0.06f;
                     else b.active = false;
+                    registerHit(b);
                     e.damage(b.damage);
                     spark(b.x, b.y, 3, 0);
                     if (e.hp <= 0) {
@@ -681,6 +735,19 @@ public class GameWorld {
                     spark(b.x, b.y, 6, 2);
                     onPlayerHit();
                     break;
+                }
+            }
+        }
+        // 擦弹：同一颗敌弹只充能一次；命中判定优先，过近直接算命中
+        for (EnemyBullet b : enemyBullets) {
+            if (!b.active || b.grazed) continue;
+            float rr = Ship.RADIUS + b.radius;
+            float d = distToSegment(b.x, b.y, ship.prevX, ship.prevY, ship.x, ship.y);
+            if (d > rr && d <= rr + GRAZE_BAND) {
+                b.grazed = true;
+                grazes++;
+                if (ship.overdriveTimer <= 0f) {
+                    grazeCharge = Math.min(1f, grazeCharge + GRAZE_CHARGE_PER_BULLET);
                 }
             }
         }
@@ -778,6 +845,7 @@ public class GameWorld {
     private void killEnemy(Enemy e) {
         e.active = false;
         comboKills++;
+        if (comboKills > maxCombo) maxCombo = comboKills;
         comboTimer = COMBO_WINDOW;
         addScore(e.type.score * comboMultiplier());
         kills++;
@@ -951,6 +1019,10 @@ public class GameWorld {
                 settings.toggle("reducedFx");
                 saveSettings();
                 break;
+            case TOGGLE_LEFT_HAND:
+                settings.toggle("leftHanded");
+                saveSettings();
+                break;
             case SETTINGS_BACK:
                 settingsOpen = false;
                 break;
@@ -1005,6 +1077,7 @@ public class GameWorld {
         }
         comboKills = 0;
         comboTimer = 0f;
+        hitsTaken++;
         addShake(0.4f, 16f);
         lives--;
         // 雷电式惩罚：坠机火力降 1 级
@@ -1093,6 +1166,12 @@ public class GameWorld {
         lives = settings.startLives;
         kills = 0;
         spawnedCount = 0;
+        bulletsFired = 0;
+        shotsHit = 0;
+        maxCombo = 0;
+        hitsTaken = 0;
+        grazes = 0;
+        grazeCharge = 0f;
         timeAlive = 0f;
         stateTimer = 0f;
         wave = 1;

@@ -40,6 +40,10 @@ public class Ship {
     /** 僚机道具剩余时间（>0 时两翼无人机自动开火） */
     public float wingmanTimer;
     public static final float WINGMAN_DURATION = 14f;
+    /** 擦弹充满后的过载时间（更快射速 + 火力临时 +1） */
+    public float overdriveTimer;
+    public static final float OVERDRIVE_DURATION = 5f;
+    public static final float OVERDRIVE_FIRE_MULT = 0.55f;
 
     public void reset(float x, float y) {
         this.x = x;
@@ -58,6 +62,7 @@ public class Ship {
         bombs = 1;
         rapidTimer = 0f;
         wingmanTimer = 0f;
+        overdriveTimer = 0f;
     }
 
     /** 拖拽模式：设置期望位置（限速跟随）。 */
@@ -82,7 +87,9 @@ public class Ship {
         boolean fired = false;
         cooldown -= dt;
         if (cooldown <= 0f) {
-            cooldown = weapon.cooldown * (rapidTimer > 0f ? 0.5f : 1f);
+            cooldown = weapon.cooldown
+                    * (rapidTimer > 0f ? 0.5f : 1f)
+                    * (overdriveTimer > 0f ? OVERDRIVE_FIRE_MULT : 1f);
             fired = true;
         }
         prevX = x;
@@ -117,6 +124,10 @@ public class Ship {
         if (wingmanTimer > 0f) {
             wingmanTimer -= dt;
             if (wingmanTimer < 0f) wingmanTimer = 0f;
+        }
+        if (overdriveTimer > 0f) {
+            overdriveTimer -= dt;
+            if (overdriveTimer < 0f) overdriveTimer = 0f;
         }
         return fired;
     }

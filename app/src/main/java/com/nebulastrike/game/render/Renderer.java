@@ -374,6 +374,18 @@ public class Renderer {
         // invulnerability blink
         if (s.invulnerable && (int) (w.timeAlive * 12) % 2 == 0) return;
 
+        // overdrive aura: 擦弹奖励的视觉状态
+        if (s.overdriveTimer > 0f) {
+            float pulse = 1f + 0.07f * (float) Math.sin(w.timeAlive * 10f);
+            glow.setColor(0x66FFD166);
+            c.drawCircle(s.x, s.y, Ship.RADIUS * 1.7f * pulse, glow);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(3f);
+            paint.setColor(0xCCFFD166);
+            c.drawCircle(s.x, s.y, Ship.RADIUS * 1.45f * pulse, paint);
+            paint.setStyle(Paint.Style.FILL);
+        }
+
         // engine flame
         float flicker = 8f + 6f * (float) Math.sin(w.timeAlive * 40f);
         glow.setColor(0x8844CCFF);
@@ -545,6 +557,14 @@ public class Renderer {
                     w.slowTimer / GameWorld.SLOW_DURATION, statusY);
         }
 
+        // 擦弹充能：固定放左下，避免和左上角的状态条抢位置
+        if (w.ship.overdriveTimer > 0f) {
+            statusBar(c, "OVERDRIVE", 0xFFFFD166,
+                    w.ship.overdriveTimer / Ship.OVERDRIVE_DURATION, 1200f);
+        } else {
+            statusBar(c, "GRAZE", 0xFFFF8FD1, w.grazeCharge, 1200f);
+        }
+
         // lives as mini ships
         c.save();
         for (int i = 0; i < w.lives; i++) {
@@ -625,8 +645,8 @@ public class Renderer {
             c.drawCircle(hx, hy, 26f, paint);
         }
 
-        // 炸弹圆键 + 数量
-        Ui.Rect b = Ui.BOMB;
+        // 炸弹圆键 + 数量（左手模式镜像到左下）
+        Ui.Rect b = Ui.bomb(w.settings.leftHanded);
         boolean bombReady = w.ship.bombs > 0;
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(3f);
@@ -678,7 +698,7 @@ public class Renderer {
 
         paint.setTextSize(26f);
         paint.setColor(0x668FA3C8);
-        c.drawText("按住屏幕任意位置滑动即可操控飞船 · 自动开火 · 右下角炸弹键", VW / 2f, 1185f, paint);
+        c.drawText("按住屏幕任意位置滑动即可操控飞船 · 自动开火 · 炸弹键可切左手", VW / 2f, 1185f, paint);
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
@@ -730,6 +750,7 @@ public class Renderer {
         toggle(c, Ui.TOGGLE_PARTICLES, "PARTICLES", w.settings.particles);
         toggle(c, Ui.TOGGLE_HAPTICS, "HAPTICS", w.settings.haptics);
         toggle(c, Ui.TOGGLE_REDUCED_FX, "LOW FX", w.settings.reducedFx);
+        toggle(c, Ui.TOGGLE_LEFT_HAND, "LEFT HAND", w.settings.leftHanded);
         button(c, Ui.SETTINGS_BACK, "BACK", 0xFF182040, 0xFF8FA3C8, false);
         paint.setTextAlign(Paint.Align.LEFT);
     }
@@ -818,30 +839,66 @@ public class Renderer {
 
         paint.setTextSize(96f);
         paint.setColor(0xFFFF3355);
-        c.drawText("GAME OVER", VW / 2f, 440f, paint);
+        c.drawText("GAME OVER", VW / 2f, 400f, paint);
 
-        paint.setTextSize(46f);
+        paint.setTextSize(44f);
         paint.setColor(0xFFFFFFFF);
-        c.drawText("Score " + w.score + "   •   Kills " + w.kills
-                + "   •   Survived " + (int) w.timeAlive + "s", VW / 2f, 515f, paint);
+        c.drawText("Score " + w.score + "   •   "
+                + (w.mode == GameMode.ENDLESS ? "ENDLESS" : "WAVE " + w.wave), VW / 2f, 468f, paint);
 
         if (w.newBest) {
             float pulse = 1f + 0.06f * (float) Math.sin(w.stateTimer * 6f);
-            paint.setTextSize(40f * pulse);
+            paint.setTextSize(38f * pulse);
             paint.setColor(0xFFFFD166);
-            c.drawText("★ NEW BEST " + w.bestScore + " ★", VW / 2f, 580f, paint);
+            c.drawText("★ NEW BEST " + w.bestScore + " ★", VW / 2f, 520f, paint);
         } else {
-            paint.setTextSize(36f);
+            paint.setTextSize(34f);
             paint.setColor(0xFF8FA3C8);
-            c.drawText("BEST  " + w.bestScore, VW / 2f, 578f, paint);
+            c.drawText("BEST  " + w.bestScore, VW / 2f, 518f, paint);
         }
 
-        drawLeaderboard(c, w.board(w.mode), w.mode, VW / 2f - 160f, 625f, 320f, 30f, 22f, w.scoreRank);
+        drawRunStats(c, w);
+        drawLeaderboard(c, w.board(w.mode), w.mode, VW / 2f - 160f, 708f, 320f, 30f, 22f, w.scoreRank);
 
         paint.setTextSize(40f);
         float alpha = 0.4f + 0.6f * Math.abs((float) Math.sin(w.stateTimer * 2.2f));
         paint.setColor(((int) (255 * alpha) << 24) | 0x8FA3C8);
-        c.drawText("Tap to fly again", VW / 2f, 900f, paint);
+        c.drawText("Tap to fly again", VW / 2f, 960f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /** 本局数据卡：命中率 / 连击 / 擦弹 / 击坠 / 受伤 / 存活。 */
+    private void drawRunStats(Canvas c, GameWorld w) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0x99000011);
+        c.drawRoundRect(120f, 548f, 780f, 688f, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(0x66FF8FD1);
+        c.drawRoundRect(120f, 548f, 780f, 688f, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setTextAlign(Paint.Align.CENTER);
+
+        String[] labels = {"ACCURACY", "MAX COMBO", "GRAZES", "KILLS", "HITS", "TIME"};
+        String[] values = {
+                w.accuracyPct() + "%",
+                "x" + w.maxCombo,
+                String.valueOf(w.grazes),
+                String.valueOf(w.kills),
+                String.valueOf(w.hitsTaken),
+                ((int) w.timeAlive) + "s"
+        };
+        float[] cx = {230f, 450f, 670f};
+        for (int i = 0; i < labels.length; i++) {
+            float x = cx[i % 3];
+            float y = i < 3 ? 586f : 654f;
+            paint.setTextSize(21f);
+            paint.setColor(0xFF8FA3C8);
+            c.drawText(labels[i], x, y, paint);
+            paint.setTextSize(32f);
+            paint.setColor(i == 1 ? 0xFFFFD166 : i == 2 ? 0xFFFF8FD1 : 0xFFE8F1FF);
+            c.drawText(values[i], x, y + 32f, paint);
+        }
         paint.setTextAlign(Paint.Align.LEFT);
     }
 

@@ -22,6 +22,7 @@ public class SharedPrefsStore implements SettingsStore {
         into.particles = prefs.getBoolean("particles", true);
         into.haptics = prefs.getBoolean("haptics", true);
         into.reducedFx = prefs.getBoolean("reducedFx", false);
+        into.leftHanded = prefs.getBoolean("leftHanded", false);
         into.startLives = prefs.getInt("startLives", 3);
         into.dropRatePct = prefs.getInt("dropRatePct", 100);
         into.enemySpeedPct = prefs.getInt("enemySpeedPct", 100);
@@ -63,6 +64,7 @@ public class SharedPrefsStore implements SettingsStore {
                 .putBoolean("particles", s.particles)
                 .putBoolean("haptics", s.haptics)
                 .putBoolean("reducedFx", s.reducedFx)
+                .putBoolean("leftHanded", s.leftHanded)
                 .putInt("startLives", s.startLives)
                 .putInt("dropRatePct", s.dropRatePct)
                 .putInt("enemySpeedPct", s.enemySpeedPct)

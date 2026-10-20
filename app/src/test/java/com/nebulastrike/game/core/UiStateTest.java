@@ -24,6 +24,7 @@ public class UiStateTest {
         @Override public void load(Settings into) {
             into.sound = saved.sound; into.particles = saved.particles; into.haptics = saved.haptics;
             into.reducedFx = saved.reducedFx;
+            into.leftHanded = saved.leftHanded;
             into.startLives = saved.startLives; into.dropRatePct = saved.dropRatePct;
             into.enemySpeedPct = saved.enemySpeedPct; into.startPower = saved.startPower;
             into.godMode = saved.godMode;
@@ -41,6 +42,7 @@ public class UiStateTest {
         @Override public void save(Settings s) {
             saved.sound = s.sound; saved.particles = s.particles; saved.haptics = s.haptics;
             saved.reducedFx = s.reducedFx;
+            saved.leftHanded = s.leftHanded;
             saved.startLives = s.startLives; saved.dropRatePct = s.dropRatePct;
             saved.enemySpeedPct = s.enemySpeedPct; saved.startPower = s.startPower;
             saved.godMode = s.godMode;
@@ -137,6 +139,8 @@ public class UiStateTest {
                 Ui.CHEATS.cx(), Ui.CHEATS.cy()));
         assertEquals(Ui.Action.TOGGLE_PARTICLES, Ui.hit(GameWorld.State.MENU, true, false,
                 Ui.TOGGLE_PARTICLES.cx(), Ui.TOGGLE_PARTICLES.cy()));
+        assertEquals(Ui.Action.TOGGLE_LEFT_HAND, Ui.hit(GameWorld.State.MENU, true, false,
+                Ui.TOGGLE_LEFT_HAND.cx(), Ui.TOGGLE_LEFT_HAND.cy()));
         assertEquals(Ui.Action.SETTINGS_BACK, Ui.hit(GameWorld.State.MENU, true, false,
                 Ui.SETTINGS_BACK.cx(), Ui.SETTINGS_BACK.cy()));
         assertEquals(Ui.Action.RESUME, Ui.hit(GameWorld.State.PAUSED, false, false,
@@ -155,6 +159,18 @@ public class UiStateTest {
         assertEquals(Ui.Action.CHEATS_BACK, Ui.hit(GameWorld.State.MENU, false, true,
                 Ui.CHEATS_BACK.cx(), Ui.CHEATS_BACK.cy()));
         assertNull(Ui.hit(GameWorld.State.MENU, false, true, Ui.START.cx(), Ui.START.cy()));
+    }
+
+    @Test
+    public void leftHandSettingPersistsThroughStore() {
+        world.handleUiAction(Ui.Action.OPEN_SETTINGS);
+        world.handleUiAction(Ui.Action.TOGGLE_LEFT_HAND);
+        assertTrue(world.settings.leftHanded);
+        assertTrue("store must be written on toggle", store.saved.leftHanded);
+
+        GameWorld reloaded = new GameWorld(1L, true);
+        reloaded.attachStore(store);
+        assertTrue(reloaded.settings.leftHanded);
     }
 
     @Test

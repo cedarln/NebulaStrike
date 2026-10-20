@@ -59,6 +59,7 @@ public class AudioEngine {
                 case GAME_OVER: play(gameoverId, 1f, 1f); break;
                 case POWERUP_COLLECTED: play(powerupId, 0.9f, 1f); break;
                 case BOMB: play(bombId, 1f, 1f); break;
+                case OVERDRIVE: play(bombId, 1f, 1.25f); break;
                 case FORMATION: play(uiId, 0.4f, 1.1f); break;
                 case BOSS_SPAWNED: play(alarmId, 0.9f, 1f); break;
                 case BOSS_DEFEATED: play(bossdownId, 1f, 1f); break;

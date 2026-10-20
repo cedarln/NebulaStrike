@@ -7,6 +7,8 @@ public class Settings {
     public volatile boolean haptics = true;
     /** force reduced particle emission (for low-end devices); off = auto quality */
     public volatile boolean reducedFx = false;
+    /** mirror the bomb button to the bottom-left corner */
+    public volatile boolean leftHanded = false;
 
     // ---- LAB（金手指）：只影响新开的对局，开局时读取 ----
     public static final int LIVES_MIN = 1, LIVES_MAX = 9;
@@ -25,6 +27,7 @@ public class Settings {
             case "particles": particles = !particles; break;
             case "haptics": haptics = !haptics; break;
             case "reducedFx": reducedFx = !reducedFx; break;
+            case "leftHanded": leftHanded = !leftHanded; break;
         }
     }
 
