@@ -54,7 +54,8 @@ scripts/verify.sh   无 SDK 验证：类型检查 + 单元测试 + 模拟基准
 到 [GitHub Releases 页面](https://github.com/cedarln/NebulaStrike/releases) 下载最新
 `NebulaStrike-vX.Y.Z.apk`（已签名，~270 KB），传到手机安装即可，无需联网运行。
 
-当前版本 **v1.5.0**：
+当前版本 **v1.5.1**：
+- 稳定性修复：Android 5.x 启动崩溃、后台返回音频丢失、升级包下载校验、暂停/结算残留输入
 - 竖屏 + 浮动摇杆（相对滑动操控 + 按下锁定动画）
 - 九种掉落道具：穿透激光、火力等级（雷电式 1→3 级弹道成长）+ 七种经典道具
 - 战役模式 + 无尽模式（双榜独立）
