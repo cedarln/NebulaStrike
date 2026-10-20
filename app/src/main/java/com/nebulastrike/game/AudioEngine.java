@@ -1,91 +1,312 @@
 package com.nebulastrike.game;
 
-import android.content.Context;
 import android.media.AudioAttributes;
-import android.media.SoundPool;
+import android.media.AudioFormat;
+import android.media.AudioManager;
+import android.media.AudioTrack;
+import android.os.Build;
+import android.os.Process;
+import android.util.Log;
 
+import com.nebulastrike.game.core.EnemyType;
 import com.nebulastrike.game.core.GameWorld;
+import com.nebulastrike.game.core.PowerUp;
 import com.nebulastrike.game.core.Settings;
+import com.nebulastrike.game.core.WeaponType;
+import com.nebulastrike.game.core.audio.SfxBank;
+import com.nebulastrike.game.core.audio.SfxId;
+import com.nebulastrike.game.core.audio.SfxMixer;
+
+import java.util.Arrays;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicLongArray;
 
 /**
- * Retro SFX via SoundPool. All samples are tiny synthesized WAVs in res/raw.
- * Resource IDs are resolved once at init via getIdentifier (no generated-R
- * dependency), then cached. Playback is gated by Settings.sound; consume() is
- * fed the simulation's event queue every frame.
+ * Procedural audio engine. A dedicated thread mixes synthesized one-shot
+ * effects into a streaming AudioTrack, so playback never depends on sample
+ * loading or resource compression. Effects are panned by world position and
+ * slightly pitch-varied so repeated shots do not sound mechanical.
  */
 public class AudioEngine {
-    private SoundPool pool;
-    private int shootId, explodeId, bigExplodeId, hitId, powerupId,
-            bombId, alarmId, gameoverId, uiId, bossdownId;
-    private Settings settings;
-    private volatile boolean ready;
+    private static final String TAG = "NebulaStrikeAudio";
+    private static final int FRAMES = 512;
+    private static final float MASTER = 0.9f;
+    private static volatile SfxBank bank;
 
-    /** Idempotent: safe to call again after {@link #release()} when the surface is recreated. */
-    public void init(Context context, Settings settings) {
+    private final AtomicLongArray lastPlayNs = new AtomicLongArray(SfxId.values().length);
+    private Settings settings;
+    private Thread thread;
+    private volatile boolean running;
+    private volatile SfxMixer mixer;
+    private volatile AudioTrack track;
+
+    /** Idempotent: called at startup and again after the surface is recreated. */
+    public synchronized void init(Settings settings) {
         this.settings = settings;
-        if (pool != null) return;
-        ready = false;
+        if (running) return;
+        running = true;
+        thread = new Thread(this::loop, "audio-mixer");
+        thread.start();
+    }
+
+    private void loop() {
+        Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO);
+        SfxMixer m = new SfxMixer(getBank());
+        AudioTrack t = createTrack();
+        if (t == null) {
+            running = false;
+            return;
+        }
+        mixer = m;
+        track = t;
+        float[] mix = new float[FRAMES * 2];
+        short[] pcm = new short[FRAMES * 2];
+        try {
+            t.play();
+            while (running) {
+                boolean muted = settings != null && !settings.sound;
+                if (muted) {
+                    m.clear();
+                    Arrays.fill(mix, 0f);
+                } else {
+                    m.render(mix, FRAMES);
+                }
+                for (int i = 0; i < pcm.length; i++) {
+                    float v = mix[i] * MASTER;
+                    if (v > 1f) v = 1f;
+                    else if (v < -1f) v = -1f;
+                    pcm[i] = (short) (v * 32767f);
+                }
+                int written = t.write(pcm, 0, pcm.length);
+                if (written < 0) {
+                    Log.w(TAG, "AudioTrack write failed: " + written);
+                    break;
+                }
+                if (written == 0) {
+                    try { Thread.sleep(5); } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+        } catch (IllegalStateException e) {
+            Log.w(TAG, "AudioTrack stopped unexpectedly", e);
+        } finally {
+            track = null;
+            mixer = null;
+            try { t.stop(); } catch (IllegalStateException ignored) { }
+            t.release();
+            running = false;
+        }
+    }
+
+    private static AudioTrack createTrack() {
+        int min = AudioTrack.getMinBufferSize(SfxBank.SAMPLE_RATE,
+                AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_16BIT);
+        if (min <= 0) min = FRAMES * 4 * 4;
+        int bufferBytes = Math.max(min, FRAMES * 4 * 4);
         AudioAttributes attrs = new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_GAME)
-                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                 .build();
-        pool = new SoundPool.Builder().setMaxStreams(6).setAudioAttributes(attrs).build();
-        // 任意一个样本加载成功即可播放；失败的样本 play() 会静默返回 0
-        pool.setOnLoadCompleteListener((sp, sampleId, status) -> {
-            if (status == 0) ready = true;
-        });
-        shootId = load(context, "sfx_shoot");
-        explodeId = load(context, "sfx_explode");
-        bigExplodeId = load(context, "sfx_big_explode");
-        hitId = load(context, "sfx_hit");
-        powerupId = load(context, "sfx_powerup");
-        bombId = load(context, "sfx_bomb");
-        alarmId = load(context, "sfx_alarm");
-        gameoverId = load(context, "sfx_gameover");
-        uiId = load(context, "sfx_ui");
-        bossdownId = load(context, "sfx_bossdown");
+        AudioFormat format = new AudioFormat.Builder()
+                .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                .setSampleRate(SfxBank.SAMPLE_RATE)
+                .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
+                .build();
+        try {
+            if (Build.VERSION.SDK_INT >= 23) {
+                return new AudioTrack.Builder()
+                        .setAudioAttributes(attrs)
+                        .setAudioFormat(format)
+                        .setTransferMode(AudioTrack.MODE_STREAM)
+                        .setBufferSizeInBytes(bufferBytes)
+                        .build();
+            }
+            return new AudioTrack(attrs, format, bufferBytes,
+                    AudioTrack.MODE_STREAM, AudioManager.AUDIO_SESSION_ID_GENERATE);
+        } catch (Exception e) {
+            Log.w(TAG, "AudioTrack init failed", e);
+            return null;
+        }
     }
 
-    private int load(Context context, String name) {
-        int res = context.getResources().getIdentifier(name, "raw", context.getPackageName());
-        return pool.load(context, res, 1);
+    private static SfxBank getBank() {
+        SfxBank b = bank;
+        if (b == null) {
+            synchronized (AudioEngine.class) {
+                b = bank;
+                if (b == null) {
+                    b = SfxBank.create();
+                    bank = b;
+                }
+            }
+        }
+        return b;
     }
 
+    /** Presentation mapping for simulation events. */
     public void consume(Iterable<GameWorld.GameEvent> events) {
         for (GameWorld.GameEvent e : events) {
             switch (e.type) {
-                case ENEMY_KILLED: play(explodeId, 0.7f, 1f); break;
-                case PLAYER_HIT: play(hitId, 1f, 1f); break;
-                case GAME_OVER: play(gameoverId, 1f, 1f); break;
-                case POWERUP_COLLECTED: play(powerupId, 0.9f, 1f); break;
-                case BOMB: play(bombId, 1f, 1f); break;
-                case OVERDRIVE: play(bombId, 1f, 1.25f); break;
-                case FORMATION: play(uiId, 0.4f, 1.1f); break;
-                case BOSS_SPAWNED: play(alarmId, 0.9f, 1f); break;
-                case BOSS_DEFEATED: play(bossdownId, 1f, 1f); break;
-                case BOSS_PHASE: play(alarmId, 0.7f, 1.3f); break;
+                case ENEMY_KILLED:
+                    if (e.code == EnemyType.TANK.ordinal()) {
+                        play(SfxId.EXPLODE_HEAVY, 0.60f, vary(0.07f), panFor(e.x));
+                    } else {
+                        play(SfxId.EXPLODE, 0.48f, vary(0.10f), panFor(e.x));
+                    }
+                    break;
+                case PLAYER_HIT:
+                    play(SfxId.PLAYER_HIT, 0.95f, 1f, panFor(e.x));
+                    break;
+                case GAME_OVER:
+                    play(SfxId.GAME_OVER, 0.90f, 1f, 0f);
+                    break;
+                case ENEMY_ESCAPED:
+                    play(SfxId.ESCAPE, 0.28f, vary(0.10f), panFor(e.x));
+                    break;
+                case FORMATION:
+                    play(SfxId.WAVE, 0.32f, 1f, 0.25f);
+                    break;
+                case POWERUP_COLLECTED:
+                    powerup(e);
+                    break;
+                case BOMB:
+                    play(SfxId.BOMB, 0.95f, 1f, 0f);
+                    break;
+                case BOSS_SPAWNED:
+                    play(SfxId.ALARM, 0.85f, 1f, 0f);
+                    break;
+                case BOSS_DEFEATED:
+                    play(SfxId.BOSS_DOWN, 1f, 1f, 0f);
+                    break;
+                case BOSS_PHASE:
+                    play(SfxId.BOSS_PHASE, 0.75f,
+                            1f + Math.max(0, e.code - 1) * 0.06f, 0f);
+                    break;
+                case OVERDRIVE:
+                    play(SfxId.OVERDRIVE, 0.92f, 1f, panFor(e.x));
+                    break;
+                case GRAZE:
+                    play(SfxId.GRAZE, 0.20f, vary(0.16f), panFor(e.x));
+                    break;
+                case SHIELD_BROKEN:
+                    play(SfxId.SHIELD_BREAK, 0.82f, 1f, panFor(e.x));
+                    break;
+                case COMBO:
+                    play(SfxId.COMBO, 0.48f,
+                            1f + Math.min(0.6f, Math.max(0, e.code) * 0.03f),
+                            panFor(e.x));
+                    break;
             }
         }
     }
 
-    /** Rate-limited by the weapon cooldown itself. */
-    public void shoot() { play(shootId, 0.3f, 1f); }
-
-    public void bigExplosion() { play(bigExplodeId, 1f, 1f); }
-
-    public void uiTick() { play(uiId, 0.5f, 1.25f); }
-
-    private void play(int soundId, float vol, float rate) {
-        if (pool == null || !ready) return;
-        if (settings != null && !settings.sound) return;
-        pool.play(soundId, vol, vol, 1, 0, rate);
+    private void powerup(GameWorld.GameEvent e) {
+        PowerUp.Kind[] kinds = PowerUp.Kind.values();
+        PowerUp.Kind kind = e.code >= 0 && e.code < kinds.length ? kinds[e.code] : null;
+        if (kind == PowerUp.Kind.LIFE) {
+            play(SfxId.EXTRA_LIFE, 0.85f, 1f, panFor(e.x));
+            return;
+        }
+        if (kind == PowerUp.Kind.SPREAD) {
+            play(SfxId.SHOOT_SPREAD, 0.55f, 1.25f, panFor(e.x));
+            return;
+        }
+        if (kind == PowerUp.Kind.MISSILE) {
+            play(SfxId.SHOOT_MISSILE, 0.55f, 1.25f, panFor(e.x));
+            return;
+        }
+        if (kind == PowerUp.Kind.LASER) {
+            play(SfxId.SHOOT_LASER, 0.55f, 1.25f, panFor(e.x));
+            return;
+        }
+        float pitch = kind == PowerUp.Kind.SHIELD ? 1.18f : 1f;
+        play(SfxId.POWERUP, 0.65f, pitch, panFor(e.x));
     }
 
-    public void release() {
-        if (pool != null) {
-            pool.release();
-            pool = null;
-            ready = false;
+    /** Weapon-aware volley sound; called once per simulation volley. */
+    public void shoot(WeaponType weapon, float x) {
+        switch (weapon) {
+            case SPREAD:
+                play(SfxId.SHOOT_SPREAD, 0.46f, vary(0.05f), panFor(x));
+                break;
+            case LASER:
+                play(SfxId.SHOOT_LASER, 0.38f, vary(0.05f), panFor(x));
+                break;
+            case MISSILE:
+                play(SfxId.SHOOT_MISSILE, 0.52f, vary(0.05f), panFor(x));
+                break;
+            default:
+                play(SfxId.SHOOT_VULCAN, 0.40f, vary(0.06f), panFor(x));
+                break;
         }
+    }
+
+    public void wingmanShot(float x) {
+        play(SfxId.WINGMAN, 0.16f, vary(0.12f), panFor(x));
+    }
+
+    public void uiTick() {
+        play(SfxId.UI, 0.30f, vary(0.08f), 0f);
+    }
+
+    /** Confirmation chime when sound is switched back on. */
+    public void confirmSound() {
+        play(SfxId.POWERUP, 0.60f, 1.35f, 0f);
+    }
+
+    private void play(SfxId id, float volume, float pitch, float panValue) {
+        if (settings != null && !settings.sound) return;
+        long now = System.nanoTime();
+        int idx = id.ordinal();
+        long last = lastPlayNs.get(idx);
+        if (now - last < minGapNs(id)) return;
+        lastPlayNs.set(idx, now);
+        SfxMixer m = mixer;
+        if (m != null) m.play(id, volume, pitch, panValue);
+    }
+
+    private static long minGapNs(SfxId id) {
+        switch (id) {
+            case SHOOT_VULCAN: return 28_000_000L;
+            case SHOOT_SPREAD: return 40_000_000L;
+            case SHOOT_LASER: return 34_000_000L;
+            case SHOOT_MISSILE: return 60_000_000L;
+            case WINGMAN: return 80_000_000L;
+            case EXPLODE: return 30_000_000L;
+            case EXPLODE_HEAVY: return 50_000_000L;
+            case GRAZE: return 45_000_000L;
+            case COMBO: return 90_000_000L;
+            case UI: return 40_000_000L;
+            default: return 0L;
+        }
+    }
+
+    private static float vary(float amount) {
+        return 1f + (ThreadLocalRandom.current().nextFloat() * 2f - 1f) * amount;
+    }
+
+    private static float panFor(float x) {
+        float p = x / GameWorld.WIDTH * 2f - 1f;
+        return p * 0.7f;
+    }
+
+    public synchronized void release() {
+        if (!running && thread == null) return;
+        running = false;
+        AudioTrack t = track;
+        if (t != null) {
+            try { t.stop(); } catch (IllegalStateException ignored) { }
+        }
+        Thread th = thread;
+        thread = null;
+        if (th != null) {
+            try { th.join(800); } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        track = null;
+        mixer = null;
     }
 }

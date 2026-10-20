@@ -1,6 +1,7 @@
 package com.nebulastrike.game;
 
 import android.app.Activity;
+import android.media.AudioManager;
 import android.os.Bundle;
 import android.view.View;
 import android.view.WindowManager;
@@ -13,6 +14,8 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        // 音量键直接控制游戏音效所在的媒体音量
+        setVolumeControlStream(AudioManager.STREAM_MUSIC);
         gameView = new GameView(this);
         setContentView(gameView);
         hideSystemUi();

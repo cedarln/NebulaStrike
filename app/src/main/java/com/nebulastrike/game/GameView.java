@@ -2,12 +2,14 @@ package com.nebulastrike.game;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.media.AudioManager;
 import android.os.Build;
 import android.os.Process;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
+import android.widget.Toast;
 
 import com.nebulastrike.game.core.GameWorld;
 import com.nebulastrike.game.core.Ui;
@@ -27,6 +29,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
     private volatile boolean running;
     private long lastBombAt;
     private int lastShotsSeen;
+    private int lastWingmanSeen;
     /** 浮动摇杆：拖动中手指的 pointerId（-1 = 未拖动） */
     private int dragPointer = -1;
     private float anchorTouchX, anchorTouchY, anchorShipX, anchorShipY;
@@ -46,6 +49,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
         renderer = new Renderer();
         haptics = new Haptics(context);
         haptics.attach(world.settings);
+        // 预热合成音效库，让主菜单出现时音频线程已经就绪
+        audio.init(world.settings);
         // 升级：清理上次安装的 APK 残留，注入当前版本号
         UpdateManager.cleanup(context);
         world.currentVersion = UpdateManager.currentVersion(context);
@@ -98,6 +103,10 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
             world.handleUiAction(a);
             if (a == Ui.Action.CHECK_UPDATE) dispatchUpdateWork();
             audio.uiTick();
+            if (a == Ui.Action.TOGGLE_SOUND && world.settings.sound) {
+                audio.confirmSound();
+                warnIfMediaMuted();
+            }
             return;
         }
         if (world.state == GameWorld.State.GAME_OVER && world.stateTimer > 0.8f) {
@@ -148,6 +157,14 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
             UpdateManager.checkAsync(getContext(), world, () -> { });
         } else if (world.updateState == GameWorld.UpdateState.DOWNLOADING) {
             UpdateManager.downloadAsync(getContext(), world, () -> { });
+        }
+    }
+
+    /** 打开音效时顺带检查媒体音量，避免“开了音效却没有声音”。 */
+    private void warnIfMediaMuted() {
+        AudioManager am = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+        if (am != null && am.getStreamVolume(AudioManager.STREAM_MUSIC) == 0) {
+            Toast.makeText(getContext(), "媒体音量为 0，请按音量键调高", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -208,7 +225,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
             audio.consume(events);
             for (GameWorld.GameEvent e : events) {
                 switch (e.type) {
-                    case PLAYER_HIT: haptics.impact(); audio.bigExplosion(); break;
+                    case PLAYER_HIT: haptics.impact(); break;
                     case BOMB: haptics.bomb(); break;
                     case OVERDRIVE: haptics.bomb(); break;
                     case GAME_OVER: haptics.death(); break;
@@ -217,7 +234,11 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
             }
             if (world.shotsFired != lastShotsSeen) {
                 lastShotsSeen = world.shotsFired;
-                audio.shoot();
+                audio.shoot(world.ship.weapon, world.ship.x);
+            }
+            if (world.wingmanShots > lastWingmanSeen) {
+                lastWingmanSeen = world.wingmanShots;
+                audio.wingmanShot(world.ship.x);
             }
 
             long renderStart = System.nanoTime();
@@ -256,8 +277,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
 
     @Override
     public void surfaceCreated(SurfaceHolder holder) {
-        // Surface 重建（切后台回来、锁屏解锁）后 SoundPool 已被释放，必须重新初始化
-        audio.init(getContext().getApplicationContext(), world.settings);
+        // Surface 重建（切后台回来、锁屏解锁）后音频轨道已被释放，必须重新启动
+        audio.init(world.settings);
         running = true;
         thread = new Thread(this, "game-loop");
         thread.start();
@@ -275,6 +296,6 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
             try { thread.join(500); } catch (InterruptedException ignored) { }
             thread = null;
         }
-        audio.release(); // SoundPool must not outlive the surface
+        audio.release(); // the AudioTrack must not outlive the surface
     }
 }

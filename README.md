@@ -23,7 +23,8 @@ APK 体积仅 ~300 KB。
   满槽自动清空敌弹并进入 5 秒过载：射速提升、火力临时 +1，HUD 左下显示充能进度
 - **结算数据卡**：命中率、最高连击、擦弹数、击坠、受伤次数与存活时间
 - **Boss 战**：DREADNOUGHT 级母舰，三阶段血量，扇形 / 瞄准 / 螺旋弹幕，还会召唤僚机
-- 连击倍率奖励连续击杀；屏幕震动、粒子特效、Python 纯合成 8-bit 音效
+- 连击倍率奖励连续击杀；屏幕震动、粒子特效与 **22 种程序化合成音效**
+  （实时混音、立体声声场、音高随机化，零音频素材文件）
 - **双模式**：
   - **战役模式**：150 秒难度爬坡 + 后期缓慢加压，每 4 波一个 Boss
   - **无尽模式**：90 秒即达满压，难度无上限攀升，每 3 波一个 Boss，敌种 1.6 倍速登场
@@ -43,12 +44,13 @@ app/src/main/java/com/nebulastrike/game/
             Boss AI、难度曲线、自适应画质调节器
   render/   Canvas 渲染器（900x1600 竖屏虚拟坐标系，任意屏幕自动留边适配），
             矢量图形零分配（共享 Path、缓存渐变）
-  AudioEngine  SoundPool 音效（res/raw 内为合成 WAV）   Haptics  震动反馈
+  audio/    纯 Java 程序化音效合成（SfxBank）与 24 声部实时混音器（SfxMixer）
+  AudioEngine  AudioTrack 流式播放 + 事件驱动音效调度（立体声/音高扰动/限流）
+  Haptics  震动反馈
   GameView  游戏线程 + 触摸输入      MainActivity  入口
   UpdateManager  应用内升级（检查/下载/唤起系统安装器）  UpdateFileProvider  APK 只读提供器
   core/UpdateCheck  版本比较与发布 JSON 解析（纯逻辑，可单测）
-app/src/test/   模拟层 JUnit 单元测试（JVM 直接运行）
-scripts/gen_sfx.py  纯 Python 合成全部音效，无需外部素材
+app/src/test/   模拟层与音频合成 JUnit 单元测试（JVM 直接运行）
 scripts/verify.sh   无 SDK 验证：类型检查 + 单元测试 + 模拟基准
 ```
 
@@ -64,18 +66,19 @@ scripts/verify.sh   无 SDK 验证：类型检查 + 单元测试 + 模拟基准
 到 [GitHub Releases 页面](https://github.com/cedarln/NebulaStrike/releases) 下载最新
 `NebulaStrike-vX.Y.Z.apk`（已签名，~270 KB），传到手机安装即可，无需联网运行。
 
-当前版本 **v1.6.0**：
-- 新增擦弹充能 / OVERDRIVE：擦弹满槽自动清弹并进入 5 秒火力爆发
-- 新增结算数据卡：命中率、最高连击、擦弹、受伤与存活统计
-- 新增左手模式：炸弹键可镜像到左下角，设置中切换并持久化
-- 新增僚机 WINGMAN / 缓时 TIME 两种道具（掉落表扩充到 11 种）
-- 新增 LAB 金手指面板：生命、掉率、敌速、初始火力、无敌，持久化保存
-- 移动手感优化：指数逼近 + 更高跟随速度上限，扫掠碰撞防止高速穿透
-- 稳定性修复：Android 5.x 启动崩溃、后台返回音频丢失、升级包下载校验、暂停/结算残留输入
+当前版本 **v1.7.0**：
+- **全新程序化音效引擎**：用纯 Java 实时合成 22 种音效（武器四连音、分层爆炸、
+  擦弹 ping、过载和弦、Boss 警报/击破号角等），不依赖任何 WAV 素材
+- **AudioTrack 实时混音**：24 声部、等功率立体声定位（按屏幕 x 轴偏声）、
+  音高随机化、逐音效限流；独立 audio-mixer 线程，不阻塞游戏主循环
+- 音频健壮性：媒体音量为 0 时开启音效会 Toast 提示；切后台/锁屏返回自动重建音轨
+- 新增 GRAZE / SHIELD_BROKEN / COMBO 事件，音效与玩法反馈逐一对应
+- 保留 v1.6.0 全部内容：擦弹充能 / OVERDRIVE、结算数据卡、左手模式、
+  僚机与缓时道具、LAB 金手指、跟手移动优化
 - 竖屏 + 浮动摇杆（相对滑动操控 + 按下锁定动画）
 - 战役模式 + 无尽模式（双榜独立）
 - 三阶段 Boss 战、连击系统
-- 8-bit 合成音效与震动反馈、应用内升级
+- 触觉反馈与应用内升级
 
 ## 构建
 ```bash

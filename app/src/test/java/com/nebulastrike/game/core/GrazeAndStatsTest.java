@@ -2,6 +2,8 @@ package com.nebulastrike.game.core;
 
 import org.junit.Test;
 
+import java.util.List;
+
 import static org.junit.Assert.*;
 
 /** 擦弹充能 / OVERDRIVE、命中统计与左手模式。 */
@@ -30,6 +32,8 @@ public class GrazeAndStatsTest {
         w.update(1f / 60f); // 同一颗弹不重复充能
         assertEquals(1, w.grazes);
         assertEquals(GameWorld.GRAZE_CHARGE_PER_BULLET, w.grazeCharge, 1e-4f);
+        assertTrue("擦弹应产生事件供音效层使用",
+                w.pollEvents().stream().anyMatch(ev -> ev.type == GameWorld.EventType.GRAZE));
 
         w.grazeCharge = 0.96f;
         EnemyBullet b2 = freeEnemyBullet(w);
@@ -129,6 +133,50 @@ public class GrazeAndStatsTest {
         assertEquals(80f, Ui.bomb(true).x, 1e-4f);
         assertEquals(Ui.bomb(false).y, Ui.bomb(true).y, 1e-4f);
         assertEquals(Ui.bomb(false).w, Ui.bomb(true).w, 1e-4f);
+    }
+
+    // ---- 音效事件负载 ----
+
+    @Test
+    public void shieldBreakComboAndPickupEmitTypedEvents() {
+        GameWorld w = new GameWorld(9L, true);
+        w.handleUiAction(Ui.Action.START);
+        w.spawningEnabled = false;
+        w.update(1f / 60f);
+        clearEnemies(w);
+        clearBullets(w);
+        clearEnemyBullets(w);
+        w.ship.reset(450f, 1000f);
+        w.ship.invulnerable = false;
+        w.ship.hasShield = true;
+
+        EnemyBullet b = freeEnemyBullet(w);
+        b.init(w.ship.x, w.ship.y, 0f, 0f);
+        w.update(1f / 60f);
+        List<GameWorld.GameEvent> events = w.pollEvents();
+        assertTrue("护盾破碎应有独立事件",
+                events.stream().anyMatch(e -> e.type == GameWorld.EventType.SHIELD_BROKEN));
+        assertFalse("护盾破碎不应再伪装成拾取音效",
+                events.stream().anyMatch(e -> e.type == GameWorld.EventType.POWERUP_COLLECTED));
+
+        w.ship.invulnerable = false;
+        clearEnemyBullets(w);
+        w.spawnPowerUp(PowerUp.Kind.LIFE, w.ship.x, w.ship.y);
+        w.update(1f / 60f);
+        GameWorld.GameEvent pickup = w.pollEvents().stream()
+                .filter(e -> e.type == GameWorld.EventType.POWERUP_COLLECTED)
+                .findFirst().orElse(null);
+        assertNotNull("拾取应产生事件", pickup);
+        assertEquals("事件需携带道具类型", PowerUp.Kind.LIFE.ordinal(), pickup.code);
+
+        for (int i = 0; i < 5; i++) {
+            Enemy e = firstFreeEnemy(w);
+            e.init(EnemyType.DRONE, 100f + i * 20f, 300f, 0f);
+            w.killEnemyForTest(e);
+        }
+        assertTrue("五连杀应触发连击事件",
+                w.pollEvents().stream()
+                        .anyMatch(e -> e.type == GameWorld.EventType.COMBO && e.code == 5));
     }
 
     private static Enemy firstFreeEnemy(GameWorld w) {

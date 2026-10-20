@@ -19,15 +19,22 @@ public class GameWorld {
     /** Game events consumed by the presentation layer (sfx, haptics, fx). */
     public enum EventType {
         ENEMY_KILLED, PLAYER_HIT, GAME_OVER, ENEMY_ESCAPED, FORMATION,
-        POWERUP_COLLECTED, BOMB, BOSS_SPAWNED, BOSS_DEFEATED, BOSS_PHASE, OVERDRIVE
+        POWERUP_COLLECTED, BOMB, BOSS_SPAWNED, BOSS_DEFEATED, BOSS_PHASE,
+        OVERDRIVE, GRAZE, SHIELD_BROKEN, COMBO
     }
     public static final class GameEvent {
         public final EventType type;
         public final float x, y;
+        /** Optional payload: enemy/kind ordinal, boss phase or combo count. */
+        public final int code;
         public GameEvent(EventType type, float x, float y) {
+            this(type, x, y, 0);
+        }
+        public GameEvent(EventType type, float x, float y, int code) {
             this.type = type;
             this.x = x;
             this.y = y;
+            this.code = code;
         }
     }
 
@@ -61,6 +68,8 @@ public class GameWorld {
     public int kills;
     public int spawnedCount;
     public int shotsFired;
+    /** wingman volleys (separate counter so the audio layer can use a softer blip). */
+    public int wingmanShots;
     /** projectiles actually created (accuracy denominator; volleys are not bullets). */
     public int bulletsFired;
     /** projectiles that hit at least once (piercing counted once). */
@@ -302,7 +311,7 @@ public class GameWorld {
         int before = boss.phase;
         boss.update(dt);
         if (boss.phase != before) {
-            events.add(new GameEvent(EventType.BOSS_PHASE, boss.x, boss.y));
+            events.add(new GameEvent(EventType.BOSS_PHASE, boss.x, boss.y, boss.phase));
             addShake(0.3f, 8f);
         }
         if (boss.readyToAttack()) {
@@ -382,7 +391,7 @@ public class GameWorld {
         wingmanCd -= dt;
         if (wingmanCd > 0f) return;
         wingmanCd = 0.24f;
-        shotsFired++;
+        wingmanShots++;
         for (int i = -1; i <= 1; i += 2) {
             Bullet b = freeBullet();
             if (b == null) return;
@@ -739,6 +748,7 @@ public class GameWorld {
             }
         }
         // 擦弹：同一颗敌弹只充能一次；命中判定优先，过近直接算命中
+        boolean grazedThisFrame = false;
         for (EnemyBullet b : enemyBullets) {
             if (!b.active || b.grazed) continue;
             float rr = Ship.RADIUS + b.radius;
@@ -748,6 +758,10 @@ public class GameWorld {
                 grazes++;
                 if (ship.overdriveTimer <= 0f) {
                     grazeCharge = Math.min(1f, grazeCharge + GRAZE_CHARGE_PER_BULLET);
+                }
+                if (!grazedThisFrame) {
+                    grazedThisFrame = true;
+                    events.add(new GameEvent(EventType.GRAZE, b.x, b.y));
                 }
             }
         }
@@ -805,7 +819,7 @@ public class GameWorld {
                 slowTimer = SLOW_DURATION;
                 break;
         }
-        events.add(new GameEvent(EventType.POWERUP_COLLECTED, p.x, p.y));
+        events.add(new GameEvent(EventType.POWERUP_COLLECTED, p.x, p.y, p.kind.ordinal()));
     }
 
     /** 统一得分入口：双倍分数道具激活时翻倍。 */
@@ -853,7 +867,10 @@ public class GameWorld {
         addShake(e.type == EnemyType.TANK ? 0.22f : 0.05f,
                  e.type == EnemyType.TANK ? 9f : 2.5f);
         maybeDropPowerUp(e);
-        events.add(new GameEvent(EventType.ENEMY_KILLED, e.x, e.y));
+        events.add(new GameEvent(EventType.ENEMY_KILLED, e.x, e.y, e.type.ordinal()));
+        if (comboKills % 5 == 0 && comboKills <= 20) {
+            events.add(new GameEvent(EventType.COMBO, e.x, e.y, comboKills));
+        }
     }
 
     /** Tanks drop often, drones rarely. 武器/火力类道具权重最高（雷电式成长曲线）。 */
@@ -1072,7 +1089,7 @@ public class GameWorld {
             ship.hasShield = false;
             ship.makeInvulnerable();
             addShake(0.25f, 10f);
-            events.add(new GameEvent(EventType.POWERUP_COLLECTED, ship.x, ship.y));
+            events.add(new GameEvent(EventType.SHIELD_BROKEN, ship.x, ship.y));
             return;
         }
         comboKills = 0;
