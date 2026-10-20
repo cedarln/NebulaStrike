@@ -87,6 +87,19 @@ public class Renderer {
         drawBullets(c, w);
         drawShip(c, w);
 
+        // 缓时滤镜：冷色薄雾 + 边框脉冲（只罩住战场，不影响 HUD）
+        if (w.slowTimer > 0f) {
+            paint.setStyle(Paint.Style.FILL);
+            paint.setShader(null);
+            paint.setColor(0x1F66B8FF);
+            c.drawRect(0, 0, VW, VH, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(6f);
+            paint.setColor(0x668FE3FF);
+            c.drawRect(3f, 3f, VW - 3f, VH - 3f, paint);
+            paint.setStyle(Paint.Style.FILL);
+        }
+
         c.restore(); // shake
 
         // bomb white flash
@@ -164,6 +177,12 @@ public class Renderer {
                 paint.setColor(0x887DF9FF);
                 c.drawCircle(0, 14f, 5f, paint);
                 c.restore();
+            } else if (b.drone) {
+                // 僚机弹：粉色小弹，和主武器区分
+                paint.setColor(0xFFFF8FD1);
+                c.drawCircle(b.x, b.y, b.radius, paint);
+                paint.setColor(0xAAFFFFFF);
+                c.drawCircle(b.x, b.y, b.radius * 0.4f, paint);
             } else {
                 paint.setColor(0xFF7DF9FF);
                 c.drawCircle(b.x, b.y, b.radius, paint);
@@ -192,6 +211,8 @@ public class Renderer {
                 case RAPID:  color = 0xFFFF9D5C; label = "R"; break;
                 case X2:     color = 0xFFB08FFF; label = "×2"; break;
                 case LIFE:   color = 0xFFFF7089; label = "+"; break;
+                case WINGMAN: color = 0xFFFF8FD1; label = "D"; break;
+                case TIME:   color = 0xFF8FE3FF; label = "T"; break;
                 default: color = 0xFFFF5C7A; label = "B"; break;
             }
             boolean hot = p.attracted;
@@ -385,13 +406,38 @@ public class Renderer {
         hullStripe(c, s.x, s.y);
         paint.setColor(0xFFFF3355);
         c.drawCircle(s.x, s.y + 2f, 6f, paint);
+
+        // 僚机：两翼小型无人机 + 能量连线，剩余 2 秒开始闪烁提醒
+        if (s.wingmanTimer > 0f) {
+            boolean expiring = s.wingmanTimer < 2f && (int) (w.timeAlive * 8f) % 2 == 0;
+            if (!expiring) {
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2f);
+                paint.setColor(0x33FF8FD1);
+                c.drawLine(s.x, s.y, s.x - 52f, s.y + 2f, paint);
+                c.drawLine(s.x, s.y, s.x + 52f, s.y + 2f, paint);
+                paint.setStyle(Paint.Style.FILL);
+                for (int i = -1; i <= 1; i += 2) {
+                    float dx = s.x + i * 52f;
+                    glow.setColor(0x66FF8FD1);
+                    c.drawCircle(dx, s.y + 2f, 18f, glow);
+                    paint.setColor(0xFFFF8FD1);
+                    c.save();
+                    c.translate(dx, s.y + 2f);
+                    c.rotate((float) Math.sin(w.timeAlive * 5f + i) * 8f);
+                    triangleAbs(c, 0f, 0f, 12f, false);
+                    c.restore();
+                }
+            }
+        }
     }
 
     // ---- HUD & screens ----
     private void drawHud(Canvas c, GameWorld w) {
         switch (w.state) {
             case MENU:
-                if (w.settingsOpen) drawSettings(c, w);
+                if (w.cheatOpen) drawCheats(c, w);
+                else if (w.settingsOpen) drawSettings(c, w);
                 else drawMenu(c, w);
                 return;
             case PAUSED:
@@ -416,6 +462,15 @@ public class Renderer {
         paint.setTextSize(30f);
         paint.setColor(w.mode == GameMode.ENDLESS ? 0xFFB08FFF : 0xFF8FA3C8);
         c.drawText((w.mode == GameMode.ENDLESS ? "ENDLESS " : "WAVE ") + w.wave, VW / 2f - 70f, 60f, paint);
+
+        // LAB 参数生效的标记（避免改过参数却忘记）
+        if (w.settings.cheatsActive()) {
+            paint.setTextSize(22f);
+            paint.setColor(0xFFFF8FD1);
+            paint.setTextAlign(Paint.Align.RIGHT);
+            c.drawText("LAB", VW - 40f, 146f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
 
         // combo counter
         if (w.comboKills > 1) {
@@ -478,6 +533,16 @@ public class Renderer {
             c.drawRect(40f, statusY + 12f, 40f + 180f, statusY + 20f, paint);
             paint.setColor(0xFFB08FFF);
             c.drawRect(40f, statusY + 12f, 40f + 180f * frac, statusY + 20f, paint);
+            statusY += 38f;
+        }
+        if (w.ship.wingmanTimer > 0f) {
+            statusBar(c, "WINGMAN", 0xFFFF8FD1,
+                    w.ship.wingmanTimer / Ship.WINGMAN_DURATION, statusY);
+            statusY += 38f;
+        }
+        if (w.slowTimer > 0f) {
+            statusBar(c, "TIME SLOW", 0xFF8FE3FF,
+                    w.slowTimer / GameWorld.SLOW_DURATION, statusY);
         }
 
         // lives as mini ships
@@ -600,7 +665,9 @@ public class Renderer {
 
         button(c, Ui.START, "CAMPAIGN", 0xFF274BFF, 0xFFE8F1FF, true);
         button(c, Ui.START_ENDLESS, "ENDLESS", 0xFF8A2BE2, 0xFFFFD166, true);
-        button(c, Ui.SETTINGS, "SETTINGS", 0xFF182040, 0xFF8FA3C8, false);
+        button(c, Ui.SETTINGS, "SETTINGS", 0xFF182040, 0xFF8FA3C8, false, 30f);
+        button(c, Ui.CHEATS, w.settings.cheatsActive() ? "LAB ON" : "LAB",
+                0xFF182040, 0xFFFF8FD1, false, 30f);
 
         paint.setTextSize(28f);
         paint.setColor(0xFFFFD166);
@@ -665,6 +732,66 @@ public class Renderer {
         toggle(c, Ui.TOGGLE_REDUCED_FX, "LOW FX", w.settings.reducedFx);
         button(c, Ui.SETTINGS_BACK, "BACK", 0xFF182040, 0xFF8FA3C8, false);
         paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /** 金手指面板：数值类参数用 [-] 值 [+] 行，覆盖掉率/生命/敌速/火力与无敌。 */
+    private void drawCheats(Canvas c, GameWorld w) {
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xAA000000);
+        c.drawRect(0, 0, VW, VH, paint);
+        paint.setColor(0xE60A0C18);
+        c.drawRoundRect(90f, 250f, 810f, 1090f, 24f, 24f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(0x66FF8FD1);
+        c.drawRoundRect(90f, 250f, 810f, 1090f, 24f, 24f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(58f);
+        paint.setColor(0xFFFF8FD1);
+        c.drawText("LAB", VW / 2f, 330f, paint);
+        paint.setTextSize(24f);
+        paint.setColor(0xFF8FA3C8);
+        c.drawText("金手指参数 · 生命/火力下一局生效", VW / 2f, 372f, paint);
+
+        stepper(c, Ui.CHEAT_LIVES_MINUS, Ui.CHEAT_LIVES_PLUS,
+                "初始生命", String.valueOf(w.settings.startLives));
+        stepper(c, Ui.CHEAT_DROP_MINUS, Ui.CHEAT_DROP_PLUS,
+                "道具掉率", w.settings.dropRatePct + "%");
+        stepper(c, Ui.CHEAT_SPEED_MINUS, Ui.CHEAT_SPEED_PLUS,
+                "敌机速度", w.settings.enemySpeedPct + "%");
+        stepper(c, Ui.CHEAT_POWER_MINUS, Ui.CHEAT_POWER_PLUS,
+                "初始火力", "LV" + w.settings.startPower);
+        toggle(c, Ui.TOGGLE_GOD, "无敌模式", w.settings.godMode);
+        button(c, Ui.CHEAT_RESET, "RESET", 0xFF182040, 0xFF8FA3C8, false, 30f);
+        button(c, Ui.CHEATS_BACK, "BACK", 0xFF182040, 0xFFE8F1FF, false, 30f);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private void stepper(Canvas c, Ui.Rect minus, Ui.Rect plus, String label, String value) {
+        button(c, minus, "−", 0xFF182040, 0xFF8FA3C8, false, 44f);
+        button(c, plus, "+", 0xFF182040, 0xFF8FA3C8, false, 44f);
+        paint.setTextSize(32f);
+        paint.setColor(0xFFE8F1FF);
+        paint.setTextAlign(Paint.Align.LEFT);
+        c.drawText(label, minus.x + 110f, minus.cy() + 11f, paint);
+        paint.setColor(0xFFFFD166);
+        paint.setTextAlign(Paint.Align.RIGHT);
+        c.drawText(value, plus.x - 24f, plus.cy() + 11f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /** HUD 状态条：label + 剩余时间比例条。 */
+    private void statusBar(Canvas c, String label, int color, float frac, float y) {
+        paint.setColor(color);
+        paint.setTextSize(26f);
+        c.drawText(label, 40f, y, paint);
+        paint.setColor((color & 0x00FFFFFF) | 0x33000000);
+        c.drawRect(40f, y + 12f, 220f, y + 20f, paint);
+        paint.setColor(color);
+        c.drawRect(40f, y + 12f, 40f + 180f * frac, y + 20f, paint);
     }
 
     private void drawPauseOverlay(Canvas c, GameWorld w) {

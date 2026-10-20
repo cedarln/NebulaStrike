@@ -10,6 +10,8 @@ public class Bullet {
     public float radius = 9f;
     public int damage = 1;
     public boolean homing;
+    /** 僚机射出的弹丸（渲染为小型粉色弹） */
+    public boolean drone;
     public float speed;
     public boolean active;
     // laser
@@ -28,11 +30,18 @@ public class Bullet {
         this.vy = vy;
         this.damage = damage;
         this.homing = homing;
+        this.drone = false;
         this.speed = (float) Math.sqrt(vx * vx + vy * vy);
         this.active = true;
         this.piercing = false;
         this.hitCooldown = 0f;
         this.len = 0f;
+    }
+
+    public void initDrone(float x, float y, float vx, float vy) {
+        init(x, y, vx, vy, 1, false);
+        this.drone = true;
+        this.radius = 6f;
     }
 
     /** 激光束初始化。 */

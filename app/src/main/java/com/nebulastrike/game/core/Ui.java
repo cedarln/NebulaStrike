@@ -20,7 +20,8 @@ public final class Ui {
     // menu
     public static final Rect START = new Rect(GameWorld.WIDTH / 2f - 220f, 400f, 440f, 76f);
     public static final Rect START_ENDLESS = new Rect(GameWorld.WIDTH / 2f - 220f, 492f, 440f, 76f);
-    public static final Rect SETTINGS = new Rect(GameWorld.WIDTH / 2f - 220f, 584f, 440f, 64f);
+    public static final Rect SETTINGS = new Rect(GameWorld.WIDTH / 2f - 220f, 584f, 210f, 64f);
+    public static final Rect CHEATS = new Rect(GameWorld.WIDTH / 2f + 10f, 584f, 210f, 64f);
     public static final Rect CHECK_UPDATE = new Rect(GameWorld.WIDTH / 2f - 220f, 715f, 440f, 56f);
 
     // playing: floating joystick is position-free (handled by GameView);
@@ -32,6 +33,19 @@ public final class Ui {
     public static final Rect TOGGLE_HAPTICS = new Rect(GameWorld.WIDTH / 2f - 220f, 622f, 440f, 64f);
     public static final Rect TOGGLE_REDUCED_FX = new Rect(GameWorld.WIDTH / 2f - 220f, 698f, 440f, 64f);
     public static final Rect SETTINGS_BACK = new Rect(GameWorld.WIDTH / 2f - 140f, 786f, 280f, 64f);
+    // LAB（金手指）面板：四行步进器 + 无敌开关 + 恢复默认/返回
+    public static final Rect CHEAT_LIVES_MINUS = new Rect(110f, 430f, 80f, 80f);
+    public static final Rect CHEAT_LIVES_PLUS = new Rect(710f, 430f, 80f, 80f);
+    public static final Rect CHEAT_DROP_MINUS = new Rect(110f, 532f, 80f, 80f);
+    public static final Rect CHEAT_DROP_PLUS = new Rect(710f, 532f, 80f, 80f);
+    public static final Rect CHEAT_SPEED_MINUS = new Rect(110f, 634f, 80f, 80f);
+    public static final Rect CHEAT_SPEED_PLUS = new Rect(710f, 634f, 80f, 80f);
+    public static final Rect CHEAT_POWER_MINUS = new Rect(110f, 736f, 80f, 80f);
+    public static final Rect CHEAT_POWER_PLUS = new Rect(710f, 736f, 80f, 80f);
+    public static final Rect TOGGLE_GOD = new Rect(110f, 838f, 680f, 76f);
+    public static final Rect CHEAT_RESET = new Rect(110f, 966f, 330f, 76f);
+    public static final Rect CHEATS_BACK = new Rect(460f, 966f, 330f, 76f);
+
     // pause overlay
     public static final Rect RESUME = new Rect(GameWorld.WIDTH / 2f - 220f, 330f, 440f, 88f);
     public static final Rect RESTART = new Rect(GameWorld.WIDTH / 2f - 220f, 436f, 440f, 72f);
@@ -42,13 +56,31 @@ public final class Ui {
     /** Logical UI actions produced by taps. */
     public enum Action {
         START, START_ENDLESS, OPEN_SETTINGS, TOGGLE_SOUND, TOGGLE_PARTICLES, TOGGLE_HAPTICS,
-        TOGGLE_REDUCED_FX, SETTINGS_BACK, RESUME, RESTART, QUIT_TO_MENU, PAUSE, CHECK_UPDATE
+        TOGGLE_REDUCED_FX, SETTINGS_BACK, RESUME, RESTART, QUIT_TO_MENU, PAUSE, CHECK_UPDATE,
+        OPEN_CHEATS, CHEATS_BACK, TOGGLE_GOD, CHEAT_RESET,
+        CHEAT_LIVES_DOWN, CHEAT_LIVES_UP, CHEAT_DROP_DOWN, CHEAT_DROP_UP,
+        CHEAT_SPEED_DOWN, CHEAT_SPEED_UP, CHEAT_POWER_DOWN, CHEAT_POWER_UP
     }
 
     /** Maps a tap in virtual space to an action for the given state; null if none. */
-    public static Action hit(GameWorld.State state, boolean settingsOpen, float x, float y) {
+    public static Action hit(GameWorld.State state, boolean settingsOpen, boolean cheatOpen,
+                             float x, float y) {
         switch (state) {
             case MENU:
+                if (cheatOpen) {
+                    if (CHEAT_LIVES_MINUS.contains(x, y)) return Action.CHEAT_LIVES_DOWN;
+                    if (CHEAT_LIVES_PLUS.contains(x, y)) return Action.CHEAT_LIVES_UP;
+                    if (CHEAT_DROP_MINUS.contains(x, y)) return Action.CHEAT_DROP_DOWN;
+                    if (CHEAT_DROP_PLUS.contains(x, y)) return Action.CHEAT_DROP_UP;
+                    if (CHEAT_SPEED_MINUS.contains(x, y)) return Action.CHEAT_SPEED_DOWN;
+                    if (CHEAT_SPEED_PLUS.contains(x, y)) return Action.CHEAT_SPEED_UP;
+                    if (CHEAT_POWER_MINUS.contains(x, y)) return Action.CHEAT_POWER_DOWN;
+                    if (CHEAT_POWER_PLUS.contains(x, y)) return Action.CHEAT_POWER_UP;
+                    if (TOGGLE_GOD.contains(x, y)) return Action.TOGGLE_GOD;
+                    if (CHEAT_RESET.contains(x, y)) return Action.CHEAT_RESET;
+                    if (CHEATS_BACK.contains(x, y)) return Action.CHEATS_BACK;
+                    return null;
+                }
                 if (settingsOpen) {
                     if (TOGGLE_SOUND.contains(x, y)) return Action.TOGGLE_SOUND;
                     if (TOGGLE_PARTICLES.contains(x, y)) return Action.TOGGLE_PARTICLES;
@@ -60,6 +92,7 @@ public final class Ui {
                 if (START.contains(x, y)) return Action.START;
                 if (START_ENDLESS.contains(x, y)) return Action.START_ENDLESS;
                 if (SETTINGS.contains(x, y)) return Action.OPEN_SETTINGS;
+                if (CHEATS.contains(x, y)) return Action.OPEN_CHEATS;
                 if (CHECK_UPDATE.contains(x, y)) return Action.CHECK_UPDATE;
                 return null;
             case PAUSED:

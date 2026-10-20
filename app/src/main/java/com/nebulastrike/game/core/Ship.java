@@ -8,11 +8,14 @@ package com.nebulastrike.game.core;
  */
 public class Ship {
     public static final float RADIUS = 34f;
-    public static final float MAX_SPEED = 950f;
+    /** 拖动跟随的最高速度：老版本 950 跟不上快速滑动，手感发飘。 */
+    public static final float MAX_DRAG_SPEED = 2400f;
     public static final float FIRE_COOLDOWN = 0.16f;
     public static final float RESPAWN_INVULN = 2.0f;
 
     public float x, y;
+    /** 上一帧位置（扫掠碰撞用，避免高速拖动穿过敌弹）。 */
+    public float prevX, prevY;
     private float targetX, targetY;
     private float cooldown;
     public boolean invulnerable;
@@ -34,10 +37,15 @@ public class Ship {
     /** 速射道具剩余时间（>0 时射击冷却减半） */
     public float rapidTimer;
     public static final float RAPID_DURATION = 8f;
+    /** 僚机道具剩余时间（>0 时两翼无人机自动开火） */
+    public float wingmanTimer;
+    public static final float WINGMAN_DURATION = 14f;
 
     public void reset(float x, float y) {
         this.x = x;
         this.y = y;
+        prevX = x;
+        prevY = y;
         targetX = x;
         targetY = y;
         cooldown = 0f;
@@ -49,6 +57,7 @@ public class Ship {
         hasShield = false;
         bombs = 1;
         rapidTimer = 0f;
+        wingmanTimer = 0f;
     }
 
     /** 拖拽模式：设置期望位置（限速跟随）。 */
@@ -76,10 +85,17 @@ public class Ship {
             cooldown = weapon.cooldown * (rapidTimer > 0f ? 0.5f : 1f);
             fired = true;
         }
+        prevX = x;
+        prevY = y;
         float dx = targetX - x, dy = targetY - y;
         float dist = (float) Math.sqrt(dx * dx + dy * dy);
-        if (dist > 1e-3f) {
-            float step = Math.min(MAX_SPEED * dt, dist);
+        if (dist < 1.5f) {
+            x = targetX;
+            y = targetY;
+        } else {
+            // 指数逼近给出"贴手"的小位移跟随，速度上限保证快速甩动不瞬移
+            float k = 1f - (float) Math.exp(-24f * dt);
+            float step = Math.min(MAX_DRAG_SPEED * dt, dist * k);
             x += dx / dist * step;
             y += dy / dist * step;
         }
@@ -97,6 +113,10 @@ public class Ship {
         if (rapidTimer > 0f) {
             rapidTimer -= dt;
             if (rapidTimer < 0f) rapidTimer = 0f;
+        }
+        if (wingmanTimer > 0f) {
+            wingmanTimer -= dt;
+            if (wingmanTimer < 0f) wingmanTimer = 0f;
         }
         return fired;
     }

@@ -21,7 +21,13 @@ public class UiStateTest {
         int best;
         int bestWrites, settingsWrites, lbWrites, elbWrites;
 
-        @Override public void load(Settings into) { into.sound = saved.sound; into.particles = saved.particles; into.haptics = saved.haptics; }
+        @Override public void load(Settings into) {
+            into.sound = saved.sound; into.particles = saved.particles; into.haptics = saved.haptics;
+            into.reducedFx = saved.reducedFx;
+            into.startLives = saved.startLives; into.dropRatePct = saved.dropRatePct;
+            into.enemySpeedPct = saved.enemySpeedPct; into.startPower = saved.startPower;
+            into.godMode = saved.godMode;
+        }
         @Override public int bestScore() { return best; }
         @Override public void saveBestScore(int score) { best = score; bestWrites++; }
         @Override public int[] leaderboard(GameMode mode) {
@@ -34,6 +40,10 @@ public class UiStateTest {
         }
         @Override public void save(Settings s) {
             saved.sound = s.sound; saved.particles = s.particles; saved.haptics = s.haptics;
+            saved.reducedFx = s.reducedFx;
+            saved.startLives = s.startLives; saved.dropRatePct = s.dropRatePct;
+            saved.enemySpeedPct = s.enemySpeedPct; saved.startPower = s.startPower;
+            saved.godMode = s.godMode;
             settingsWrites++;
         }
     }
@@ -119,19 +129,55 @@ public class UiStateTest {
 
     @Test
     public void uiHitMapping() {
-        assertEquals(Ui.Action.START, Ui.hit(GameWorld.State.MENU, false,
+        assertEquals(Ui.Action.START, Ui.hit(GameWorld.State.MENU, false, false,
                 Ui.START.cx(), Ui.START.cy()));
-        assertEquals(Ui.Action.OPEN_SETTINGS, Ui.hit(GameWorld.State.MENU, false,
+        assertEquals(Ui.Action.OPEN_SETTINGS, Ui.hit(GameWorld.State.MENU, false, false,
                 Ui.SETTINGS.cx(), Ui.SETTINGS.cy()));
-        assertEquals(Ui.Action.TOGGLE_PARTICLES, Ui.hit(GameWorld.State.MENU, true,
+        assertEquals(Ui.Action.OPEN_CHEATS, Ui.hit(GameWorld.State.MENU, false, false,
+                Ui.CHEATS.cx(), Ui.CHEATS.cy()));
+        assertEquals(Ui.Action.TOGGLE_PARTICLES, Ui.hit(GameWorld.State.MENU, true, false,
                 Ui.TOGGLE_PARTICLES.cx(), Ui.TOGGLE_PARTICLES.cy()));
-        assertEquals(Ui.Action.SETTINGS_BACK, Ui.hit(GameWorld.State.MENU, true,
+        assertEquals(Ui.Action.SETTINGS_BACK, Ui.hit(GameWorld.State.MENU, true, false,
                 Ui.SETTINGS_BACK.cx(), Ui.SETTINGS_BACK.cy()));
-        assertEquals(Ui.Action.RESUME, Ui.hit(GameWorld.State.PAUSED, false,
+        assertEquals(Ui.Action.RESUME, Ui.hit(GameWorld.State.PAUSED, false, false,
                 Ui.RESUME.cx(), Ui.RESUME.cy()));
-        assertEquals(Ui.Action.PAUSE, Ui.hit(GameWorld.State.PLAYING, false,
+        assertEquals(Ui.Action.PAUSE, Ui.hit(GameWorld.State.PLAYING, false, false,
                 Ui.PAUSE_BTN.cx(), Ui.PAUSE_BTN.cy()));
-        assertNull("random tap in gameplay is not UI", Ui.hit(GameWorld.State.PLAYING, false, 800f, 500f));
+        assertNull("random tap in gameplay is not UI", Ui.hit(GameWorld.State.PLAYING, false, false, 800f, 500f));
+
+        // LAB 面板：步进器/无敌/返回，且面板打开时菜单按钮不可点
+        assertEquals(Ui.Action.CHEAT_LIVES_UP, Ui.hit(GameWorld.State.MENU, false, true,
+                Ui.CHEAT_LIVES_PLUS.cx(), Ui.CHEAT_LIVES_PLUS.cy()));
+        assertEquals(Ui.Action.CHEAT_DROP_DOWN, Ui.hit(GameWorld.State.MENU, false, true,
+                Ui.CHEAT_DROP_MINUS.cx(), Ui.CHEAT_DROP_MINUS.cy()));
+        assertEquals(Ui.Action.TOGGLE_GOD, Ui.hit(GameWorld.State.MENU, false, true,
+                Ui.TOGGLE_GOD.cx(), Ui.TOGGLE_GOD.cy()));
+        assertEquals(Ui.Action.CHEATS_BACK, Ui.hit(GameWorld.State.MENU, false, true,
+                Ui.CHEATS_BACK.cx(), Ui.CHEATS_BACK.cy()));
+        assertNull(Ui.hit(GameWorld.State.MENU, false, true, Ui.START.cx(), Ui.START.cy()));
+    }
+
+    @Test
+    public void labAdjustmentsPersistAndReload() {
+        world.handleUiAction(Ui.Action.OPEN_CHEATS);
+        world.handleUiAction(Ui.Action.CHEAT_LIVES_UP);
+        world.handleUiAction(Ui.Action.CHEAT_DROP_UP);
+        world.handleUiAction(Ui.Action.CHEAT_SPEED_DOWN);
+        world.handleUiAction(Ui.Action.CHEAT_POWER_UP);
+        world.handleUiAction(Ui.Action.TOGGLE_GOD);
+        assertEquals(4, store.saved.startLives);
+        assertEquals(125, store.saved.dropRatePct);
+        assertEquals(90, store.saved.enemySpeedPct);
+        assertEquals(2, store.saved.startPower);
+        assertTrue(store.saved.godMode);
+
+        GameWorld reloaded = new GameWorld(1L, true);
+        reloaded.attachStore(store);
+        assertEquals(4, reloaded.settings.startLives);
+        assertEquals(125, reloaded.settings.dropRatePct);
+        assertEquals(90, reloaded.settings.enemySpeedPct);
+        assertEquals(2, reloaded.settings.startPower);
+        assertTrue(reloaded.settings.godMode);
     }
 
     @Test

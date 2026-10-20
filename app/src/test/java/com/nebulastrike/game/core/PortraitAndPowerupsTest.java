@@ -188,17 +188,17 @@ public class PortraitAndPowerupsTest {
         assertEquals(200, w.score); // 满命折算
     }
 
-    // ---- 掉落权重覆盖所有 9 种 ----
+    // ---- 掉落权重覆盖所有 11 种 ----
 
     @Test
-    public void dropTableCoversAllNineKinds() {
-        // 纯函数 dropKind：每个区段取一个边界点，必须覆盖全部 9 种枚举
-        float[] boundary = {0f, 0.19f, 0.35f, 0.49f, 0.61f, 0.73f, 0.83f, 0.93f, 0.999f};
+    public void dropTableCoversAllElevenKinds() {
+        // 纯函数 dropKind：每个区段取一个边界点，必须覆盖全部 11 种枚举
+        float[] boundary = {0f, 0.16f, 0.30f, 0.42f, 0.53f, 0.64f, 0.73f, 0.80f, 0.85f, 0.89f, 0.96f};
         java.util.Set<PowerUp.Kind> seen = java.util.EnumSet.noneOf(PowerUp.Kind.class);
         for (float r : boundary) seen.add(GameWorld.dropKind(r));
         assertEquals(java.util.EnumSet.allOf(PowerUp.Kind.class), seen);
         assertEquals(PowerUp.Kind.SPREAD, GameWorld.dropKind(0.0f));
-        assertEquals(PowerUp.Kind.LIFE, GameWorld.dropKind(1.0f));
+        assertEquals(PowerUp.Kind.TIME, GameWorld.dropKind(1.0f));
     }
 
     private Enemy firstFreeEnemy(GameWorld w) {
@@ -344,10 +344,10 @@ public class PortraitAndPowerupsTest {
         assertTrue("激光命中后仍应飞行（穿透）", beamAlive);
     }
 
-    // ---- 掉落表 9 种全覆盖 ----
+    // ---- 掉落表 11 种全覆盖 ----
 
     @Test
-    public void allNinePowerupKindsSpawn() {
+    public void allElevenPowerupKindsSpawn() {
         GameWorld w = new GameWorld(7L, false);
         w.restart(GameMode.WAVES);
         int i = 0;
@@ -357,7 +357,7 @@ public class PortraitAndPowerupsTest {
         int spawned = 0;
         for (PowerUp p : w.powerups) if (p.active) spawned++;
         assertEquals(PowerUp.Kind.values().length, spawned);
-        assertEquals(9, spawned);
+        assertEquals(11, spawned);
     }
 
     @Test

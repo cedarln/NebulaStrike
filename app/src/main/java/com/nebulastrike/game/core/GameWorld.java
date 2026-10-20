@@ -80,6 +80,10 @@ public class GameWorld {
     public float x2Timer;
     public static final float X2_DURATION = 8f;
     public static final int MAX_LIVES = 4;
+    /** 缓时道具剩余时间；>0 时敌人/敌弹/Boss 以 45% 速度运行 */
+    public float slowTimer;
+    public static final float SLOW_DURATION = 6f;
+    public static final float SLOW_TIME_SCALE = 0.45f;
 
     // persistence-backed state
     public int bestScore;
@@ -91,6 +95,7 @@ public class GameWorld {
     public int scoreRank = -1;
     public final Settings settings = new Settings();
     public volatile boolean settingsOpen;
+    public volatile boolean cheatOpen;
     private SettingsStore store;
 
     // ---- 应用内升级检测（状态机；网络 IO 由 app 层异步执行，这里只存状态） ----
@@ -198,9 +203,11 @@ public class GameWorld {
             return;
         }
         timeAlive += dt;
+        if (slowTimer > 0f) slowTimer = Math.max(0f, slowTimer - dt);
+        float timeScale = slowTimer > 0f ? SLOW_TIME_SCALE : 1f;
         updateDifficulty();
         updateSpawning(dt);
-        updateBoss(dt);
+        updateBoss(dt * timeScale);
 
         // 摇杆出现/消失动画（约 0.12 秒完成，8 倍速率逼近目标值）
         float joyTarget = joyActive ? 1f : 0f;
@@ -209,6 +216,7 @@ public class GameWorld {
 
         boolean fired = ship.update(dt, WIDTH, HEIGHT);
         if (fired) fireBullet();
+        updateWingman(dt);
         updateShipFx(dt);
 
         for (Bullet b : bullets) {
@@ -224,17 +232,17 @@ public class GameWorld {
         }
         for (Enemy e : enemies) {
             if (!e.active) continue;
-            e.update(dt, WIDTH);
+            e.update(dt * timeScale, WIDTH);
             if (e.offscreen(HEIGHT)) {
                 e.active = false;
                 events.add(new GameEvent(EventType.ENEMY_ESCAPED, e.x, HEIGHT));
                 continue;
             }
-            tryEnemyFire(e, dt);
+            tryEnemyFire(e, dt * timeScale);
         }
         for (EnemyBullet b : enemyBullets) {
             if (!b.active) continue;
-            b.update(dt);
+            b.update(dt * timeScale);
             if (b.offscreen(WIDTH, HEIGHT)) b.active = false;
         }
         for (Particle p : particles) if (p.active) p.update(dt);
@@ -349,6 +357,22 @@ public class GameWorld {
         }
     }
 
+    /** 僚机：道具激活期间从两翼交替/齐射小弹丸。 */
+    private void updateWingman(float dt) {
+        if (ship.wingmanTimer <= 0f) return;
+        wingmanCd -= dt;
+        if (wingmanCd > 0f) return;
+        wingmanCd = 0.24f;
+        shotsFired++;
+        for (int i = -1; i <= 1; i += 2) {
+            Bullet b = freeBullet();
+            if (b == null) return;
+            b.initDrone(ship.x + i * 52f, ship.y + 2f, i * 30f, -1080f);
+        }
+    }
+
+    private float wingmanCd;
+
     private void summonMinions() {
         int n = boss.phase >= 3 ? 3 : 2;
         for (int i = 0; i < n; i++) {
@@ -426,6 +450,7 @@ public class GameWorld {
             enemySpeedScale = 1f + 0.75f * t + 0.25f * over;
             formationPeriod = 1.15f - 0.35f * t;
         }
+        enemySpeedScale *= settings.enemySpeedPct / 100f;
     }
 
     float spawnInterval = 1.1f;
@@ -633,11 +658,11 @@ public class GameWorld {
                 }
             }
             if (!e.active) continue;
-            // enemies vs ship
+            // enemies vs ship（扫掠：高速拖动时不会瞬移穿过敌机）
             if (!ship.invulnerable) {
-                float dx = ship.x - e.x, dy = ship.y - e.y;
                 float rr = Ship.RADIUS + e.type.radius;
-                if (dx * dx + dy * dy <= rr * rr) {
+                if (distToSegment(e.x, e.y,
+                        ship.prevX, ship.prevY, ship.x, ship.y) <= rr) {
                     e.active = false;
                     explode(e.x, e.y, e.type.colorHint);
                     explode(ship.x, ship.y, 3);
@@ -649,9 +674,9 @@ public class GameWorld {
         if (!ship.invulnerable) {
             for (EnemyBullet b : enemyBullets) {
                 if (!b.active) continue;
-                float dx = ship.x - b.x, dy = ship.y - b.y;
                 float rr = Ship.RADIUS + b.radius;
-                if (dx * dx + dy * dy <= rr * rr) {
+                if (distToSegment(b.x, b.y,
+                        ship.prevX, ship.prevY, ship.x, ship.y) <= rr) {
                     b.active = false;
                     spark(b.x, b.y, 6, 2);
                     onPlayerHit();
@@ -703,8 +728,14 @@ public class GameWorld {
                 x2Timer = X2_DURATION;
                 break;
             case LIFE:
-                if (lives < MAX_LIVES) lives++;
+                if (lives < Math.max(MAX_LIVES, settings.startLives)) lives++;
                 else addScore(200); // 满命时折算奖励分
+                break;
+            case WINGMAN:
+                ship.wingmanTimer = Ship.WINGMAN_DURATION;
+                break;
+            case TIME:
+                slowTimer = SLOW_DURATION;
                 break;
         }
         events.add(new GameEvent(EventType.POWERUP_COLLECTED, p.x, p.y));
@@ -761,21 +792,24 @@ public class GameWorld {
     private void maybeDropPowerUp(Enemy e) {
         float chance = e.type == EnemyType.TANK ? 0.45f
                 : e.type == EnemyType.HUNTER ? 0.12f : 0.05f;
+        chance = Math.min(1f, chance * settings.dropRatePct / 100f);
         if (RNG.get().nextFloat() >= chance) return;
         spawnPowerUp(dropKind(RNG.get().nextFloat()), e.x, e.y);
     }
 
-    /** 掉落分布（9 种）。独立成纯函数便于测试边界。 */
+    /** 掉落分布（11 种）。独立成纯函数便于测试边界。 */
     public static PowerUp.Kind dropKind(float roll) {
-        if (roll < 0.18f) return PowerUp.Kind.SPREAD;
-        if (roll < 0.34f) return PowerUp.Kind.POWER;
-        if (roll < 0.48f) return PowerUp.Kind.LASER;
-        if (roll < 0.60f) return PowerUp.Kind.MISSILE;
-        if (roll < 0.72f) return PowerUp.Kind.SHIELD;
-        if (roll < 0.82f) return PowerUp.Kind.BOMB;
-        if (roll < 0.90f) return PowerUp.Kind.RAPID;
-        if (roll < 0.96f) return PowerUp.Kind.X2;
-        return PowerUp.Kind.LIFE;
+        if (roll < 0.15f) return PowerUp.Kind.SPREAD;
+        if (roll < 0.29f) return PowerUp.Kind.POWER;
+        if (roll < 0.41f) return PowerUp.Kind.LASER;
+        if (roll < 0.52f) return PowerUp.Kind.MISSILE;
+        if (roll < 0.63f) return PowerUp.Kind.SHIELD;
+        if (roll < 0.72f) return PowerUp.Kind.BOMB;
+        if (roll < 0.79f) return PowerUp.Kind.RAPID;
+        if (roll < 0.84f) return PowerUp.Kind.X2;
+        if (roll < 0.88f) return PowerUp.Kind.LIFE;
+        if (roll < 0.95f) return PowerUp.Kind.WINGMAN;
+        return PowerUp.Kind.TIME;
     }
 
     /** Public for tests; spawns a pickup at the given spot. */
@@ -831,11 +865,11 @@ public class GameWorld {
     public void handleUiAction(Ui.Action a) {
         switch (a) {
             case START:
-                settingsOpen = false;
+                closePanels();
                 restart(GameMode.WAVES);
                 break;
             case START_ENDLESS:
-                settingsOpen = false;
+                closePanels();
                 restart(GameMode.ENDLESS);
                 break;
             case CHECK_UPDATE:
@@ -852,6 +886,54 @@ public class GameWorld {
                 break;
             case OPEN_SETTINGS:
                 settingsOpen = true;
+                cheatOpen = false;
+                break;
+            case OPEN_CHEATS:
+                cheatOpen = true;
+                settingsOpen = false;
+                break;
+            case CHEATS_BACK:
+                cheatOpen = false;
+                break;
+            case TOGGLE_GOD:
+                settings.godMode = !settings.godMode;
+                saveSettings();
+                break;
+            case CHEAT_RESET:
+                settings.resetCheats();
+                saveSettings();
+                break;
+            case CHEAT_LIVES_DOWN:
+                settings.adjust("lives", -1);
+                saveSettings();
+                break;
+            case CHEAT_LIVES_UP:
+                settings.adjust("lives", 1);
+                saveSettings();
+                break;
+            case CHEAT_DROP_DOWN:
+                settings.adjust("drop", -1);
+                saveSettings();
+                break;
+            case CHEAT_DROP_UP:
+                settings.adjust("drop", 1);
+                saveSettings();
+                break;
+            case CHEAT_SPEED_DOWN:
+                settings.adjust("speed", -1);
+                saveSettings();
+                break;
+            case CHEAT_SPEED_UP:
+                settings.adjust("speed", 1);
+                saveSettings();
+                break;
+            case CHEAT_POWER_DOWN:
+                settings.adjust("power", -1);
+                saveSettings();
+                break;
+            case CHEAT_POWER_UP:
+                settings.adjust("power", 1);
+                saveSettings();
                 break;
             case TOGGLE_SOUND:
                 settings.toggle("sound");
@@ -879,7 +961,7 @@ public class GameWorld {
                 restart(mode); // restart keeps the current mode
                 break;
             case QUIT_TO_MENU:
-                settingsOpen = false;
+                closePanels();
                 state = State.MENU;
                 stateTimer = 0f;
                 break;
@@ -897,6 +979,12 @@ public class GameWorld {
         if (store != null) store.save(settings);
     }
 
+    /** 菜单里的设置/LAB 面板互斥；返回键统一关闭。 */
+    public void closePanels() {
+        settingsOpen = false;
+        cheatOpen = false;
+    }
+
     /** Pauses gameplay (used by lifecycle callbacks). */
     public void pauseIfPlaying() {
         if (state == State.PLAYING) {
@@ -907,6 +995,7 @@ public class GameWorld {
     }
 
     private void onPlayerHit() {
+        if (settings.godMode) return;
         if (ship.hasShield) { // bubble eats the hit
             ship.hasShield = false;
             ship.makeInvulnerable();
@@ -1001,7 +1090,7 @@ public class GameWorld {
     public void restart(GameMode m) {
         mode = m;
         score = 0;
-        lives = 3;
+        lives = settings.startLives;
         kills = 0;
         spawnedCount = 0;
         timeAlive = 0f;
@@ -1015,6 +1104,8 @@ public class GameWorld {
         shakeMag = 0f;
         bombFlash = 0f;
         x2Timer = 0f;
+        slowTimer = 0f;
+        wingmanCd = 0f;
         joyActive = false;
         joyAnim = 0f;
         boss.active = false;
@@ -1026,6 +1117,7 @@ public class GameWorld {
         spawnTimer = 0f;
         state = State.PLAYING;
         ship.reset(WIDTH / 2f, HEIGHT - 140f);
+        ship.powerLevel = settings.startPower;
         for (Bullet b : bullets) b.active = false;
         for (EnemyBullet b : enemyBullets) b.active = false;
         for (Enemy e : enemies) e.active = false;
@@ -1054,6 +1146,18 @@ public class GameWorld {
             float spd = 60f + RNG.get().nextFloat() * 160f;
             p.init(x, y, (float) Math.cos(ang) * spd, (float) Math.sin(ang) * spd, 0.22f, 3f, color);
         }
+    }
+
+    /** Shortest distance from point P to segment AB (ship sweep between frames). */
+    private static float distToSegment(float px, float py, float ax, float ay, float bx, float by) {
+        float abx = bx - ax, aby = by - ay;
+        float apx = px - ax, apy = py - ay;
+        float ab2 = abx * abx + aby * aby;
+        float t = ab2 <= 1e-6f ? 0f : (apx * abx + apy * aby) / ab2;
+        t = Math.max(0f, Math.min(1f, t));
+        float dx = px - (ax + abx * t);
+        float dy = py - (ay + aby * t);
+        return (float) Math.sqrt(dx * dx + dy * dy);
     }
 
     // ---- pool helpers ----

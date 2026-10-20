@@ -142,11 +142,11 @@ public class EndlessModeTest {
     @Test
     public void endlessMenuUiHitsBothNewButtons() {
         world.state = GameWorld.State.MENU;
-        assertNotNull(Ui.hit(GameWorld.State.MENU, false,
+        assertNotNull(Ui.hit(GameWorld.State.MENU, false, false,
                 Ui.START_ENDLESS.cx(), Ui.START_ENDLESS.cy()));
-        assertEquals(Ui.Action.START_ENDLESS, Ui.hit(GameWorld.State.MENU, false,
+        assertEquals(Ui.Action.START_ENDLESS, Ui.hit(GameWorld.State.MENU, false, false,
                 Ui.START_ENDLESS.cx(), Ui.START_ENDLESS.cy()));
-        assertEquals(Ui.Action.START, Ui.hit(GameWorld.State.MENU, false,
+        assertEquals(Ui.Action.START, Ui.hit(GameWorld.State.MENU, false, false,
                 Ui.START.cx(), Ui.START.cy()));
         // buttons must not overlap
         assertFalse(Ui.START.contains(Ui.START_ENDLESS.cx(), Ui.START_ENDLESS.cy()));

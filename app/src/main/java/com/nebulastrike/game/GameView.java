@@ -92,7 +92,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
             return;
         }
 
-        Ui.Action a = Ui.hit(world.state, world.settingsOpen, v[0], v[1]);
+        Ui.Action a = Ui.hit(world.state, world.settingsOpen, world.cheatOpen, v[0], v[1]);
         if (a != null) {
             world.handleUiAction(a);
             if (a == Ui.Action.CHECK_UPDATE) dispatchUpdateWork();
@@ -163,6 +163,10 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                 world.handleUiAction(Ui.Action.QUIT_TO_MENU);
                 return true;
             default:
+                if (world.settingsOpen || world.cheatOpen) {
+                    world.closePanels();
+                    return true;
+                }
                 return false; // let the activity finish
         }
     }
