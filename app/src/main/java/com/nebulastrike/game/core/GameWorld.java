@@ -156,11 +156,14 @@ public class GameWorld {
     public boolean joyActive;
     public float joyBaseX, joyBaseY;   // 按下锚点（基座）
     public float joyX, joyY;           // 当前手指位置（摇杆头朝向）
+    /** 摇杆出现/消失动画进度 0..1（按下渐入、松手渐出），由 update 推进 */
+    public float joyAnim;
 
     /** 暂停/结算时冻结飞船目标，避免恢复后继续漂移。 */
     public void clearShipInput() {
         ship.snapTarget();
         joyActive = false;
+        joyAnim = 0f;
     }
 
     /** Steps the simulation. dt is clamped so backgrounding cannot explode physics. */
@@ -187,6 +190,11 @@ public class GameWorld {
         updateDifficulty();
         updateSpawning(dt);
         updateBoss(dt);
+
+        // 摇杆出现/消失动画（约 0.12 秒完成，8 倍速率逼近目标值）
+        float joyTarget = joyActive ? 1f : 0f;
+        if (joyAnim < joyTarget) joyAnim = Math.min(joyTarget, joyAnim + dt * 8f);
+        else if (joyAnim > joyTarget) joyAnim = Math.max(joyTarget, joyAnim - dt * 8f);
 
         boolean fired = ship.update(dt, WIDTH, HEIGHT);
         if (fired) fireBullet();
@@ -917,6 +925,8 @@ public class GameWorld {
         shakeMag = 0f;
         bombFlash = 0f;
         x2Timer = 0f;
+        joyActive = false;
+        joyAnim = 0f;
         boss.active = false;
         bossActive = false;
         bossFlash = 0f;

@@ -446,27 +446,61 @@ public class Renderer {
 
     /** 竖屏操作呈现：浮动摇杆（按下才显示）+ 右下角炸弹圆键。 */
     private void drawControls(Canvas c, GameWorld w) {
-        // 浮动摇杆：基座 = 按下锚点，摇杆头朝手指方向偏移（限幅在基座圆内）
-        if (w.joyActive) {
+        // 浮动摇杆：基座 = 按下锚点，摇杆头朝手指方向偏移（限幅在基座圆内）。
+        // joyAnim 驱动"锁定"动画：出现时圆环从 1.5 倍半径收缩到位并渐入，
+        // 松手反向渐出消失；拖动方向上有连线与箭头反馈。
+        if (w.joyAnim > 0.01f) {
+            float a = w.joyAnim;
+            float ease = 1f - (1f - a) * (1f - a);          // easeOutQuad
+            float baseR = 70f * (0.55f + 0.45f * ease);    // 收缩到位
+            float ringR = baseR * (1.5f - 0.5f * ease);    // 扩散环追上基座
+
             float dx = w.joyX - w.joyBaseX, dy = w.joyY - w.joyBaseY;
             float d = (float) Math.sqrt(dx * dx + dy * dy);
             float hx = w.joyBaseX, hy = w.joyBaseY;
             if (d > 1f) {
-                float clamped = Math.min(d, 70f);
+                float clamped = Math.min(d, baseR);
                 hx = w.joyBaseX + dx / d * clamped;
                 hy = w.joyBaseY + dy / d * clamped;
             }
-            glow.setColor(0x337DF9FF);
-            c.drawCircle(w.joyBaseX, w.joyBaseY, 70f, glow);
+
+            // 外圈光晕
+            glow.setColor(((int) (0x33 * a) << 24) | 0x7DF9FF);
+            c.drawCircle(w.joyBaseX, w.joyBaseY, baseR * 1.25f, glow);
+
+            // 基座：内填充 + 主圆环
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(((int) (0x22 * a) << 24) | 0x7DF9FF);
+            c.drawCircle(w.joyBaseX, w.joyBaseY, baseR, paint);
+
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(3f);
-            paint.setColor(0x667DF9FF);
-            c.drawCircle(w.joyBaseX, w.joyBaseY, 70f, paint);
+            paint.setColor(((int) (0x99 * a) << 24) | 0x7DF9FF);
+            c.drawCircle(w.joyBaseX, w.joyBaseY, baseR, paint);
+
+            // 扩散锁定环（按住期间缓慢呼吸，按下瞬间明显收缩）
+            float breathe = 1f + 0.04f * (float) Math.sin(w.timeAlive * 6f);
+            paint.setStrokeWidth(2f);
+            paint.setColor(((int) (0x55 * a) << 24) | 0x7DF9FF);
+            c.drawCircle(w.joyBaseX, w.joyBaseY, ringR * breathe, paint);
+
+            // 方向连线（拖动偏离基座时）
+            if (d > 14f) {
+                paint.setStrokeWidth(4f);
+                paint.setColor(((int) (0x77 * a) << 24) | 0x7DF9FF);
+                c.drawLine(w.joyBaseX, w.joyBaseY, hx, hy, paint);
+            }
+
+            // 摇杆头：实心圆 + 高光内芯
             paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0x887DF9FF);
+            paint.setColor(((int) (0x99 * a) << 24) | 0x7DF9FF);
             c.drawCircle(hx, hy, 26f, paint);
-            paint.setColor(0xCCE8F1FF);
-            c.drawCircle(hx, hy, 12f, paint);
+            paint.setColor(((int) (0xE6 * a) << 24) | 0xE8F1FF);
+            c.drawCircle(hx, hy, 13f, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2f);
+            paint.setColor(((int) (0xCC * a) << 24) | 0xE8F1FF);
+            c.drawCircle(hx, hy, 26f, paint);
         }
 
         // 炸弹圆键 + 数量

@@ -69,6 +69,30 @@ public class PortraitAndPowerupsTest {
         assertEquals(0f, s.rapidTimer, 0.001f);
     }
 
+    @Test
+    public void joyAnimFadesInOnPressAndOutOnRelease() {
+        GameWorld w = new GameWorld(7L, false);
+        w.restart(GameMode.WAVES);
+        w.joyActive = true;
+        for (int i = 0; i < 20; i++) w.update(1f / 60f); // 0.33s 足够渐入完成
+        assertEquals(1f, w.joyAnim, 0.001f);
+
+        w.joyActive = false;
+        for (int i = 0; i < 20; i++) w.update(1f / 60f); // 渐出
+        assertEquals(0f, w.joyAnim, 0.001f);
+    }
+
+    @Test
+    public void joyAnimSnapsToZeroOnPauseOrGameOver() {
+        GameWorld w = new GameWorld(7L, false);
+        w.restart(GameMode.WAVES);
+        w.joyActive = true;
+        w.update(1f / 60f);
+        assertTrue(w.joyAnim > 0f);
+        w.clearShipInput(); // 暂停/死亡路径
+        assertEquals(0f, w.joyAnim, 0.001f);
+    }
+
     // ---- 速射 RAPID ----
 
     @Test
