@@ -157,6 +157,20 @@ RELEASE_KEY_PASSWORD=你的密码
 缺少密码时 `assembleRelease` 会直接失败，避免产出未签名 APK。仅供学习与自娱；
 正式上架请更换为自己的密钥。
 
+## 发版（一条命令）
+```bash
+DRY_RUN=1 scripts/release.sh 1.11.0 --notes /tmp/notes.md   # 只检查+构建+验签，不改动不推送
+scripts/release.sh 1.11.0 --notes /tmp/notes.md             # 正式发版
+scripts/release.sh 1.11.0                                   # 不传 --notes 时按提交记录自动生成正文
+```
+脚本依次完成：环境探测（JDK 17 / Android SDK / build-tools 34.x，macOS 与 Linux 通用）→
+前置检查（工作树、tag 占用、版本号必须递增）→ 升 `versionName`/`versionCode` → `verify.sh` →
+构建并验签 → 核对 APK 内版本号、证书 CN、大小与 SHA-256 → 提交打 tag 推送 `main` →
+创建 Release 并上传 APK → 回验 `releases/latest` 指向并重新下载产物比对校验和。
+Release 正文里的 `{{SHA256}}` 会被自动替换成真实校验和；任一步失败会自动还原
+`app/build.gradle` 并删除本地 tag。`SKIP_VERIFY=1` 可跳过单测（仅在确认测试未受影响时使用）。
+本机已 `gh auth login` 时不需要 token，否则用第 2 个参数或 `GITHUB_TOKEN`。
+
 ## 验证（无需 Android SDK）
 ```bash
 scripts/verify.sh                # 基于官方 android.jar 的类型检查 + JUnit 测试 + 基准

@@ -136,10 +136,17 @@ fi
 # ---- 2. 前置检查 ----
 log "前置检查"
 [ -z "$DRY_RUN" ] || log "  (试运行：只检查+构建+校验，不改文件不推送)"
-git diff --quiet && git diff --cached --quiet || die "工作树有未提交改动，请先提交或暂存"
+if ! git diff --quiet || ! git diff --cached --quiet; then
+    [ -n "$DRY_RUN" ] || die "工作树有未提交改动，请先提交或暂存"
+    log "  (试运行：工作树有未提交改动，正式发版前必须先提交)"
+fi
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then die "tag $TAG 已存在"; fi
 if git rev-parse -q --verify origin/main >/dev/null; then
-    [ -z "$(git log origin/main..HEAD --format=%H)" ] || die "存在未推送提交，请先 git push"
+    UNPUSHED="$(git log origin/main..HEAD --format=%h | tr '\n' ' ')"
+    if [ -n "$UNPUSHED" ]; then
+        [ -n "$DRY_RUN" ] || die "存在未推送到 origin/main 的提交（$UNPUSHED），请先 git push"
+        log "  (试运行：有未推送提交 $UNPUSHED，正式发版会带上)"
+    fi
 else
     log "  (本地无 origin/main 引用，跳过远程同步检查)"
 fi
@@ -190,8 +197,14 @@ log "构建签名 release APK"
     || die "APK 签名校验失败"
 CERT_CN="$(grep -m1 'certificate DN' "$TMP/sig.log" | sed 's/.*CN=\([^,]*\).*/\1/')"
 PKG_LINE="$("$BT/aapt2" dump badging "$GRADLE_APK" 2>/dev/null | grep '^package')"
-echo "$PKG_LINE" | grep -q "versionCode='$NEW_CODE'" && echo "$PKG_LINE" | grep -q "versionName='$VER'" \
-    || die "APK 里的版本号与预期不符：$PKG_LINE"
+if [ -n "$DRY_RUN" ]; then
+    # 试运行不改 build.gradle，产物必然还是旧版本号，只打印不断言
+    log "  (试运行：跳过 APK 版本号核对，实际发版要求 versionCode=$NEW_CODE versionName=$VER)"
+else
+    echo "$PKG_LINE" | grep -q "versionCode='$NEW_CODE'" \
+        && echo "$PKG_LINE" | grep -q "versionName='$VER'" \
+        || die "APK 里的版本号与预期不符：$PKG_LINE"
+fi
 SHA="$(sha256_of "$GRADLE_APK")"
 SIZE="$(ls -lh "$GRADLE_APK" | awk '{print $5}')"
 log "  签名有效（CN=$CERT_CN）· 大小 $SIZE · SHA-256 ${SHA:0:16}…"
@@ -281,7 +294,10 @@ print(json.dumps({"tag_name": tag, "name": "NebulaStrike " + tag,
     [ "$(sha256_of "$DOWN")" = "$SHA" ] || die "下载产物校验和不一致"
     log "  latest=$LATEST · 下载校验和一致"
 else
-    log "  (试运行：跳过提交 Release/上传/回验)"
+    log "  (试运行：跳过创建 Release/上传/回验)"
+    log "  正文预览（{{SHA256}} 已替换）："
+    sed -e 's/^/      /' "$TMP/body.md" | head -4
+    [ "$(grep -c "$SHA" "$TMP/body.md")" -ge 1 ] || die "正文里没有校验和，占位符替换失败"
     log "  试运行通过，去掉 DRY_RUN 重新执行即可正式发版"
 fi
 
