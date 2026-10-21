@@ -18,19 +18,27 @@ public final class Ui {
     }
 
     // menu
-    public static final Rect START = new Rect(GameWorld.WIDTH / 2f - 220f, 400f, 440f, 76f);
-    public static final Rect START_ENDLESS = new Rect(GameWorld.WIDTH / 2f - 220f, 492f, 440f, 76f);
-    public static final Rect SETTINGS = new Rect(GameWorld.WIDTH / 2f - 220f, 584f, 210f, 64f);
-    public static final Rect CHEATS = new Rect(GameWorld.WIDTH / 2f + 10f, 584f, 210f, 64f);
-    public static final Rect CHECK_UPDATE = new Rect(GameWorld.WIDTH / 2f - 220f, 715f, 440f, 56f);
+    public static final Rect START = new Rect(GameWorld.WIDTH / 2f - 220f, 372f, 440f, 76f);
+    public static final Rect START_ENDLESS = new Rect(GameWorld.WIDTH / 2f - 220f, 462f, 440f, 76f);
+    public static final Rect SETTINGS = new Rect(GameWorld.WIDTH / 2f - 220f, 552f, 210f, 64f);
+    public static final Rect CHEATS = new Rect(GameWorld.WIDTH / 2f + 10f, 552f, 210f, 64f);
+    public static final Rect CODEX = new Rect(GameWorld.WIDTH / 2f - 220f, 632f, 440f, 64f);
+    public static final Rect CHECK_UPDATE = new Rect(GameWorld.WIDTH / 2f - 220f, 712f, 440f, 56f);
 
     // playing: floating joystick is position-free (handled by GameView);
-    // the bomb button is mirrored for left-handed play
+    // the bomb / dash buttons are mirrored for left-handed play
     public static final Rect BOMB_RIGHT = new Rect(640f, 1270f, 180f, 180f);
     public static final Rect BOMB_LEFT = new Rect(80f, 1270f, 180f, 180f);
+    /** 冲刺键：贴在炸弹键外侧（左手模式镜像到另一侧）。 */
+    public static final Rect DASH_RIGHT = new Rect(640f, 1462f, 118f, 118f);
+    public static final Rect DASH_LEFT = new Rect(142f, 1462f, 118f, 118f);
 
     public static Rect bomb(boolean leftHanded) {
         return leftHanded ? BOMB_LEFT : BOMB_RIGHT;
+    }
+
+    public static Rect dash(boolean leftHanded) {
+        return leftHanded ? DASH_LEFT : DASH_RIGHT;
     }
 
     // settings toggles (drawn on the settings panel in both menu and pause)
@@ -53,6 +61,20 @@ public final class Ui {
     public static final Rect CHEAT_RESET = new Rect(110f, 966f, 330f, 76f);
     public static final Rect CHEATS_BACK = new Rect(460f, 966f, 330f, 76f);
 
+    // 图鉴面板：左右两栏（敌机 / Boss），底部翻页与返回
+    public static final Rect CODEX_TAB_ENEMIES = new Rect(110f, 300f, 330f, 64f);
+    public static final Rect CODEX_TAB_BOSSES = new Rect(460f, 300f, 330f, 64f);
+    public static final Rect CODEX_BACK = new Rect(GameWorld.WIDTH / 2f - 140f, 1420f, 280f, 64f);
+    /** 图鉴行高与首行 Y（渲染与命中共用）。 */
+    public static final float CODEX_ROW_Y = 392f;
+    public static final float CODEX_ROW_H = 118f;
+    public static final int CODEX_MAX_ROWS = 8;
+
+    /** 图鉴某一行（0 起）的命中矩形。 */
+    public static Rect codexRow(int index) {
+        return new Rect(110f, CODEX_ROW_Y + index * CODEX_ROW_H, 680f, CODEX_ROW_H - 10f);
+    }
+
     // pause overlay
     public static final Rect RESUME = new Rect(GameWorld.WIDTH / 2f - 220f, 330f, 440f, 88f);
     public static final Rect RESTART = new Rect(GameWorld.WIDTH / 2f - 220f, 436f, 440f, 72f);
@@ -67,14 +89,27 @@ public final class Ui {
         CHECK_UPDATE,
         OPEN_CHEATS, CHEATS_BACK, TOGGLE_GOD, CHEAT_RESET,
         CHEAT_LIVES_DOWN, CHEAT_LIVES_UP, CHEAT_DROP_DOWN, CHEAT_DROP_UP,
-        CHEAT_SPEED_DOWN, CHEAT_SPEED_UP, CHEAT_POWER_DOWN, CHEAT_POWER_UP
+        CHEAT_SPEED_DOWN, CHEAT_SPEED_UP, CHEAT_POWER_DOWN, CHEAT_POWER_UP,
+        OPEN_CODEX, CODEX_BACK, CODEX_TAB
     }
 
     /** Maps a tap in virtual space to an action for the given state; null if none. */
     public static Action hit(GameWorld.State state, boolean settingsOpen, boolean cheatOpen,
                              float x, float y) {
+        return hit(state, settingsOpen, cheatOpen, false, x, y);
+    }
+
+    public static Action hit(GameWorld.State state, boolean settingsOpen, boolean cheatOpen,
+                             boolean codexOpen, float x, float y) {
         switch (state) {
             case MENU:
+                if (codexOpen) {
+                    if (CODEX_BACK.contains(x, y)) return Action.CODEX_BACK;
+                    if (CODEX_TAB_ENEMIES.contains(x, y) || CODEX_TAB_BOSSES.contains(x, y)) {
+                        return Action.CODEX_TAB;
+                    }
+                    return null;
+                }
                 if (cheatOpen) {
                     if (CHEAT_LIVES_MINUS.contains(x, y)) return Action.CHEAT_LIVES_DOWN;
                     if (CHEAT_LIVES_PLUS.contains(x, y)) return Action.CHEAT_LIVES_UP;
@@ -102,6 +137,7 @@ public final class Ui {
                 if (START_ENDLESS.contains(x, y)) return Action.START_ENDLESS;
                 if (SETTINGS.contains(x, y)) return Action.OPEN_SETTINGS;
                 if (CHEATS.contains(x, y)) return Action.OPEN_CHEATS;
+                if (CODEX.contains(x, y)) return Action.OPEN_CODEX;
                 if (CHECK_UPDATE.contains(x, y)) return Action.CHECK_UPDATE;
                 return null;
             case PAUSED:

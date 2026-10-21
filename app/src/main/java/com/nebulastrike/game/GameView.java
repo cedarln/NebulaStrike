@@ -29,6 +29,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
     private Thread thread;
     private volatile boolean running;
     private long lastBombAt;
+    private long lastDashAt;
     private int lastShotsSeen;
     private int lastWingmanSeen;
     /** 浮动摇杆：拖动中手指的 pointerId（-1 = 未拖动） */
@@ -84,7 +85,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
         }
     }
 
-    /** 按下沿：UI 点击 / 炸弹键 / 开始浮动摇杆拖动。 */
+    /** 按下沿：UI 点击 / 炸弹键 / 冲刺键 / 开始浮动摇杆拖动。 */
     private void handlePress(MotionEvent event, int idx) {
         float[] v = renderer.toVirtual(event.getX(idx), event.getY(idx));
 
@@ -99,7 +100,20 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
             return;
         }
 
-        Ui.Action a = Ui.hit(world.state, world.settingsOpen, world.cheatOpen, v[0], v[1]);
+        // 相位冲刺键：能量满时立即位移（同样带去抖，避免误触连续消耗）
+        if (world.state == GameWorld.State.PLAYING
+                && Ui.dash(world.settings.leftHanded).contains(v[0], v[1])) {
+            long now = System.nanoTime();
+            if (now - lastDashAt > 180_000_000L) {
+                lastDashAt = now;
+                // 成功时由 DASH 事件驱动音效；能量不足才在这里给一个"空挡"反馈
+                if (!world.tryDash()) audio.dashBlocked();
+            }
+            return;
+        }
+
+        Ui.Action a = Ui.hit(world.state, world.settingsOpen, world.cheatOpen,
+                world.codexOpen, v[0], v[1]);
         if (a != null) {
             world.handleUiAction(a);
             if (a == Ui.Action.CHECK_UPDATE) dispatchUpdateWork();
@@ -182,7 +196,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                 world.handleUiAction(Ui.Action.QUIT_TO_MENU);
                 return true;
             default:
-                if (world.settingsOpen || world.cheatOpen) {
+                if (world.settingsOpen || world.cheatOpen || world.codexOpen) {
                     world.closePanels();
                     return true;
                 }
@@ -233,6 +247,11 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case BOSS_DEFEATED: haptics.bomb(); break;
                     case BOSS_PART_DESTROYED: haptics.tick(); break;
                     case BOSS_DISARMED: haptics.impact(); break;
+                    case BOSS_RAM: haptics.impact(); break;
+                    case CHAIN: haptics.impact(); break;
+                    case FUSION: haptics.tick(); break;
+                    case RUSH: haptics.tick(); break;
+                    case DASH: haptics.tick(); break;
                 }
             }
             if (world.shotsFired != lastShotsSeen) {

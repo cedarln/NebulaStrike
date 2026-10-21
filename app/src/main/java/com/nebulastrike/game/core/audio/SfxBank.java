@@ -37,6 +37,13 @@ public final class SfxBank {
         put(SfxId.UI, ui(), 0.48f);
         put(SfxId.WAVE, wave(), 0.66f);
         put(SfxId.ESCAPE, escape(), 0.55f);
+        put(SfxId.DASH, dash(), 0.80f);
+        put(SfxId.CHAIN_ZAP, chainZap(), 0.90f);
+        put(SfxId.FUSION, fusion(), 0.86f);
+        put(SfxId.BOSS_RAM, bossRam(), 0.96f);
+        put(SfxId.HEAL, heal(), 0.62f);
+        put(SfxId.ORBIT, orbit(), 0.58f);
+        put(SfxId.BONUS, bonus(), 0.90f);
     }
 
     public static SfxBank create() {
@@ -491,6 +498,165 @@ public final class SfxBank {
             double s = lp * 0.8 + sine(ph) * 0.3;
             x[i] = (float) (s * env(t, 0.32, 0.002, 1.5));
         }
+        return x;
+    }
+
+    /** 相位冲刺：空气被撕开的上扫噪声 + 落位时的低频"啵"。 */
+    private static float[] dash() {
+        int n = frames(0.30);
+        float[] x = new float[n];
+        Random r = new Random(201);
+        double lp = 0, ph = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double p = t / 0.30;
+            double coef = 0.05 + 0.30 * Math.exp(-t * 12);
+            lp += coef * (noise(r) - lp);
+            double open = 0.25 + 0.75 * p;            // 滤波逐渐打开
+            double swish = lp * open * Math.exp(-t * 6.5) * 1.3;
+            double f = 1200 + 2400 * p;
+            ph += f / SAMPLE_RATE;
+            double whistle = sine(ph) * Math.exp(-t * 9) * 0.28;
+            double thud = 0;
+            if (t > 0.18) {
+                double tt = t - 0.18;
+                double bf = 90 + 40 * Math.exp(-tt * 18);
+                ph += bf / SAMPLE_RATE;
+                thud = sine(ph) * Math.exp(-tt * 14) * 0.7;
+            }
+            x[i] = (float) ((swish + whistle + thud) * env(t, 0.30, 0.002, 1.1));
+        }
+        echo(x, 0.05, 0.20);
+        return x;
+    }
+
+    /** 连锁闪电：多次高压击穿，每次带一点音高下降的金属嗡鸣。 */
+    private static float[] chainZap() {
+        int n = frames(0.50);
+        float[] x = new float[n];
+        Random r = new Random(203);
+        double[] hits = {0.0, 0.09, 0.17, 0.26};
+        double[] base = {2400, 2100, 1850, 1600};
+        for (int k = 0; k < hits.length; k++) {
+            int start = frames(hits[k]);
+            int len = frames(0.16);
+            double ph = 0, lp = 0;
+            for (int i = 0; i < len && start + i < n; i++) {
+                double t = i / (double) SAMPLE_RATE;
+                lp += 0.35 * (noise(r) - lp);
+                double f = base[k] * (1.0 - 0.35 * t / 0.16);
+                ph += f / SAMPLE_RATE;
+                double crack = lp * Math.exp(-t * 26) * 1.1;
+                double ring = (0.5 * sine(ph) + 0.5 * square(ph, 0.3))
+                        * Math.exp(-t * 20) * 0.45;
+                x[start + i] += (float) ((crack + ring) * (1.0 - k * 0.16));
+            }
+        }
+        echo(x, 0.045, 0.32);
+        return x;
+    }
+
+    /** 武器融合：四度上行琶音 + 泛音共鸣，"解锁"的仪式感。 */
+    private static float[] fusion() {
+        double[] notes = {523.25, 698.46, 880.00, 1174.66, 1567.98};
+        float[] x = new float[frames(0.80)];
+        for (int k = 0; k < notes.length; k++) {
+            int start = frames(k * 0.075);
+            int len = frames(0.34);
+            double ph = 0, ph2 = 0, ph3 = 0;
+            for (int i = 0; i < len && start + i < x.length; i++) {
+                double t = i / (double) SAMPLE_RATE;
+                ph += notes[k] / SAMPLE_RATE;
+                ph2 += notes[k] * 1.5 / SAMPLE_RATE;
+                ph3 += notes[k] * 2.0 / SAMPLE_RATE;
+                double s = 0.40 * sine(ph) + 0.28 * tri(ph2)
+                        + 0.20 * sine(ph3) + 0.12 * saw(ph * 0.5);
+                x[start + i] += (float) (s * env(t, 0.34, 0.004, 1.3) * 0.62);
+            }
+        }
+        echo(x, 0.13, 0.30);
+        return x;
+    }
+
+    /** Boss 横冲：低频引擎轰鸣加速，末尾一记沉重撞击。 */
+    private static float[] bossRam() {
+        float[] x = new float[frames(0.85)];
+        Random r = new Random(207);
+        double ph = 0, lp = 0;
+        int rumble = frames(0.52);
+        for (int i = 0; i < rumble; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double p = t / 0.52;
+            lp += (0.02 + 0.10 * p) * (noise(r) - lp);
+            double f = 55 + 120 * p;
+            ph += f / SAMPLE_RATE;
+            double growl = (0.6 * saw(ph) + 0.4 * sine(ph * 2.01)) * (0.35 + 0.65 * p);
+            x[i] += (float) ((growl + lp * 0.5 * p) * 0.85);
+        }
+        float[] slam = explosion(0.40, 140, 208, true);
+        mix(x, slam, rumble, 0.62f);
+        echo(x, 0.11, 0.26);
+        return x;
+    }
+
+    /** 医疗脉冲：柔和的双音铃，带轻微颤动，提示"敌人在回血"。 */
+    private static float[] heal() {
+        double[] notes = {880.0, 1174.66};
+        float[] x = new float[frames(0.42)];
+        for (int k = 0; k < notes.length; k++) {
+            int start = frames(k * 0.09);
+            int len = frames(0.26);
+            double ph = 0, vib = 0;
+            for (int i = 0; i < len && start + i < x.length; i++) {
+                double t = i / (double) SAMPLE_RATE;
+                vib += 6.0 / SAMPLE_RATE;
+                ph += notes[k] * (1.0 + 0.006 * sine(vib)) / SAMPLE_RATE;
+                double s = 0.65 * sine(ph) + 0.25 * sine(ph * 2.0)
+                        + 0.10 * tri(ph * 3.0);
+                x[start + i] += (float) (s * env(t, 0.26, 0.006, 1.1) * 0.6);
+            }
+        }
+        echo(x, 0.09, 0.24);
+        return x;
+    }
+
+    /** 轨道球命中：短促的水晶般"叮"，用于连番清扫敌弹。 */
+    private static float[] orbit() {
+        int n = frames(0.13);
+        float[] x = new float[n];
+        double ph = 0, ph2 = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double f = 1760 + 900 * Math.exp(-t * 22);
+            ph += f / SAMPLE_RATE;
+            ph2 += f * 1.5 / SAMPLE_RATE;
+            double s = 0.55 * sine(ph) + 0.30 * sine(ph2) + 0.15 * tri(ph * 2.0);
+            x[i] = (float) (s * env(t, 0.13, 0.0012, 1.9));
+        }
+        return x;
+    }
+
+    /** 突袭奖励：上扬琶音 + 闪烁高频，金币雨的感觉。 */
+    private static float[] bonus() {
+        double[] notes = {659.25, 783.99, 987.77, 1318.51, 1567.98, 1975.53};
+        float[] x = new float[frames(0.90)];
+        Random r = new Random(211);
+        for (int k = 0; k < notes.length; k++) {
+            int start = frames(k * 0.06);
+            int len = frames(0.30);
+            double ph = 0, ph2 = 0;
+            for (int i = 0; i < len && start + i < x.length; i++) {
+                double t = i / (double) SAMPLE_RATE;
+                ph += notes[k] / SAMPLE_RATE;
+                ph2 += notes[k] * 2.0 / SAMPLE_RATE;
+                double s = 0.5 * sine(ph) + 0.3 * tri(ph) + 0.2 * sine(ph2);
+                x[start + i] += (float) (s * env(t, 0.30, 0.003, 1.4) * 0.6);
+            }
+        }
+        for (int i = frames(0.45); i < x.length; i++) {
+            if (r.nextDouble() < 0.02) x[i] += (float) (noise(r) * 0.18);
+        }
+        echo(x, 0.10, 0.28);
         return x;
     }
 

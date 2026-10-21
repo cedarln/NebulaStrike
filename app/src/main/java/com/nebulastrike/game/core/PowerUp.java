@@ -5,7 +5,12 @@ package com.nebulastrike.game.core;
  * attracted 标志供渲染层区分"磁吸中"状态（光环加速闪烁 = 可收集反馈）。
  */
 public class PowerUp {
-    public enum Kind { SPREAD, MISSILE, LASER, POWER, SHIELD, BOMB, RAPID, X2, LIFE, WINGMAN, TIME }
+    /**
+     * ORBIT/CHAIN/BONUS 为 v1.9 新增：轨道球、连锁闪电、突袭奖励。
+     * 新类型一律追加在末尾，避免改变既有 ordinal（掉落表、音效、存档都按 ordinal 映射）。
+     */
+    public enum Kind { SPREAD, MISSILE, LASER, POWER, SHIELD, BOMB, RAPID, X2, LIFE, WINGMAN, TIME,
+        ORBIT, CHAIN, BONUS }
 
     public Kind kind;
     public float x, y;

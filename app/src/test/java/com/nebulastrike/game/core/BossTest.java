@@ -51,7 +51,19 @@ public class BossTest {
             if (dreadnought.parts[i].kind == BossPart.Kind.LASER) dreadLaser = true;
         }
         assertTrue("laser pods appear from the second boss", dreadLaser);
-        assertEquals("tier 3 mounts guns and laser pods", 8, worldEater.partCount);
+        assertEquals("tier 3 carries guns, lasers, shield generators and minion pods",
+                11, worldEater.partCount);
+        int[] byKind = new int[BossPart.Kind.values().length];
+        for (int i = 0; i < worldEater.partCount; i++) {
+            byKind[worldEater.parts[i].kind.ordinal()]++;
+        }
+        assertEquals(5, byKind[BossPart.Kind.GUN.ordinal()]);
+        assertEquals(2, byKind[BossPart.Kind.LASER.ordinal()]);
+        assertEquals(2, byKind[BossPart.Kind.SHIELD.ordinal()]);
+        assertEquals(2, byKind[BossPart.Kind.POD.ordinal()]);
+        assertTrue("护盾发生器存活时舰体带甲", worldEater.shielded());
+        assertEquals("两层护盾把核心伤害削到 50%", 0.5f, worldEater.damageScale(), 0.001f);
+        assertEquals("tier 0 没有护盾，伤害不衰减", 1.0f, scout.damageScale(), 0.001f);
     }
 
     @Test

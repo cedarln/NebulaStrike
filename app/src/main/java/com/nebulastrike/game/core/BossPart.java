@@ -5,7 +5,11 @@ package com.nebulastrike.game.core;
  * inherit its movement, and keep firing until their own HP is depleted.
  */
 public class BossPart {
-    public enum Kind { GUN, LASER }
+    /**
+     * GUN 瞄准炮塔 / LASER 激光吊舱 / SHIELD 护盾发生器（存活时削弱核心伤害）/
+     * POD 分裂舱（周期性投放僚机）。
+     */
+    public enum Kind { GUN, LASER, SHIELD, POD }
 
     public Kind kind;
     /** offset from the boss center, virtual units */

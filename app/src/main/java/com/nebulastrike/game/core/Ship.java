@@ -50,12 +50,48 @@ public class Ship {
     /** 僚机道具剩余时间（>0 时两翼无人机自动开火） */
     public float wingmanTimer;
     public static final float WINGMAN_DURATION = 14f;
+    /** 轨道炮球道具剩余时间（>0 时环绕飞船的能量球清扫敌弹并撞击敌机） */
+    public float orbitTimer;
+    public static final float ORBIT_DURATION = 10f;
+    public static final int ORBIT_SPHERES = 3;
+    public static final float ORBIT_RADIUS = 108f;
+    /** 环绕角速度（弧度/秒） */
+    public static final float ORBIT_SPEED = 4.2f;
+    /** 轨道球当前相位，用于渲染与碰撞。 */
+    public float orbitAngle;
     /** 擦弹充满后的过载时间（更快射速 + 火力临时 +1） */
     public float overdriveTimer;
     public static final float OVERDRIVE_DURATION = 5f;
     public static final float OVERDRIVE_FIRE_MULT = 0.55f;
     /** 限时道具重复拾取时最多延长到基础时长的 2 倍。 */
     public static final float MAX_TIMER_MULT = 2f;
+
+    // ---- 相位冲刺（dash）----
+    /** 冲刺能量槽上限（浮点，连续充能；HUD 按格显示）。 */
+    public static final float DASH_MAX_CHARGE = 2f;
+    /** 每次冲刺消耗的能量。 */
+    public static final float DASH_COST = 1f;
+    /** 充满一格所需秒数。 */
+    public static final float DASH_RECHARGE_SECONDS = 2.4f;
+    /** 相位位移持续时间与速度（远高于拖动上限）。 */
+    public static final float DASH_DURATION = 0.16f;
+    public static final float DASH_SPEED = 3400f;
+    /** 冲刺结束后仍保留的短暂无敌余韵，避免"停下来就被打"。 */
+    public static final float DASH_GRACE = 0.12f;
+    /** 冲刺期间在路径上留下的残影（渲染用）。 */
+    public final float[] dashTrailX = new float[6];
+    public final float[] dashTrailY = new float[6];
+    public int dashTrailCount;
+
+    public float dashCharge = DASH_MAX_CHARGE;
+    /** >0 = 正在相位位移。 */
+    public float dashTimer;
+    /** 冲刺方向（单位向量）。 */
+    public float dashDirX, dashDirY = -1f;
+    private float dashGrace;
+    private float lastMoveX, lastMoveY;
+    /** 冲刺完成次数（统计数据）。 */
+    public int dashesUsed;
 
     public void reset(float x, float y) {
         this.x = x;
@@ -80,6 +116,62 @@ public class Ship {
         rapidTimer = 0f;
         wingmanTimer = 0f;
         overdriveTimer = 0f;
+        orbitTimer = 0f;
+        orbitAngle = 0f;
+        dashCharge = DASH_MAX_CHARGE;
+        dashTimer = 0f;
+        dashGrace = 0f;
+        dashDirX = 0f;
+        dashDirY = -1f;
+        dashTrailCount = 0;
+        lastMoveX = 0f;
+        lastMoveY = -1f;
+        dashesUsed = 0;
+    }
+
+    // ---- 相位冲刺 ----
+
+    /**
+     * 朝当前拖动方向（无方向时向上）瞬间相位位移。
+     * @return true 表示能量足够并成功触发
+     */
+    public boolean tryDash() {
+        if (dashCharge < DASH_COST || dashTimer > 0f) return false;
+        float dx = targetX - x, dy = targetY - y;
+        float d = (float) Math.sqrt(dx * dx + dy * dy);
+        if (d < 12f) {
+            dx = lastMoveX;
+            dy = lastMoveY;
+            d = (float) Math.sqrt(dx * dx + dy * dy);
+        }
+        if (d < 1e-4f) { dx = 0f; dy = -1f; d = 1f; }
+        dashDirX = dx / d;
+        dashDirY = dy / d;
+        dashCharge -= DASH_COST;
+        dashTimer = DASH_DURATION;
+        dashGrace = DASH_DURATION + DASH_GRACE;
+        dashTrailCount = 0;
+        dashesUsed++;
+        return true;
+    }
+
+    /** 撞击/子弹判定用：无敌帧或相位位移中都不会受伤。 */
+    public boolean isSafe() {
+        return invulnerable || dashTimer > 0f || dashGrace > 0f;
+    }
+
+    /** 冲刺能量是否足够（HUD 提示与输入层判断用）。 */
+    public boolean canDash() {
+        return dashCharge >= DASH_COST && dashTimer <= 0f;
+    }
+
+    /** 环绕轨道球当前位置；未激活时返回 false。 */
+    public boolean orbitSphere(int i, float[] out) {
+        if (orbitTimer <= 0f) return false;
+        float ang = orbitAngle + i * (float) (Math.PI * 2 / ORBIT_SPHERES);
+        out[0] = x + (float) Math.cos(ang) * ORBIT_RADIUS;
+        out[1] = y + (float) Math.sin(ang) * ORBIT_RADIUS;
+        return true;
     }
 
     /** 拾取特殊武器：不替换已有武器，同类则叠层并刷新持续时间。 */
@@ -167,21 +259,58 @@ public class Ship {
         }
         prevX = x;
         prevY = y;
-        float dx = targetX - x, dy = targetY - y;
-        float dist = (float) Math.sqrt(dx * dx + dy * dy);
-        if (dist < 1.5f) {
-            x = targetX;
-            y = targetY;
+        if (dashTimer > 0f) {
+            // 相位位移：直线高速穿过，落点即新目标，不会被拉回拖动前的位置
+            dashTimer -= dt;
+            x += dashDirX * DASH_SPEED * dt;
+            y += dashDirY * DASH_SPEED * dt;
+            if (dashTrailCount < dashTrailX.length) {
+                dashTrailX[dashTrailCount] = x;
+                dashTrailY[dashTrailCount] = y;
+                dashTrailCount++;
+            }
+            if (dashTimer <= 0f) {
+                dashTimer = 0f;
+                targetX = x;
+                targetY = y;
+            }
         } else {
-            // 指数逼近给出"贴手"的小位移跟随，速度上限保证快速甩动不瞬移
-            float k = 1f - (float) Math.exp(-24f * dt);
-            float step = Math.min(MAX_DRAG_SPEED * dt, dist * k);
-            x += dx / dist * step;
-            y += dy / dist * step;
+            if (dashGrace > 0f) {
+                dashGrace = Math.max(0f, dashGrace - dt);
+                if (dashGrace <= 0f) dashTrailCount = 0;
+            }
+            if (dashCharge < DASH_MAX_CHARGE) {
+                dashCharge = Math.min(DASH_MAX_CHARGE, dashCharge + dt / DASH_RECHARGE_SECONDS);
+            }
+            float dx = targetX - x, dy = targetY - y;
+            float dist = (float) Math.sqrt(dx * dx + dy * dy);
+            if (dist < 1.5f) {
+                x = targetX;
+                y = targetY;
+            } else {
+                // 指数逼近给出"贴手"的小位移跟随，速度上限保证快速甩动不瞬移
+                float k = 1f - (float) Math.exp(-24f * dt);
+                float step = Math.min(MAX_DRAG_SPEED * dt, dist * k);
+                x += dx / dist * step;
+                y += dy / dist * step;
+                lastMoveX = dx;
+                lastMoveY = dy;
+            }
         }
         float margin = RADIUS;
-        x = clamp(x, margin, worldW - margin);
-        y = clamp(y, margin, worldH - margin);
+        float clampedX = clamp(x, margin, worldW - margin);
+        float clampedY = clamp(y, margin, worldH - margin);
+        if (clampedX != x || clampedY != y) {
+            // 冲刺撞墙：立即停在该边界并把目标对齐，避免方向向量继续指向屏外
+            if (dashTimer > 0f) {
+                dashTimer = 0f;
+                dashGrace = Math.max(dashGrace, 0.05f);
+            }
+            x = clampedX;
+            y = clampedY;
+            targetX = clamp(targetX, margin, worldW - margin);
+            targetY = clamp(targetY, margin, worldH - margin);
+        }
         if (invulnerable) {
             invulnTimer -= dt;
             if (invulnTimer <= 0f) invulnerable = false;
@@ -229,6 +358,12 @@ public class Ship {
         if (wingmanTimer > 0f) {
             wingmanTimer -= dt;
             if (wingmanTimer < 0f) wingmanTimer = 0f;
+        }
+        if (orbitTimer > 0f) {
+            orbitTimer -= dt;
+            orbitAngle += ORBIT_SPEED * dt;
+            if (orbitAngle > Math.PI * 2f) orbitAngle -= (float) (Math.PI * 2);
+            if (orbitTimer < 0f) orbitTimer = 0f;
         }
         if (overdriveTimer > 0f) {
             overdriveTimer -= dt;

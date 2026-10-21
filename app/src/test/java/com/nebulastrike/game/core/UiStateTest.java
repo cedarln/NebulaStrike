@@ -203,4 +203,97 @@ public class UiStateTest {
         for (int i = 0; i < 10; i++) drained.addAll(world.pollEvents());
         assertNotNull(drained);
     }
+
+    // ---- v1.9 图鉴面板与控件布局 ----
+
+    private static boolean overlap(Ui.Rect a, Ui.Rect b) {
+        return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    }
+
+    @Test
+    public void codexPanelHitMappingAndState() {
+        assertEquals(Ui.Action.OPEN_CODEX, Ui.hit(GameWorld.State.MENU, false, false,
+                Ui.CODEX.cx(), Ui.CODEX.cy()));
+        assertEquals(Ui.Action.CODEX_BACK, Ui.hit(GameWorld.State.MENU, false, false, true,
+                Ui.CODEX_BACK.cx(), Ui.CODEX_BACK.cy()));
+        assertEquals(Ui.Action.CODEX_TAB, Ui.hit(GameWorld.State.MENU, false, false, true,
+                Ui.CODEX_TAB_BOSSES.cx(), Ui.CODEX_TAB_BOSSES.cy()));
+        assertNull("图鉴打开时菜单按钮不可误触", Ui.hit(GameWorld.State.MENU, false, false, true,
+                Ui.START.cx(), Ui.START.cy()));
+        assertNull("图鉴空白处无动作", Ui.hit(GameWorld.State.MENU, false, false, true,
+                GameWorld.WIDTH / 2f, 700f));
+
+        world.handleUiAction(Ui.Action.OPEN_CODEX);
+        assertTrue(world.codexOpen);
+        assertEquals(0, world.codexTab);
+        world.handleUiAction(Ui.Action.CODEX_TAB);
+        assertEquals(1, world.codexTab);
+        world.handleUiAction(Ui.Action.CODEX_TAB);
+        assertEquals(0, world.codexTab);
+        world.handleUiAction(Ui.Action.CODEX_BACK);
+        assertFalse(world.codexOpen);
+    }
+
+    @Test
+    public void codexPanelsAreMutuallyExclusive() {
+        world.handleUiAction(Ui.Action.OPEN_CODEX);
+        assertTrue(world.codexOpen);
+        assertFalse("设置面板应让位", world.settingsOpen);
+
+        world.handleUiAction(Ui.Action.OPEN_SETTINGS);
+        assertTrue(world.settingsOpen);
+        assertFalse("设置打开时图鉴让位", world.codexOpen);
+
+        world.handleUiAction(Ui.Action.OPEN_CHEATS);
+        assertTrue(world.cheatOpen);
+        assertFalse(world.settingsOpen);
+
+        world.handleUiAction(Ui.Action.OPEN_CODEX);
+        assertTrue(world.codexOpen);
+        assertFalse(world.cheatOpen);
+        world.handleUiAction(Ui.Action.CODEX_BACK);
+        assertFalse(world.codexOpen);
+        world.handleUiAction(Ui.Action.OPEN_CODEX);
+        world.closePanels();
+        assertFalse(world.settingsOpen || world.cheatOpen || world.codexOpen);
+    }
+
+    @Test
+    public void menuAndCodexRectsDoNotOverlap() {
+        Ui.Rect[] menu = {Ui.START, Ui.START_ENDLESS, Ui.SETTINGS, Ui.CHEATS, Ui.CODEX,
+                Ui.CHECK_UPDATE};
+        for (int i = 0; i < menu.length; i++) {
+            for (int j = i + 1; j < menu.length; j++) {
+                assertFalse("菜单按钮重叠", overlap(menu[i], menu[j]));
+            }
+        }
+        Ui.Rect[] codex = new Ui.Rect[Ui.CODEX_MAX_ROWS + 3];
+        codex[0] = Ui.CODEX_TAB_ENEMIES;
+        codex[1] = Ui.CODEX_TAB_BOSSES;
+        codex[2] = Ui.CODEX_BACK;
+        for (int i = 0; i < Ui.CODEX_MAX_ROWS; i++) codex[3 + i] = Ui.codexRow(i);
+        for (int i = 0; i < codex.length; i++) {
+            for (int j = i + 1; j < codex.length; j++) {
+                assertFalse("图鉴行/按钮重叠", overlap(codex[i], codex[j]));
+            }
+            assertTrue("图鉴控件留在画面内",
+                    codex[i].x >= 0 && codex[i].y >= 0
+                            && codex[i].x + codex[i].w <= GameWorld.WIDTH
+                            && codex[i].y + codex[i].h <= GameWorld.HEIGHT);
+        }
+    }
+
+    @Test
+    public void controlButtonsMirrorWithoutOverlap() {
+        assertSame(Ui.BOMB_RIGHT, Ui.bomb(false));
+        assertSame(Ui.BOMB_LEFT, Ui.bomb(true));
+        assertSame(Ui.DASH_LEFT, Ui.dash(true));
+        assertFalse("右手模式冲刺键不压炸弹键", overlap(Ui.bomb(false), Ui.dash(false)));
+        assertFalse("左手模式冲刺键不压炸弹键", overlap(Ui.bomb(true), Ui.dash(true)));
+        Ui.Rect[] controls = {Ui.BOMB_RIGHT, Ui.BOMB_LEFT, Ui.DASH_RIGHT, Ui.DASH_LEFT};
+        for (Ui.Rect r : controls) {
+            assertTrue("控件不出屏", r.x >= 0 && r.y >= 0
+                    && r.x + r.w <= GameWorld.WIDTH && r.y + r.h <= GameWorld.HEIGHT);
+        }
+    }
 }

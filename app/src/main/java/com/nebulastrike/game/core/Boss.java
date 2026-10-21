@@ -6,7 +6,7 @@ package com.nebulastrike.game.core;
  * so fights escalate from a small scout carrier to a screen-filling leviathan.
  */
 public class Boss {
-    public static final int MAX_PARTS = 8;
+    public static final int MAX_PARTS = 12;
 
     public final BossPart[] parts = new BossPart[MAX_PARTS];
     public int partCount;
@@ -31,6 +31,14 @@ public class Boss {
     private float attackCd = 2f;
     /** until next minion summon; package-private so tests can schedule one */
     float minionCd = 6f;
+    /** 护甲（伤害倍率）与"存活护盾发生器"绑定，见 {@link #damageScale()} */
+    private float ramCd = 9f;
+    /** >0 = 正在横冲（相位撞击），期间 x 由冲刺控制、不再走正弦巡逻 */
+    public float ramTimer;
+    public float ramTargetX;
+    /** 横冲速度（虚拟单位/秒） */
+    public static final float RAM_SPEED = 1150f;
+    private static final float RAM_DURATION = 0.5f;
 
     public Boss() {
         for (int i = 0; i < parts.length; i++) parts[i] = new BossPart();
@@ -55,6 +63,9 @@ public class Boss {
         this.minionCd = 6f;
         this.allPartsDown = false;
         this.staggerTimer = 0f;
+        this.ramCd = 8f - 1.2f * tier;
+        this.ramTimer = 0f;
+        this.ramTargetX = this.x;
         layoutParts();
     }
 
@@ -62,6 +73,11 @@ public class Boss {
     public int tier;
 
     public String title() {
+        return titleFor(tier);
+    }
+
+    /** 图鉴等无实例场景按等级取名。 */
+    public static String titleFor(int tier) {
         switch (tier) {
             case 0: return "SCOUT CARRIER";
             case 1: return "DREADNOUGHT";
@@ -75,9 +91,11 @@ public class Boss {
         partCount = 0;
         float r = radius;
         float pr = clamp(radius * 0.24f, 15f, 26f);
-        int guns = tier == 0 ? 2 : tier == 1 ? 4 : tier == 2 ? 4 : 6;
+        int guns = tier == 0 ? 2 : tier == 1 ? 4 : tier == 2 ? 4 : 5;
         // 第二个 Boss 起出现激光吊舱，数量随舰体等级增长
         int lasers = tier >= 2 ? 2 : tier == 1 ? 1 : 0;
+        int pods = tier >= 3 ? 2 : tier >= 1 ? 1 : 0;      // 分裂舱：投放僚机
+        int shields = tier >= 3 ? 2 : tier >= 2 ? 1 : 0;   // 护盾发生器：削弱核心伤害
         float[][] gunOffsets = {
                 {-0.92f, 0.06f}, {0.92f, 0.06f},
                 {-0.52f, 0.72f}, {0.52f, 0.72f},
@@ -100,6 +118,22 @@ public class Boss {
                     pr * 1.08f, laserHp, 3.4f + i * 0.9f);
             partCount++;
         }
+        float[][] podOffsets = {{-0.74f, 0.44f}, {0.74f, 0.44f}};
+        float podHp = 30f + 10f * level;
+        for (int i = 0; i < pods; i++) {
+            parts[partCount].init(BossPart.Kind.POD,
+                    podOffsets[i][0] * r, podOffsets[i][1] * r,
+                    pr * 1.15f, podHp, 4.2f + i * 1.6f);
+            partCount++;
+        }
+        float[][] shieldOffsets = {{-0.34f, -0.62f}, {0.34f, -0.62f}};
+        float shieldHp = 40f + 14f * level;
+        for (int i = 0; i < shields; i++) {
+            parts[partCount].init(BossPart.Kind.SHIELD,
+                    shieldOffsets[i][0] * r, shieldOffsets[i][1] * r,
+                    pr * 1.05f, shieldHp, -1f);
+            partCount++;
+        }
     }
 
     public void update(float dt) {
@@ -117,6 +151,17 @@ public class Boss {
 
         // entry glide then sine patrol; larger / later bosses move a bit quicker
         float speed = 55f + phase * 24f + tier * 7f;
+        if (ramTimer > 0f) {
+            // 横冲：向目标侧高速平移，撞到底部边缘再停下
+            ramTimer -= dt;
+            float to = ramTargetX - x;
+            float step = RAM_SPEED * dt;
+            if (Math.abs(to) <= step) x = ramTargetX;
+            else x += (to > 0f ? step : -step);
+            y = arenaY + (float) Math.sin(age * 6f) * 8f;
+            if (ramTimer <= 0f) ramTimer = 0f;
+            return;
+        }
         if (y < arenaY) {
             y += 90f * dt;
         } else {
@@ -132,7 +177,33 @@ public class Boss {
         if (staggerTimer <= 0f) {
             attackCd -= dt * (0.8f + 0.25f * phase);
             minionCd -= dt;
+            ramCd -= dt;
         }
+    }
+
+    /** 横冲（撞击招式）是否可触发：第二艘 Boss 起、进入二阶段后。 */
+    public boolean readyToRam() {
+        return tier >= 1 && phase >= 2 && staggerTimer <= 0f && ramTimer <= 0f
+                && ramCd <= 0f && y >= arenaY - 4f && !partsAllDestroyed();
+    }
+
+    /** 开始一次横冲：冲向远离当前的一侧，扫过全场。 */
+    public void startRam() {
+        ramTimer = RAM_DURATION;
+        ramCd = 9.5f - 0.9f * tier - 0.5f * phase;
+        ramTargetX = x < GameWorld.WIDTH / 2f
+                ? GameWorld.WIDTH - radius - 30f
+                : radius + 30f;
+        flash = 0.24f;
+    }
+
+    /** 部件 destroyed 后不再阻挡巡逻，但横冲需要立刻停止。 */
+    public void cancelRam() {
+        ramTimer = 0f;
+    }
+
+    public boolean isRamming() {
+        return ramTimer > 0f;
     }
 
     public boolean readyToAttack() {
@@ -152,8 +223,30 @@ public class Boss {
     }
 
     public void damage(int amount) {
-        hp -= amount;
+        hp -= amount * damageScale();
         flash = 0.06f;
+    }
+
+    /** 存活的护盾发生器数量（决定减伤倍率）。 */
+    public int shieldGeneratorsAlive() {
+        int n = 0;
+        for (int i = 0; i < partCount; i++) {
+            BossPart p = parts[i];
+            if (p.active && p.kind == BossPart.Kind.SHIELD) n++;
+        }
+        return n;
+    }
+
+    /** 核心伤害倍率：护盾发生器存活时打折（两个更硬）。 */
+    public float damageScale() {
+        int n = shieldGeneratorsAlive();
+        if (n <= 0) return 1f;
+        return n >= 2 ? 0.5f : 0.68f;
+    }
+
+    /** 护盾是否仍在线（渲染层画护盾壳、音效层用）。 */
+    public boolean shielded() {
+        return shieldGeneratorsAlive() > 0;
     }
 
     /** Called when the last appendage is destroyed: brief damage window. */

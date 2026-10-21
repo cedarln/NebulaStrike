@@ -207,6 +207,28 @@ public class AudioEngine {
                             1f + Math.min(0.6f, Math.max(0, e.code) * 0.03f),
                             panFor(e.x));
                     break;
+                case DASH:
+                    play(SfxId.DASH, 0.62f, vary(0.06f), panFor(e.x));
+                    break;
+                case CHAIN:
+                    play(SfxId.CHAIN_ZAP, 0.72f,
+                            1f + Math.min(0.35f, Math.max(0, e.code) * 0.05f), panFor(e.x));
+                    break;
+                case FUSION:
+                    play(SfxId.FUSION, 0.80f, 1f, panFor(e.x));
+                    break;
+                case BOSS_RAM:
+                    play(SfxId.BOSS_RAM, 0.90f, vary(0.04f), panFor(e.x));
+                    break;
+                case HEAL_PULSE:
+                    play(SfxId.HEAL, 0.42f, vary(0.08f), panFor(e.x));
+                    break;
+                case ORBIT_HIT:
+                    play(SfxId.ORBIT, 0.24f, vary(0.18f), panFor(e.x));
+                    break;
+                case RUSH:
+                    play(SfxId.ALARM, 0.55f, 1.25f, 0f);
+                    break;
             }
         }
     }
@@ -230,6 +252,18 @@ public class AudioEngine {
             play(SfxId.SHOOT_LASER, 0.55f, 1.25f, panFor(e.x));
             return;
         }
+        if (kind == PowerUp.Kind.ORBIT) {
+            play(SfxId.ORBIT, 0.75f, 1.1f, panFor(e.x));
+            return;
+        }
+        if (kind == PowerUp.Kind.CHAIN) {
+            play(SfxId.CHAIN_ZAP, 0.70f, 1.1f, panFor(e.x));
+            return;
+        }
+        if (kind == PowerUp.Kind.BONUS) {
+            play(SfxId.BONUS, 0.92f, 1f, panFor(e.x));
+            return;
+        }
         float pitch = kind == PowerUp.Kind.SHIELD ? 1.18f : 1f;
         play(SfxId.POWERUP, 0.65f, pitch, panFor(e.x));
     }
@@ -246,6 +280,15 @@ public class AudioEngine {
             case MISSILE:
                 play(SfxId.SHOOT_MISSILE, 0.52f, vary(0.05f), panFor(x));
                 break;
+            case LANCE:
+                play(SfxId.SHOOT_LASER, 0.62f, 0.62f, panFor(x));
+                break;
+            case CLUSTER:
+                play(SfxId.SHOOT_SPREAD, 0.58f, 0.8f, panFor(x));
+                break;
+            case SWARM:
+                play(SfxId.SHOOT_LASER, 0.34f, 1.5f, panFor(x));
+                break;
             default:
                 play(SfxId.SHOOT_VULCAN, 0.40f, vary(0.06f), panFor(x));
                 break;
@@ -254,6 +297,11 @@ public class AudioEngine {
 
     public void wingmanShot(float x) {
         play(SfxId.WINGMAN, 0.16f, vary(0.12f), panFor(x));
+    }
+
+    /** 冲刺能量不足时的空挡反馈。 */
+    public void dashBlocked() {
+        play(SfxId.UI, 0.18f, 0.6f, 0f);
     }
 
     public void uiTick() {
@@ -290,6 +338,13 @@ public class AudioEngine {
             case PART_BREAK: return 55_000_000L;
             case BOSS_LASER: return 120_000_000L;
             case UI: return 40_000_000L;
+            case ORBIT: return 45_000_000L;
+            case HEAL: return 160_000_000L;
+            case DASH: return 120_000_000L;
+            case CHAIN_ZAP: return 200_000_000L;
+            case FUSION: return 300_000_000L;
+            case BOSS_RAM: return 450_000_000L;
+            case BONUS: return 300_000_000L;
             default: return 0L;
         }
     }

@@ -28,6 +28,11 @@ public class SharedPrefsStore implements SettingsStore {
         into.enemySpeedPct = prefs.getInt("enemySpeedPct", 100);
         into.startPower = prefs.getInt("startPower", 1);
         into.godMode = prefs.getBoolean("godMode", false);
+        into.codexSeenEnemies = prefs.getInt("codexSeenEnemies", 0);
+        into.codexMaxTierSlain = prefs.getInt("codexMaxTierSlain", -1);
+        for (int i = 0; i < into.codexBossKills.length; i++) {
+            into.codexBossKills[i] = prefs.getInt("codexBossKills" + i, 0);
+        }
         into.sanitize();
     }
 
@@ -59,7 +64,7 @@ public class SharedPrefsStore implements SettingsStore {
 
     @Override
     public void save(Settings s) {
-        prefs.edit()
+        SharedPreferences.Editor e = prefs.edit()
                 .putBoolean("sound", s.sound)
                 .putBoolean("particles", s.particles)
                 .putBoolean("haptics", s.haptics)
@@ -70,6 +75,11 @@ public class SharedPrefsStore implements SettingsStore {
                 .putInt("enemySpeedPct", s.enemySpeedPct)
                 .putInt("startPower", s.startPower)
                 .putBoolean("godMode", s.godMode)
-                .apply();
+                .putInt("codexSeenEnemies", s.codexSeenEnemies)
+                .putInt("codexMaxTierSlain", s.codexMaxTierSlain);
+        for (int i = 0; i < s.codexBossKills.length; i++) {
+            e.putInt("codexBossKills" + i, s.codexBossKills[i]);
+        }
+        e.apply();
     }
 }

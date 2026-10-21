@@ -1,6 +1,6 @@
 package com.nebulastrike.game.core;
 
-/** Enemy archetypes. Values are tuned for the 1600x900 virtual space. */
+/** Enemy archetypes. Values are tuned for the 900x1600 virtual space. */
 public enum EnemyType {
     /** Falls straight down, 1 HP, small. */
     DRONE(26f, 1, 230f, 10, 1),
@@ -9,13 +9,21 @@ public enum EnemyType {
     /** Slow brick, 4 HP, worth more. Unlocked in iteration 2. */
     TANK(48f, 4, 120f, 30, 0),
     /** Zig-zag hunter, 2 HP. Unlocked in iteration 2. */
-    HUNTER(30f, 2, 330f, 25, 3);
+    HUNTER(30f, 2, 330f, 25, 3),
+    /** 自杀机：朝飞船俯冲加速，靠近即撞（1 HP，脆弱但压迫力强）。 */
+    SUICIDER(24f, 1, 300f, 20, 4),
+    /** 分裂舱：慢速重甲，被击毁后裂成两架无人机。 */
+    SPLITTER(42f, 5, 140f, 35, 5),
+    /** 医疗艇：为附近友舰回血，优先击杀目标。 */
+    HEALER(32f, 3, 130f, 40, 6),
+    /** 狙击塔：下降到上空悬停，预警后射出高速瞄准弹。 */
+    SNIPER(34f, 3, 210f, 45, 7);
 
     public final float radius;
     public final int hp;
     public final float baseSpeed;
     public final int score;
-    /** Palette index used by the renderer (0 cyan, 1 green, 2 orange, 3 magenta). */
+    /** Palette index used by the renderer (0 cyan, 1 green, 2 orange, 3 magenta, 4 yellow, 5 lime, 6 rose, 7 violet). */
     public final int colorHint;
 
     EnemyType(float radius, int hp, float baseSpeed, int score, int colorHint) {
@@ -24,5 +32,10 @@ public enum EnemyType {
         this.baseSpeed = baseSpeed;
         this.score = score;
         this.colorHint = colorHint;
+    }
+
+    /** 是否属于"后期解锁"兵种（图鉴/生成权重按登场时间排序用）。 */
+    public boolean isAdvanced() {
+        return this == SUICIDER || this == SPLITTER || this == HEALER || this == SNIPER;
     }
 }

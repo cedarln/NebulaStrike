@@ -21,21 +21,26 @@ public class WeaponStackingTest {
         world.spawnPowerUp(PowerUp.Kind.LASER, world.ship.x, world.ship.y);
         world.update(1f / 60f); // collect both
 
-        assertEquals("最新拾取的是主武器", WeaponType.LASER, world.ship.weapon);
         assertTrue("之前的 SPREAD 仍在生效", world.ship.isWeaponEquipped(WeaponType.SPREAD));
         assertTrue(world.ship.isWeaponEquipped(WeaponType.LASER));
+        assertTrue("SPREAD+LASER 共存自动解锁融合武器 LANCE",
+                world.ship.isWeaponEquipped(WeaponType.LANCE));
         assertTrue(world.ship.timerOf(WeaponType.SPREAD) > 10f);
         assertTrue(world.ship.timerOf(WeaponType.LASER) > 10f);
 
         clearBullets();
-        world.update(1f / 60f); // 两种武器同时开火
-        int lasers = 0, spreads = 0;
+        world.update(1f / 60f); // 三种火力同时开火，融合武器只做叠加
+        int lasers = 0, lances = 0, spreads = 0;
         for (Bullet b : world.bullets) {
             if (!b.active) continue;
-            if (b.piercing) lasers++;
-            else spreads++;
+            if (b.piercing && b.homing) continue;
+            if (b.piercing) {
+                if (b.radius > 12f) lances++;
+                else lasers++;
+            } else spreads++;
         }
-        assertEquals("LASER 主武器射出一束", 1, lasers);
+        assertEquals("LASER 射出一束", 1, lasers);
+        assertEquals("融合 LANCE 额外射出一束", 1, lances);
         assertEquals("SPREAD 副武器同时射出扇形弹", 3, spreads);
     }
 
@@ -51,18 +56,27 @@ public class WeaponStackingTest {
         assertTrue(world.ship.isWeaponEquipped(WeaponType.MISSILE));
         assertTrue("VULCAN 在特殊武器耗尽前保持静默", !world.ship.isWeaponEquipped(WeaponType.VULCAN));
 
+        assertTrue("三种基础武器齐备时三种融合武器全部解锁",
+                world.ship.isWeaponEquipped(WeaponType.LANCE)
+                        && world.ship.isWeaponEquipped(WeaponType.CLUSTER)
+                        && world.ship.isWeaponEquipped(WeaponType.SWARM));
+
         clearBullets();
         world.update(1f / 60f);
-        int lasers = 0, spreads = 0, missiles = 0;
+        int lasers = 0, spreads = 0, missiles = 0, clusters = 0, swarm = 0;
         for (Bullet b : world.bullets) {
             if (!b.active) continue;
-            if (b.piercing) lasers++;
+            if (b.cluster) clusters++;
+            else if (b.piercing && b.homing) swarm++;
+            else if (b.piercing) lasers++;
             else if (b.homing) missiles++;
             else spreads++;
         }
-        assertEquals(1, lasers);
+        assertEquals("LASER + LANCE 两道贯穿", 2, lasers);
         assertEquals(3, spreads);
         assertEquals(2, missiles);
+        assertEquals("CLUSTER 集束巢 2 发", 2, clusters);
+        assertEquals("SWARM 蜂群 1 发", 1, swarm);
     }
 
     @Test

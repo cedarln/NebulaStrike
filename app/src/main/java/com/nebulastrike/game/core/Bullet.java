@@ -20,6 +20,10 @@ public class Bullet {
     public boolean piercing;
     public float hitCooldown;   // >0 时跳过命中结算（防止单敌多扣血）
     public float len;           // 渲染光束长度（0 = 普通圆弹）
+    /** 集束弹：命中后炸开一圈破片（见 GameWorld.burstFragments）。 */
+    public boolean cluster;
+    /** 破片本身不再二次爆裂，防止无限递归生成。 */
+    public boolean fragment;
 
     public void init(float x, float y, float vy) {
         init(x, y, 0f, vy, 1, false);
@@ -38,6 +42,8 @@ public class Bullet {
         this.piercing = false;
         this.hitCooldown = 0f;
         this.len = 0f;
+        this.cluster = false;
+        this.fragment = false;
         this.landed = false;
     }
 
@@ -49,10 +55,23 @@ public class Bullet {
 
     /** 激光束初始化。 */
     public void initLaser(float x, float y, float vx, float vy, int damage) {
+        initBeam(x, y, vx, vy, damage, 7f, 46f);
+    }
+
+    /** 通用光束（融合长枪/蜂群用不同宽度与长度）。 */
+    public void initBeam(float x, float y, float vx, float vy, int damage,
+                         float radius, float len) {
         init(x, y, vx, vy, damage, false);
         this.piercing = true;
-        this.radius = 7f;
-        this.len = 46f;
+        this.radius = radius;
+        this.len = len;
+    }
+
+    /** 集束弹：直射弹体，命中后分裂。 */
+    public void initCluster(float x, float y, float vx, float vy, int damage) {
+        init(x, y, vx, vy, damage, false);
+        this.cluster = true;
+        this.radius = 11f;
     }
 
     public void update(float dt) {
