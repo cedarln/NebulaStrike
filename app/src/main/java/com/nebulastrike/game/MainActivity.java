@@ -38,6 +38,21 @@ public class MainActivity extends Activity {
         if (hasFocus) hideSystemUi();
     }
 
+    /**
+     * 系统返回键 / 返回手势的唯一入口。
+     * 早期版本只靠 GameView.onKeyDown 处理，但 SurfaceView 未必拿到焦点，
+     * 返回键就落到 Activity 的默认行为（finish()）上——表现即"一局打到一半，按返回直接退回桌面"。
+     * 这里把决策交给 GameWorld.consumeBack()：能消化就不退出，主菜单裸界面才允许退出应用。
+     */
+    @Override
+    public void onBackPressed() {
+        if (gameView != null && gameView.getWorld().consumeBack()) {
+            gameView.playBackUiSound();
+            return;
+        }
+        super.onBackPressed();
+    }
+
     @Override
     protected void onPause() {
         super.onPause();

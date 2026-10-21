@@ -28,12 +28,26 @@ public class Enemy {
     public float diveSpeed;
     /** 治疗脉冲余量（1 = 刚释放，0 = 无）；渲染层据此画扩散环。 */
     public float healFx;
+    /** 布雷艇下一次投雷的倒计时（<=0 时由 GameWorld 结算）。 */
+    public float mineCd;
+    /** 母舰下一次放机的倒计时。 */
+    public float droneCd;
+    /** 盾卫正面护盾耐久：>0 时挡下所有非穿透弹（激光与弹跳弹照样能穿）。 */
+    public float shieldHp;
+    public static final float SHIELDER_SHIELD = 6f;
+    /** 精英词缀：厚血、高分、必掉道具，渲染层加一圈光环。 */
+    public boolean elite;
+    /** 精英倍率（生命、分值）。 */
+    public static final float ELITE_HP_MULT = 2.6f;
+    public static final int ELITE_SCORE_MULT = 3;
     private float originX;
     private float dir = 1f;
     private float speedScale;
 
     /** 狙击塔悬停高度（虚拟坐标，越小说明越靠屏幕顶部）。 */
     public static final float SNIPER_HOVER_Y = 300f;
+    /** 母舰巡航高度：到位后先悬停放机，再俯冲离场。 */
+    public static final float CARRIER_CRUISE_Y = 420f;
 
     public void init(EnemyType type, float x, float y, float speedScale) {
         this.type = type;
@@ -49,16 +63,39 @@ public class Enemy {
         this.speedScale = speedScale;
         this.healCd = 1.1f;
         this.healFx = 0f;
-        this.hoverCd = type == EnemyType.SNIPER ? 8.5f : 0f;
+        this.hoverCd = type == EnemyType.SNIPER ? 8.5f : type == EnemyType.CARRIER ? 12f : 0f;
         this.splitDepth = 0;
+        this.mineCd = type == EnemyType.MINER ? 1.2f : 0f;
+        this.droneCd = type == EnemyType.CARRIER ? 1.6f : 0f;
+        this.shieldHp = type == EnemyType.SHIELDER ? SHIELDER_SHIELD : 0f;
+        this.elite = false;
         this.diveSpeed = type.baseSpeed * speedScale;
         switch (type) {
             case TANK: fireCd = 1.4f + GameWorld.RNG.get().nextFloat() * 0.6f; break;
             case HUNTER: fireCd = 2.0f + GameWorld.RNG.get().nextFloat() * 0.8f; break;
             case SPLITTER: fireCd = 2.0f + GameWorld.RNG.get().nextFloat() * 0.8f; break;
             case SNIPER: fireCd = 1.5f + GameWorld.RNG.get().nextFloat() * 0.5f; break;
+            case SHIELDER: fireCd = 2.4f + GameWorld.RNG.get().nextFloat() * 0.8f; break;
             default: fireCd = -1f; // does not fire
         }
+    }
+
+    /** 打上精英词缀：厚血、减速一点点方便玩家优先集火，掉落保底由 GameWorld 处理。 */
+    public void makeElite() {
+        elite = true;
+        hp = maxHp = Math.round(type.hp * ELITE_HP_MULT);
+        speedScale *= 0.9f;
+        diveSpeed = type.baseSpeed * speedScale;
+    }
+
+    /** 正面护盾是否还在（挡弹判定与渲染都用它）。 */
+    public boolean hasFrontShield() {
+        return type == EnemyType.SHIELDER && shieldHp > 0f;
+    }
+
+    /** 受击时先扣护盾耐久，护盾崩溃后本体才 vulnerable（返回值仅用于表现）。 */
+    public void chipShield(float amount) {
+        if (shieldHp > 0f) shieldHp = Math.max(0f, shieldHp - amount);
     }
 
     public float speed() {
@@ -134,6 +171,38 @@ public class Enemy {
                 }
                 break;
             }
+            case MINER:
+                // 布雷艇：慢速推进并左右小幅摆动，投雷倒计时由 GameWorld 结算
+                y += speed() * dt;
+                x = originX + (float) Math.sin(age * 0.9f) * 60f;
+                x = clamp(x, type.radius, worldW - type.radius);
+                if (mineCd > 0f) mineCd = Math.max(0f, mineCd - dt);
+                break;
+            case CARRIER: {
+                // 母舰：降到巡航高度后悬停放机，超时再俯冲离场
+                if (y < CARRIER_CRUISE_Y) {
+                    y += speed() * dt;
+                    break;
+                }
+                hoverCd -= dt;
+                if (hoverCd <= 0f) {
+                    y += speed() * 1.4f * dt;
+                    break;
+                }
+                x += dir * 60f * dt;
+                if (x < type.radius + 30f || x > worldW - type.radius - 30f) {
+                    dir = -dir;
+                    x = clamp(x, type.radius + 30f, worldW - type.radius - 30f);
+                }
+                if (droneCd > 0f) droneCd = Math.max(0f, droneCd - dt);
+                break;
+            }
+            case SHIELDER:
+                // 盾卫：正面朝下缓慢压上，偶尔射一发扇形弹逼玩家走位
+                y += speed() * dt;
+                x = originX + (float) Math.sin(age * 0.7f) * 40f;
+                x = clamp(x, type.radius, worldW - type.radius);
+                break;
         }
     }
 

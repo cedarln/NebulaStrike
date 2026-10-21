@@ -54,7 +54,8 @@ public class WeaponStackingTest {
         assertTrue(world.ship.isWeaponEquipped(WeaponType.SPREAD));
         assertTrue(world.ship.isWeaponEquipped(WeaponType.LASER));
         assertTrue(world.ship.isWeaponEquipped(WeaponType.MISSILE));
-        assertTrue("VULCAN 在特殊武器耗尽前保持静默", !world.ship.isWeaponEquipped(WeaponType.VULCAN));
+        assertTrue("v1.10 起基础炮常驻，任何拾取都不会把它换掉",
+                world.ship.isWeaponEquipped(WeaponType.VULCAN));
 
         assertTrue("三种基础武器齐备时三种融合武器全部解锁",
                 world.ship.isWeaponEquipped(WeaponType.LANCE)

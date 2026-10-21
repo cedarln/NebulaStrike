@@ -17,7 +17,6 @@ public class Ship {
     /** 上一帧位置（扫掠碰撞用，避免高速拖动穿过敌弹）。 */
     public float prevX, prevY;
     private float targetX, targetY;
-    private float cooldown;
     public boolean invulnerable;
     private float invulnTimer;
 
@@ -39,9 +38,11 @@ public class Ship {
     public int powerLevel = 1;
     public static final int MAX_POWER = 3;
     public boolean hasShield;
-    /** 护盾层数（最多 2 层，每层挡一次伤害）。 */
+    /** 护盾层数（每层挡一次伤害）。 */
     public int shieldLayers;
     public static final int MAX_SHIELD_LAYERS = 2;
+    /** 护盾层数上限：圣物 AEGIS_FIELD 会把它抬到 3。 */
+    public int shieldCap = MAX_SHIELD_LAYERS;
     public int bombs = 1;
     public static final int MAX_BOMBS = 3;
     /** 速射道具剩余时间（>0 时射击冷却减半） */
@@ -53,6 +54,11 @@ public class Ship {
     /** 轨道炮球道具剩余时间（>0 时环绕飞船的能量球清扫敌弹并撞击敌机） */
     public float orbitTimer;
     public static final float ORBIT_DURATION = 10f;
+    /** 纳米修复剩余时间：期间每隔一段时间自动补一层护盾。 */
+    public float nanoTimer;
+    public static final float NANITE_DURATION = 12f;
+    /** 纳米修复补盾周期（秒）。 */
+    public static final float NANITE_PERIOD = 3.5f;
     public static final int ORBIT_SPHERES = 3;
     public static final float ORBIT_RADIUS = 108f;
     /** 环绕角速度（弧度/秒） */
@@ -100,7 +106,6 @@ public class Ship {
         prevY = y;
         targetX = x;
         targetY = y;
-        cooldown = 0f;
         invulnerable = false;
         invulnTimer = 0f;
         weapon = WeaponType.VULCAN;
@@ -112,12 +117,14 @@ public class Ship {
         powerLevel = 1;
         hasShield = false;
         shieldLayers = 0;
+        shieldCap = MAX_SHIELD_LAYERS;
         bombs = 1;
         rapidTimer = 0f;
         wingmanTimer = 0f;
         overdriveTimer = 0f;
         orbitTimer = 0f;
         orbitAngle = 0f;
+        nanoTimer = 0f;
         dashCharge = DASH_MAX_CHARGE;
         dashTimer = 0f;
         dashGrace = 0f;
@@ -193,9 +200,10 @@ public class Ship {
         return false;
     }
 
-    /** 该武器本帧是否参与射击（主武器或已叠层的副武器）。 */
+    /** 该武器本帧是否参与射击。v1.10 起基础炮常驻：捡到任何武器都是"叠加一路火力"，
+     *  而不是替换掉原来的炮，杜绝"捡了道具反而变弱"。 */
     public boolean isWeaponEquipped(WeaponType type) {
-        if (type == WeaponType.VULCAN) return !hasSpecialWeapon();
+        if (type == WeaponType.VULCAN) return true;
         return weapon == type || weaponStacks[type.ordinal()] > 0;
     }
 
@@ -217,7 +225,7 @@ public class Ship {
         if (!hasShield) {
             hasShield = true;
             shieldLayers = 1;
-        } else if (shieldLayers < MAX_SHIELD_LAYERS) {
+        } else if (shieldLayers < shieldCap) {
             shieldLayers++;
         }
     }
@@ -242,21 +250,8 @@ public class Ship {
         targetY = y;
     }
 
-    /** 清零射击冷却，下一帧立即开火（测试与重生流程用）。 */
-    public void resetCooldown() {
-        cooldown = 0f;
-    }
-
-    /** Smooth-follows the target with a bounded speed. Returns true if the ship fired. */
-    public boolean update(float dt, float worldW, float worldH) {
-        boolean fired = false;
-        cooldown -= dt;
-        if (cooldown <= 0f) {
-            cooldown = weapon.cooldown
-                    * (rapidTimer > 0f ? 0.5f : 1f)
-                    * (overdriveTimer > 0f ? OVERDRIVE_FIRE_MULT : 1f);
-            fired = true;
-        }
+    /** 平滑跟随拖动目标。射击冷却由 GameWorld 按武器分别管理，见 weaponCd[]。 */
+    public void update(float dt, float worldW, float worldH) {
         prevX = x;
         prevY = y;
         if (dashTimer > 0f) {
@@ -365,16 +360,29 @@ public class Ship {
             if (orbitAngle > Math.PI * 2f) orbitAngle -= (float) (Math.PI * 2);
             if (orbitTimer < 0f) orbitTimer = 0f;
         }
+        if (nanoTimer > 0f) {
+            nanoTimer -= dt;
+            if (nanoTimer < 0f) nanoTimer = 0f;
+        }
         if (overdriveTimer > 0f) {
             overdriveTimer -= dt;
             if (overdriveTimer < 0f) overdriveTimer = 0f;
         }
-        return fired;
     }
 
     public void makeInvulnerable() {
+        makeInvulnerable(RESPAWN_INVULN);
+    }
+
+    /** 按难度指定保护时长（休闲更长、硬核更短），重生流程使用。 */
+    public void makeInvulnerable(float seconds) {
         invulnerable = true;
-        invulnTimer = RESPAWN_INVULN;
+        invulnTimer = Math.max(0f, seconds);
+    }
+
+    /** 剩余无敌时间（渲染层画重生保护倒计时气泡用）。 */
+    public float invulnRemaining() {
+        return invulnerable ? invulnTimer : 0f;
     }
 
     private static float clamp(float v, float lo, float hi) {

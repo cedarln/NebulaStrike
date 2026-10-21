@@ -3,6 +3,7 @@ package com.nebulastrike.game;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import com.nebulastrike.game.core.Difficulty;
 import com.nebulastrike.game.core.GameMode;
 import com.nebulastrike.game.core.Settings;
 import com.nebulastrike.game.core.SettingsStore;
@@ -28,6 +29,7 @@ public class SharedPrefsStore implements SettingsStore {
         into.enemySpeedPct = prefs.getInt("enemySpeedPct", 100);
         into.startPower = prefs.getInt("startPower", 1);
         into.godMode = prefs.getBoolean("godMode", false);
+        into.setDifficulty(Difficulty.byOrdinal(prefs.getInt("difficulty", Difficulty.STANDARD.ordinal())));
         into.codexSeenEnemies = prefs.getInt("codexSeenEnemies", 0);
         into.codexMaxTierSlain = prefs.getInt("codexMaxTierSlain", -1);
         for (int i = 0; i < into.codexBossKills.length; i++) {
@@ -75,6 +77,8 @@ public class SharedPrefsStore implements SettingsStore {
                 .putInt("enemySpeedPct", s.enemySpeedPct)
                 .putInt("startPower", s.startPower)
                 .putBoolean("godMode", s.godMode)
+                .putInt("difficulty", (s.difficulty == null
+                        ? Difficulty.STANDARD : s.difficulty).ordinal())
                 .putInt("codexSeenEnemies", s.codexSeenEnemies)
                 .putInt("codexMaxTierSlain", s.codexMaxTierSlain);
         for (int i = 0; i < s.codexBossKills.length; i++) {

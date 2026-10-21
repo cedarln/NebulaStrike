@@ -44,6 +44,13 @@ public final class SfxBank {
         put(SfxId.HEAL, heal(), 0.62f);
         put(SfxId.ORBIT, orbit(), 0.58f);
         put(SfxId.BONUS, bonus(), 0.90f);
+        put(SfxId.SHOOT_BOUNCE, shootBounce(), 0.80f);
+        put(SfxId.NOVA, nova(), 0.98f);
+        put(SfxId.TURRET_DEPLOY, turretDeploy(), 0.84f);
+        put(SfxId.RELIC, relic(), 0.96f);
+        put(SfxId.RESPAWN, respawn(), 0.78f);
+        put(SfxId.MINE, mine(), 0.72f);
+        put(SfxId.SHIELD_BLOCK, shieldBlock(), 0.76f);
     }
 
     public static SfxBank create() {
@@ -657,6 +664,166 @@ public final class SfxBank {
             if (r.nextDouble() < 0.02) x[i] += (float) (noise(r) * 0.18);
         }
         echo(x, 0.10, 0.28);
+        return x;
+    }
+
+    // ---- v1.10 新增音色 ----------------------------------------------------
+
+    /** 弹跳弹：像橡胶球撞墙一样的弹性"啵嘤"，音高先降后升。 */
+    private static float[] shootBounce() {
+        int n = frames(0.18);
+        float[] x = new float[n];
+        Random r = new Random(301);
+        double ph = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double p = t / 0.18;
+            double f = 1100 - 620 * Math.sin(p * Math.PI);
+            ph += f / SAMPLE_RATE;
+            double s = 0.55 * sine(ph) + 0.30 * tri(ph * 2.0)
+                    + 0.15 * sine(ph * 3.02);
+            double tick = noise(r) * Math.exp(-t * 260) * 0.25;
+            x[i] = (float) ((s + tick) * env(t, 0.18, 0.0015, 1.7));
+        }
+        return x;
+    }
+
+    /** 新星冲击：低频涌起 + 全频段噪声扩散，像冲击波扫过屏幕。 */
+    private static float[] nova() {
+        int n = frames(0.90);
+        float[] x = new float[n];
+        Random r = new Random(302);
+        double ph = 0, lp = 0, hp = 0, prev = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double p = Math.min(1.0, t / 0.26);
+            double swell = t < 0.26 ? p * p : Math.exp(-(t - 0.26) * 3.4);
+            lp += (0.02 + 0.30 * p) * (noise(r) - lp);
+            double coef = 0.35;
+            double cur = lp + coef * (prev - lp);   // 简易高通，制造扩散感
+            prev = lp;
+            hp += coef * (cur - hp);
+            double f = 44 + 220 * p;
+            ph += f / SAMPLE_RATE;
+            double sub = sine(ph) * Math.exp(-t * 2.6) * 1.05;
+            double blast = hp * Math.exp(-t * 2.2) * 1.1;
+            double shimmer = 0.18 * sine(ph * 8.3) * Math.exp(-t * 5.0);
+            x[i] = (float) ((sub + blast + shimmer) * swell
+                    * env(t, 0.90, 0.004, 1.1));
+        }
+        echo(x, 0.16, 0.30);
+        return x;
+    }
+
+    /** 部署炮台：伺服电机升起，末尾一记锁定"咔哒"。 */
+    private static float[] turretDeploy() {
+        int n = frames(0.55);
+        float[] x = new float[n];
+        Random r = new Random(303);
+        double ph = 0, sub = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double f = 180 + 520 * Math.min(1.0, t / 0.32);
+            ph += f / SAMPLE_RATE;
+            sub += f * 0.5 / SAMPLE_RATE;
+            double servo = (0.5 * square(ph, 0.42) + 0.5 * saw(ph))
+                    * (t < 0.32 ? 0.55 + 0.45 * (t / 0.32) : Math.exp(-(t - 0.32) * 9));
+            double body = 0.35 * sine(sub);
+            double click = t > 0.32
+                    ? noise(r) * Math.exp(-(t - 0.32) * 160) * 0.45 : 0.0;
+            x[i] = (float) ((servo * 0.6 + body + click) * env(t, 0.55, 0.002, 1.3));
+        }
+        echo(x, 0.06, 0.20);
+        return x;
+    }
+
+    /** Boss 遗物：低八度轰鸣垫底，上面是神秘的上行和声与钟鸣。 */
+    private static float[] relic() {
+        float[] x = new float[frames(1.10)];
+        Random r = new Random(304);
+        double ph = 0;
+        for (int i = 0; i < frames(0.45) && i < x.length; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            ph += (58 + 30 * (t / 0.45)) / SAMPLE_RATE;
+            x[i] += (float) ((0.6 * sine(ph) + 0.4 * saw(ph * 2.01))
+                    * Math.min(1.0, t / 0.05) * 0.5);
+        }
+        double[] notes = {392.0, 587.33, 783.99, 1174.66, 1567.98};
+        int len = frames(0.52);
+        for (int k = 0; k < notes.length; k++) {
+            int start = frames(0.16 + k * 0.10);
+            double a = 0, b = 0;
+            for (int i = 0; i < len && start + i < x.length; i++) {
+                double t = i / (double) SAMPLE_RATE;
+                a += notes[k] / SAMPLE_RATE;
+                b += notes[k] * 2.0 / SAMPLE_RATE;
+                double s = 0.45 * sine(a) + 0.30 * tri(b) + 0.25 * sine(a * 3.0);
+                x[start + i] += (float) (s * env(t, 0.52, 0.005, 1.3) * 0.5);
+            }
+        }
+        for (int i = frames(0.60); i < x.length; i++) {
+            if (r.nextDouble() < 0.015) x[i] += (float) (noise(r) * 0.14);
+        }
+        echo(x, 0.14, 0.30);
+        return x;
+    }
+
+    /** 重生护盾：气泡张开的下滑噪声 + 柔和上升哨音。 */
+    private static float[] respawn() {
+        int n = frames(0.60);
+        float[] x = new float[n];
+        Random r = new Random(305);
+        double lp = 0, ph = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double p = Math.min(1.0, t / 0.36);
+            lp += (0.04 + 0.18 * (1.0 - p)) * (noise(r) - lp);
+            double air = lp * Math.sin(p * Math.PI) * 0.85;
+            double f = 300 + 900 * p;
+            ph += f / SAMPLE_RATE;
+            double tone = (0.6 * sine(ph) + 0.4 * tri(ph * 2.0))
+                    * Math.min(1.0, t / 0.06) * (t < 0.36 ? 0.5 : Math.exp(-(t - 0.36) * 6));
+            x[i] = (float) ((air + tone * 0.55) * env(t, 0.60, 0.003, 1.0));
+        }
+        echo(x, 0.08, 0.26);
+        return x;
+    }
+
+    /** 水雷：声呐式下滑金属"叮",带长尾巴。 */
+    private static float[] mine() {
+        int n = frames(0.42);
+        float[] x = new float[n];
+        double ph = 0, ph2 = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double f = 1400 - 620 * Math.min(1.0, t / 0.30);
+            ph += f / SAMPLE_RATE;
+            ph2 += f * 1.48 / SAMPLE_RATE;
+            double s = 0.50 * sine(ph) + 0.28 * sine(ph2) + 0.22 * square(ph, 0.25);
+            x[i] = (float) (s * env(t, 0.42, 0.0015, 1.5) * 0.9);
+        }
+        echo(x, 0.11, 0.32);
+        return x;
+    }
+
+    /** 护盾格挡：短促的电力"嗤"，带一点低频闷响。 */
+    private static float[] shieldBlock() {
+        int n = frames(0.22);
+        float[] x = new float[n];
+        Random r = new Random(306);
+        double lp = 0, ph = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            lp += 0.42 * (noise(r) - lp);
+            double f = 1500 - 700 * (t / 0.22);
+            ph += f / SAMPLE_RATE;
+            double zap = lp * Math.exp(-t * 16) * 1.15;
+            double body = (0.5 * sine(ph) + 0.5 * square(ph, 0.3))
+                    * Math.exp(-t * 19) * 0.45;
+            double thud = sine((60 + 30 * Math.exp(-t * 12)) * t)
+                    * Math.exp(-t * 22) * 0.4;
+            x[i] = (float) ((zap + body + thud) * env(t, 0.22, 0.0012, 1.2));
+        }
         return x;
     }
 

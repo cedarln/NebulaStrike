@@ -58,7 +58,7 @@ public class GrazeAndStatsTest {
         w.ship.reset(450f, 1400f);
         w.ship.powerLevel = 1;
         w.ship.overdriveTimer = Ship.OVERDRIVE_DURATION;
-        w.ship.resetCooldown();
+        w.resetWeaponCooldowns();
         w.update(1f / 60f);
         assertEquals("过载期间火力临时 +1（双发）", 2, activeBullets(w));
 
@@ -67,7 +67,7 @@ public class GrazeAndStatsTest {
         assertEquals(0f, w.ship.overdriveTimer, 1e-4f);
 
         clearBullets(w);
-        w.ship.resetCooldown();
+        w.resetWeaponCooldowns();
         w.update(1f / 60f);
         assertEquals("过载结束后回到单发", 1, activeBullets(w));
     }

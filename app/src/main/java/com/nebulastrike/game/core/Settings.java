@@ -9,6 +9,8 @@ public class Settings {
     public volatile boolean reducedFx = false;
     /** mirror the bomb button to the bottom-left corner */
     public volatile boolean leftHanded = false;
+    /** 难度档位：影响掉率、重生保护、坠机惩罚、敌速、精英率与得分倍率。 */
+    public volatile Difficulty difficulty = Difficulty.STANDARD;
 
     // ---- LAB（金手指）：只影响新开的对局，开局时读取 ----
     public static final int LIVES_MIN = 1, LIVES_MAX = 9;
@@ -65,7 +67,19 @@ public class Settings {
             case "drop": dropRatePct = clamp(dropRatePct + delta * DROP_STEP, DROP_MIN, DROP_MAX); break;
             case "speed": enemySpeedPct = clamp(enemySpeedPct + delta * SPEED_STEP, SPEED_MIN, SPEED_MAX); break;
             case "power": startPower = clamp(startPower + delta, POWER_MIN, POWER_MAX); break;
+            case "difficulty": {
+                Difficulty[] all = Difficulty.values();
+                int next = (difficulty.ordinal() + delta) % all.length;
+                if (next < 0) next += all.length;
+                difficulty = all[next];
+                break;
+            }
         }
+    }
+
+    /** 直接指定难度档位（设置面板的分段按钮用）。 */
+    public void setDifficulty(Difficulty d) {
+        difficulty = d != null ? d : Difficulty.STANDARD;
     }
 
     public void resetCheats() {
@@ -87,6 +101,7 @@ public class Settings {
         dropRatePct = clamp(dropRatePct, DROP_MIN, DROP_MAX);
         enemySpeedPct = clamp(enemySpeedPct, SPEED_MIN, SPEED_MAX);
         startPower = clamp(startPower, POWER_MIN, POWER_MAX);
+        if (difficulty == null) difficulty = Difficulty.STANDARD;
         codexSeenEnemies &= (1 << EnemyType.values().length) - 1;
         codexMaxTierSlain = clamp(codexMaxTierSlain, -1, codexBossKills.length - 1);
         for (int i = 0; i < codexBossKills.length; i++) {

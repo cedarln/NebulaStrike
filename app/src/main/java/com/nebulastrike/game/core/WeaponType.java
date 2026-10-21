@@ -18,7 +18,9 @@ public enum WeaponType {
     /** SPREAD + MISSILE：集束弹，命中后炸开破片。 */
     CLUSTER(0.32f, 2),
     /** LASER + MISSILE：蜂群穿刺束，自动追踪。 */
-    SWARM(0.13f, 1);
+    SWARM(0.13f, 1),
+    /** 弹跳弹（v1.10）：命中前最多在左右壁各反弹一次，专治盾卫这类正面怪物。 */
+    BOUNCE(0.24f, 2);
 
     public final float cooldown;
     public final int damage;
@@ -61,6 +63,7 @@ public enum WeaponType {
             case LANCE: return "LANCE";
             case CLUSTER: return "CLUSTER";
             case SWARM: return "SWARM";
+            case BOUNCE: return "BOUNCE";
             default: return "VULCAN";
         }
     }

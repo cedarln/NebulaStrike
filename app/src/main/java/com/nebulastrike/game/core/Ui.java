@@ -41,13 +41,17 @@ public final class Ui {
         return leftHanded ? DASH_LEFT : DASH_RIGHT;
     }
 
-    // settings toggles (drawn on the settings panel in both menu and pause)
-    public static final Rect TOGGLE_SOUND = new Rect(GameWorld.WIDTH / 2f - 220f, 470f, 440f, 64f);
-    public static final Rect TOGGLE_PARTICLES = new Rect(GameWorld.WIDTH / 2f - 220f, 546f, 440f, 64f);
-    public static final Rect TOGGLE_HAPTICS = new Rect(GameWorld.WIDTH / 2f - 220f, 622f, 440f, 64f);
-    public static final Rect TOGGLE_REDUCED_FX = new Rect(GameWorld.WIDTH / 2f - 220f, 698f, 440f, 64f);
-    public static final Rect TOGGLE_LEFT_HAND = new Rect(GameWorld.WIDTH / 2f - 220f, 774f, 440f, 64f);
-    public static final Rect SETTINGS_BACK = new Rect(GameWorld.WIDTH / 2f - 140f, 862f, 280f, 64f);
+    // settings panel (menu only)
+    /** 难度分段选择器：三格并排，放在 SETTINGS 标题与开关行之间。 */
+    public static final Rect DIFF_CASUAL = new Rect(GameWorld.WIDTH / 2f - 220f, 400f, 138f, 62f);
+    public static final Rect DIFF_STANDARD = new Rect(GameWorld.WIDTH / 2f - 69f, 400f, 138f, 62f);
+    public static final Rect DIFF_HARDCORE = new Rect(GameWorld.WIDTH / 2f + 82f, 400f, 138f, 62f);
+    public static final Rect TOGGLE_SOUND = new Rect(GameWorld.WIDTH / 2f - 220f, 500f, 440f, 64f);
+    public static final Rect TOGGLE_PARTICLES = new Rect(GameWorld.WIDTH / 2f - 220f, 576f, 440f, 64f);
+    public static final Rect TOGGLE_HAPTICS = new Rect(GameWorld.WIDTH / 2f - 220f, 652f, 440f, 64f);
+    public static final Rect TOGGLE_REDUCED_FX = new Rect(GameWorld.WIDTH / 2f - 220f, 728f, 440f, 64f);
+    public static final Rect TOGGLE_LEFT_HAND = new Rect(GameWorld.WIDTH / 2f - 220f, 804f, 440f, 64f);
+    public static final Rect SETTINGS_BACK = new Rect(GameWorld.WIDTH / 2f - 140f, 892f, 280f, 64f);
     // LAB（金手指）面板：四行步进器 + 无敌开关 + 恢复默认/返回
     public static final Rect CHEAT_LIVES_MINUS = new Rect(110f, 430f, 80f, 80f);
     public static final Rect CHEAT_LIVES_PLUS = new Rect(710f, 430f, 80f, 80f);
@@ -65,10 +69,10 @@ public final class Ui {
     public static final Rect CODEX_TAB_ENEMIES = new Rect(110f, 300f, 330f, 64f);
     public static final Rect CODEX_TAB_BOSSES = new Rect(460f, 300f, 330f, 64f);
     public static final Rect CODEX_BACK = new Rect(GameWorld.WIDTH / 2f - 140f, 1420f, 280f, 64f);
-    /** 图鉴行高与首行 Y（渲染与命中共用）。 */
-    public static final float CODEX_ROW_Y = 392f;
-    public static final float CODEX_ROW_H = 118f;
-    public static final int CODEX_MAX_ROWS = 8;
+    /** 图鉴行高与首行 Y（渲染与命中共用；v1.10 敌机增至 11 种，行高相应压缩）。 */
+    public static final float CODEX_ROW_Y = 380f;
+    public static final float CODEX_ROW_H = 86f;
+    public static final int CODEX_MAX_ROWS = EnemyType.values().length;
 
     /** 图鉴某一行（0 起）的命中矩形。 */
     public static Rect codexRow(int index) {
@@ -90,7 +94,17 @@ public final class Ui {
         OPEN_CHEATS, CHEATS_BACK, TOGGLE_GOD, CHEAT_RESET,
         CHEAT_LIVES_DOWN, CHEAT_LIVES_UP, CHEAT_DROP_DOWN, CHEAT_DROP_UP,
         CHEAT_SPEED_DOWN, CHEAT_SPEED_UP, CHEAT_POWER_DOWN, CHEAT_POWER_UP,
-        OPEN_CODEX, CODEX_BACK, CODEX_TAB
+        OPEN_CODEX, CODEX_BACK, CODEX_TAB,
+        SET_DIFF_CASUAL, SET_DIFF_STANDARD, SET_DIFF_HARDCORE
+    }
+
+    /** 难度分段按钮 → 对应动作。 */
+    public static Action diffAction(Difficulty d) {
+        switch (d) {
+            case CASUAL: return Action.SET_DIFF_CASUAL;
+            case HARDCORE: return Action.SET_DIFF_HARDCORE;
+            default: return Action.SET_DIFF_STANDARD;
+        }
     }
 
     /** Maps a tap in virtual space to an action for the given state; null if none. */
@@ -125,6 +139,9 @@ public final class Ui {
                     return null;
                 }
                 if (settingsOpen) {
+                    if (DIFF_CASUAL.contains(x, y)) return Action.SET_DIFF_CASUAL;
+                    if (DIFF_STANDARD.contains(x, y)) return Action.SET_DIFF_STANDARD;
+                    if (DIFF_HARDCORE.contains(x, y)) return Action.SET_DIFF_HARDCORE;
                     if (TOGGLE_SOUND.contains(x, y)) return Action.TOGGLE_SOUND;
                     if (TOGGLE_PARTICLES.contains(x, y)) return Action.TOGGLE_PARTICLES;
                     if (TOGGLE_HAPTICS.contains(x, y)) return Action.TOGGLE_HAPTICS;

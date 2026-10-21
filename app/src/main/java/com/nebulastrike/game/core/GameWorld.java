@@ -23,7 +23,9 @@ public class GameWorld {
         BOSS_PART_DESTROYED, BOSS_DISARMED, BOSS_LASER,
         OVERDRIVE, GRAZE, SHIELD_BROKEN, COMBO,
         /** v1.9：相位冲刺 / 连锁闪电 / 武器融合 / Boss 横冲 / 突袭波 / 治疗脉冲 / 轨道球命中 */
-        DASH, CHAIN, FUSION, BOSS_RAM, RUSH, HEAL_PULSE, ORBIT_HIT
+        DASH, CHAIN, FUSION, BOSS_RAM, RUSH, HEAL_PULSE, ORBIT_HIT,
+        /** v1.10：新星冲击 / 部署炮台 / 获得圣物 / 重生保护 / 布雷艇投雷 / 盾卫挡弹 */
+        NOVA, TURRET_DEPLOY, RELIC_GAINED, RESPAWN, MINE, SHIELD_BLOCK
     }
     public static final class GameEvent {
         public final EventType type;
@@ -53,12 +55,14 @@ public class GameWorld {
     }
 
     public final Ship ship = new Ship();
-    /** 多武器叠加后同屏弹丸更多，池子相应扩充。 */
-    public final Bullet[] bullets = new Bullet[144];
-    public final EnemyBullet[] enemyBullets = new EnemyBullet[48];
+    /** 多武器叠加后同屏弹丸更多，池子相应扩充（v1.10 基础炮常驻后再加一档）。 */
+    public final Bullet[] bullets = new Bullet[168];
+    public final EnemyBullet[] enemyBullets = new EnemyBullet[56];
     public final Enemy[] enemies = new Enemy[48];
     public final Particle[] particles = new Particle[256];
-    public final PowerUp[] powerups = new PowerUp[16];
+    public final PowerUp[] powerups = new PowerUp[20];
+    /** 玩家部署的炮台（TURRET 道具），最多同时 3 座。 */
+    public final Turret[] turrets = new Turret[3];
     public final Star[] stars = new Star[90];
 
     /** 输入/升级状态在 UI 线程写入、游戏线程读取，必须 volatile 保证可见性。 */
@@ -110,7 +114,32 @@ public class GameWorld {
     // 擦弹充能：敌弹擦身而过积攒，满槽自动进入 OVERDRIVE
     public static final float GRAZE_BAND = 26f;
     public static final float GRAZE_CHARGE_PER_BULLET = 0.08f;
+    /** 每次擦弹额外充的冲刺能量（基础值，虹吸圣物会加倍）。 */
+    public static final float GRAZE_DASH_PER_BULLET = 0.05f;
     public float grazeCharge;
+
+    // ---- v1.10：Boss 圣物 / 重生保护 / 新星冲击 ----
+    /** 已持有圣物的位掩码（bit = {@link Relic#ordinal()}），永久到本局结束。 */
+    public int relicMask;
+    /** 最近一次获得的圣物与横幅余量（HUD 用）。 */
+    public Relic lastRelic;
+    public float relicBanner;
+    /** 圣物累计获得次数（结算页与测试用）。 */
+    public int relicsGained;
+    /** 重生保护剩余时间（渲染层画倒计时气泡）。 */
+    public float respawnGrace;
+    /** 光束核心（圣物）与圣盾自动补盾的倒计时。 */
+    private float relicBeamCd;
+    private float relicAegisCd;
+    /** 纳米修复补盾倒计时。 */
+    private float nanoCd;
+    /** 新星冲击的屏幕余晖（渲染层用）。 */
+    public float novaFlash;
+    public static final float NOVA_DAMAGE = 3f;
+    /** 弹跳弹每发可用的反弹次数。 */
+    public static final int MAX_BOUNCES = 3;
+    /** RELIC_GAINED 事件的 code 上限，方便测试断言。 */
+    public static final int RELIC_COUNT = Relic.COUNT;
 
     // persistence-backed state
     public int bestScore;
@@ -214,6 +243,7 @@ public class GameWorld {
         for (int i = 0; i < enemyBullets.length; i++) enemyBullets[i] = new EnemyBullet();
         for (int i = 0; i < enemies.length; i++) enemies[i] = new Enemy();
         for (int i = 0; i < powerups.length; i++) powerups[i] = new PowerUp();
+        for (int i = 0; i < turrets.length; i++) turrets[i] = new Turret();
         for (int i = 0; i < particles.length; i++) particles[i] = new Particle();
         for (int i = 0; i < stars.length; i++) {
             stars[i] = new Star();
@@ -285,6 +315,7 @@ public class GameWorld {
         updateDifficulty();
         updateSpawning(dt);
         updateRushWave(dt);
+        updateGrace(dt);
         updateBoss(dt * timeScale);
 
         // 摇杆出现/消失动画（约 0.12 秒完成，8 倍速率逼近目标值）
@@ -292,23 +323,19 @@ public class GameWorld {
         if (joyAnim < joyTarget) joyAnim = Math.min(joyTarget, joyAnim + dt * 8f);
         else if (joyAnim > joyTarget) joyAnim = Math.max(joyTarget, joyAnim - dt * 8f);
 
-        boolean fired = ship.update(dt, WIDTH, HEIGHT);
-        // 多武器独立射速：VULCAN 用飞船基础节奏，特殊武器各走自己的冷却并叠加
-        for (int i = 1; i < weaponCd.length; i++) {
+        ship.update(dt, WIDTH, HEIGHT);
+        // 每路武器（含常驻基础炮）都走自己的冷却，互不影响
+        for (int i = 0; i < weaponCd.length; i++) {
             if (weaponCd[i] > 0f) weaponCd[i] = Math.max(0f, weaponCd[i] - dt);
         }
         int bulletsBefore = activeBulletCount();
         weaponVolleyMask = 0;
-        if (fired && !ship.hasSpecialWeapon()) {
-            fireWeapon(WeaponType.VULCAN, 1);
-        }
+        // v1.10：基础炮常驻——拾取任何武器都是"再多一路火力"，绝不会替换掉现有弹道
+        volley(WeaponType.VULCAN, 1);
         for (int i = 1; i < WeaponType.values().length; i++) {
             WeaponType type = WeaponType.values()[i];
-            if (!ship.isWeaponEquipped(type) || weaponCd[i] > 0f) continue;
-            fireWeapon(type, ship.stackOf(type));
-            weaponCd[i] = type.cooldown
-                    * (ship.rapidTimer > 0f ? 0.5f : 1f)
-                    * (ship.overdriveTimer > 0f ? Ship.OVERDRIVE_FIRE_MULT : 1f);
+            if (!ship.isWeaponEquipped(type)) continue;
+            volley(type, ship.stackOf(type));
         }
         bulletsFired += activeBulletCount() - bulletsBefore;
         updateWingman(dt);
@@ -318,6 +345,7 @@ public class GameWorld {
             if (!b.active) continue;
             if (b.homing) steerMissile(b, dt);
             b.update(dt);
+            if (b.bounces > 0 && ricochet(b)) continue;
             if (b.y < -b.radius || b.y > HEIGHT + 60f
                     || b.x < -40f || b.x > WIDTH + 40f) b.active = false;
         }
@@ -440,6 +468,8 @@ public class GameWorld {
                         ? PowerUp.Kind.ORBIT : PowerUp.Kind.CHAIN, boss.x, boss.y + 80f);
             }
             events.add(new GameEvent(EventType.BOSS_DEFEATED, boss.x, boss.y));
+            // v1.10：击败 Boss 随机继承一种 Boss 能力（圣物）
+            grantBossRelic();
         }
     }
 
@@ -721,6 +751,13 @@ public class GameWorld {
             if (b == null) return;
             b.initDrone(ship.x + i * 52f, ship.y + 2f, i * 30f, -1080f);
             bulletsFired++;
+            if (hasRelic(Relic.ETERNAL_WING)) {
+                // 永恒僚机圣物：双翼各多一发斜射
+                Bullet b2 = freeBullet();
+                if (b2 == null) return;
+                b2.initDrone(ship.x + i * 52f, ship.y + 2f, i * 170f, -1000f);
+                bulletsFired++;
+            }
         }
     }
 
@@ -945,7 +982,8 @@ public class GameWorld {
     /** 擦弹槽满：清空敌弹并进入短时火力爆发。 */
     private void activateOverdrive() {
         grazeCharge = 0f;
-        ship.overdriveTimer = Ship.OVERDRIVE_DURATION;
+        ship.overdriveTimer = Ship.OVERDRIVE_DURATION
+                * (hasRelic(Relic.OVERDRIVE_CORE) ? 2f : 1f);
         for (EnemyBullet b : enemyBullets) {
             if (!b.active) continue;
             b.active = false;
@@ -1038,6 +1076,14 @@ public class GameWorld {
                 if (cb != null) cb.initRadius(e.x, e.y + e.type.radius, 0f, 330f, 11f);
                 e.fireCd = 2.6f + RNG.get().nextFloat() * 0.9f;
                 break;
+            case SHIELDER: // 盾卫：正面三向扇形，逼玩家绕后或用弹跳弹
+                for (int i = -1; i <= 1; i++) {
+                    EnemyBullet sb2 = freeEnemyBullet();
+                    if (sb2 == null) break;
+                    sb2.init(e.x, e.y + e.type.radius, i * 140f, 310f);
+                }
+                e.fireCd = 2.0f + RNG.get().nextFloat() * 0.8f;
+                break;
             default:
                 e.fireCd = -1f;
         }
@@ -1067,12 +1113,371 @@ public class GameWorld {
             enemySpeedScale = 1f + 0.75f * t + 0.25f * over;
             formationPeriod = 1.15f - 0.35f * t;
         }
-        enemySpeedScale *= settings.enemySpeedPct / 100f;
+        enemySpeedScale *= settings.enemySpeedPct / 100f * settings.difficulty.speedScale;
     }
 
     float spawnInterval = 1.1f;
     float enemySpeedScale = 1f;
     private float formationPeriod = 1f;
+
+    // ---- v1.10：重生保护 / Boss 圣物 / 炮台 / 布雷与母舰 ----
+
+    /** 每帧推进的"轻量"子系统：保护窗口、圣物被动、纳米修复、炮台、布雷与放机。 */
+    private void updateGrace(float dt) {
+        if (respawnGrace > 0f) respawnGrace = Math.max(0f, respawnGrace - dt);
+        if (relicBanner > 0f) relicBanner = Math.max(0f, relicBanner - dt);
+        if (novaFlash > 0f) novaFlash = Math.max(0f, novaFlash - dt * 2.2f);
+        updateRelics(dt);
+        updateNano(dt);
+        updateTurrets(dt);
+        updateMinersAndCarriers();
+    }
+
+    /** 圣物被动效果统一入口（光束自动开火 / 僚机续期 / 圣盾补层）。 */
+    private void updateRelics(float dt) {
+        if (relicMask == 0) return;
+        if (hasRelic(Relic.BEAM_CORE)) {
+            relicBeamCd -= dt;
+            if (relicBeamCd <= 0f) {
+                relicBeamCd = 1.1f;
+                fireRelicBeam();
+            }
+        }
+        if (hasRelic(Relic.ETERNAL_WING) && ship.wingmanTimer < 2f) {
+            ship.wingmanTimer = Ship.WINGMAN_DURATION;   // 永恒僚机：不再到期
+        }
+        if (hasRelic(Relic.AEGIS_FIELD)) {
+            relicAegisCd -= dt;
+            if (relicAegisCd <= 0f) {
+                relicAegisCd = 18f;
+                if (ship.shieldLayers < ship.shieldCap) {
+                    ship.addShield();
+                    spark(ship.x, ship.y, 6, 5);
+                }
+            }
+        }
+    }
+
+    /** 光束核心：一束宽穿透光束，无视盾卫的正面护盾。 */
+    private void fireRelicBeam() {
+        Bullet b = freeBullet();
+        if (b == null) return;
+        b.initBeam(ship.x, ship.y - Ship.RADIUS - 16f, 0f, -1450f, 4, 22f, 150f);
+        spark(ship.x, ship.y - Ship.RADIUS - 10f, 3, 0);
+    }
+
+    /** 纳米修复：周期性自动补一层护盾（不超过当前上限）。 */
+    private void updateNano(float dt) {
+        if (ship.nanoTimer <= 0f) {
+            nanoCd = 0f;
+            return;
+        }
+        nanoCd -= dt;
+        if (nanoCd > 0f) return;
+        nanoCd = Ship.NANITE_PERIOD;
+        if (ship.shieldLayers < ship.shieldCap) {
+            ship.addShield();
+            spark(ship.x, ship.y, 5, 5);
+            events.add(new GameEvent(EventType.HEAL_PULSE, ship.x, ship.y));
+        }
+    }
+
+    /** 炮台：原地三向开火、缓慢下移，被敌弹与敌机消耗耐久。 */
+    private void updateTurrets(float dt) {
+        for (Turret t : turrets) {
+            if (!t.active) continue;
+            if (!t.update(dt)) {
+                retireTurret(t);
+                continue;
+            }
+            // 敌弹命中炮台：炮台是可牺牲的掩体，替玩家吃下这条通道
+            for (EnemyBullet b : enemyBullets) {
+                if (!b.active) continue;
+                float dx = b.x - t.x, dy = b.y - t.y;
+                float rr = Turret.RADIUS + b.radius;
+                if (dx * dx + dy * dy <= rr * rr) {
+                    b.active = false;
+                    t.damage(1f);
+                    spark(b.x, b.y, 3, 2);
+                }
+            }
+            // 敌机撞上炮台：同归于尽式消耗
+            for (Enemy e : enemies) {
+                if (!e.active) continue;
+                float dx = e.x - t.x, dy = e.y - t.y;
+                float rr = Turret.RADIUS + e.type.radius;
+                if (dx * dx + dy * dy <= rr * rr) {
+                    e.active = false;
+                    explode(e.x, e.y, e.type.colorHint);
+                    t.damage(3f);
+                }
+            }
+            if (t.destroyed()) {
+                explode(t.x, t.y, 4);
+                retireTurret(t);
+                addShake(0.16f, 6f);
+                continue;
+            }
+            if (t.fireCd > 0f) continue;
+            t.fireCd = Turret.FIRE_PERIOD;
+            for (int i = -1; i <= 1; i++) {
+                Bullet b = freeBullet();
+                if (b == null) break;
+                float ang = (float) (-Math.PI / 2 + i * 0.22f);
+                b.initDrone(t.x, t.y - Turret.RADIUS,
+                        (float) Math.cos(ang) * 920f, (float) Math.sin(ang) * 920f);
+                bulletsFired++;
+            }
+        }
+    }
+
+    private void deployTurret(float x, float y) {
+        for (Turret t : turrets) {
+            if (t.active) continue;
+            t.init(clamp(x, Turret.RADIUS + 20f, WIDTH - Turret.RADIUS - 20f),
+                    clamp(y, Ship.RADIUS * 2f, HEIGHT - 120f));
+            spark(t.x, t.y, 10, 4);
+            events.add(new GameEvent(EventType.TURRET_DEPLOY, t.x, t.y));
+            return;
+        }
+        // 已满：折算奖励分，不浪费这次拾取
+        addScore(250, SCORE_PICKUP);
+    }
+
+    private void retireTurret(Turret t) {
+        t.active = false;
+        spark(t.x, t.y, 6, 4);
+    }
+
+    /** 布雷艇投雷、母舰放机（两者的倒计时都在 Enemy.update 里推进）。 */
+    private void updateMinersAndCarriers() {
+        for (Enemy e : enemies) {
+            if (!e.active) continue;
+            if (e.type == EnemyType.MINER && e.mineCd <= 0f
+                    && e.y > 120f && e.y < HEIGHT * 0.72f) {
+                e.mineCd = 1.9f + RNG.get().nextFloat() * 0.8f;
+                EnemyBullet m = freeEnemyBullet();
+                if (m != null) {
+                    m.initMine(e.x, e.y + e.type.radius * 0.7f);
+                    events.add(new GameEvent(EventType.MINE, m.x, m.y));
+                }
+                spark(e.x, e.y + e.type.radius, 3, 8);
+            }
+            if (e.type == EnemyType.CARRIER && e.droneCd <= 0f && e.hoverCd > 0f) {
+                e.droneCd = 2.4f + RNG.get().nextFloat() * 0.7f;
+                spawnCarrierDrones(e);
+            }
+        }
+    }
+
+    private void spawnCarrierDrones(Enemy e) {
+        int born = 0;
+        for (int i = 0; i < 2; i++) {
+            Enemy d = freeEnemy();
+            if (d == null) break;
+            d.init(EnemyType.DRONE, e.x + (i == 0 ? -54f : 54f), e.y + 34f, enemySpeedScale);
+            d.splitDepth = 1;   // 子机不再触发分裂逻辑
+            spawnedCount++;
+            recordEnemyInCodex(EnemyType.DRONE);
+            born++;
+        }
+        if (born == 0) return;
+        spark(e.x, e.y + 30f, 5, 9);
+        events.add(new GameEvent(EventType.FORMATION, e.x, e.y));
+    }
+
+    /** 弹跳弹撞墙反弹：镜像速度并贴回壁内，返回 true 表示本帧不因出界被回收。 */
+    private boolean ricochet(Bullet b) {
+        if (b.x <= 14f && b.vx < 0f) {
+            b.x = 14f;
+            b.vx = -b.vx;
+        } else if (b.x >= WIDTH - 14f && b.vx > 0f) {
+            b.x = WIDTH - 14f;
+            b.vx = -b.vx;
+        } else if (b.y <= 14f && b.vy < 0f) {
+            b.y = 14f;
+            b.vy = -b.vy;
+        } else {
+            return false;
+        }
+        b.speed = (float) Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+        b.bounces--;
+        spark(b.x, b.y, 3, 4);
+        return true;
+    }
+
+    /** 新星冲击：清光全场敌弹，并对所有敌机与 Boss 造成一次范围伤害。 */
+    private void detonateNova() {
+        for (EnemyBullet b : enemyBullets) {
+            if (!b.active) continue;
+            b.active = false;
+            spark(b.x, b.y, 2, 3);
+        }
+        // 两段式结算：先算伤害再统一击杀，避免分裂子机被同一波新星连带击毁刷分
+        int victims = 0;
+        for (Enemy e : enemies) {
+            if (!e.active) continue;
+            e.damage((int) NOVA_DAMAGE);
+            if (e.hp <= 0f && victims < novaVictims.length) novaVictims[victims++] = e;
+        }
+        for (int i = 0; i < victims; i++) {
+            Enemy v = novaVictims[i];
+            novaVictims[i] = null;
+            if (v.active) killEnemy(v);
+        }
+        if (boss.active) {
+            for (int i = 0; i < boss.partCount; i++) {
+                BossPart p = boss.parts[i];
+                if (p.active) damageBossPart(p, (int) NOVA_DAMAGE);
+            }
+            boss.damage((int) NOVA_DAMAGE);
+        }
+        novaFlash = 1f;
+        bombFlash = Math.max(bombFlash, 0.7f);
+        addShake(0.5f, 18f);
+        addHitStop(0.1f);
+        events.add(new GameEvent(EventType.NOVA, ship.x, ship.y));
+    }
+
+    /** 新星伤害名单的复用缓冲（避免每次拾取都分配）。 */
+    private final Enemy[] novaVictims = new Enemy[enemies.length];
+
+    /** 盾卫正面护盾是否挡下这颗子弹：只拦自下而上的直射实弹，光束/弹跳/破片可穿。 */
+    private boolean blockedByShield(Enemy e, Bullet b) {
+        if (!e.hasFrontShield()) return false;
+        if (b.piercing || b.bounces > 0 || b.fragment) return false;
+        return b.vy < 0f;
+    }
+
+    public boolean hasRelic(Relic r) {
+        return r != null && (relicMask & (1 << r.ordinal())) != 0;
+    }
+
+    /** 六枚圣物是否全部集齐。 */
+    public boolean relicsComplete() {
+        return relicMask == (1 << Relic.COUNT) - 1;
+    }
+
+    /** 击败 Boss 掉落一枚尚未持有的圣物；集齐后折算成奖励分。 */
+    private void grantBossRelic() {
+        int missing = ((1 << Relic.COUNT) - 1) & ~relicMask;
+        if (missing == 0) {
+            addScore(800, SCORE_OTHER);
+            return;
+        }
+        int skip = RNG.get().nextInt(Integer.bitCount(missing));
+        Relic pick = null;
+        for (int i = 0; i < Relic.COUNT; i++) {
+            if ((missing & (1 << i)) == 0) continue;
+            if (skip-- == 0) {
+                pick = Relic.byOrdinal(i);
+                break;
+            }
+        }
+        applyRelic(pick);
+    }
+
+    /** 获得并激活一枚圣物（硬核难度坠机会全部失去）。 */
+    private void applyRelic(Relic r) {
+        if (r == null) return;
+        relicMask |= 1 << r.ordinal();
+        lastRelic = r;
+        relicBanner = 3.4f;
+        relicsGained++;
+        refreshShieldCap();
+        if (r == Relic.BEAM_CORE) relicBeamCd = 0.35f;
+        if (r == Relic.AEGIS_FIELD) relicAegisCd = 18f;
+        if (r == Relic.ETERNAL_WING) ship.wingmanTimer = Ship.WINGMAN_DURATION;
+        spark(ship.x, ship.y, 14, 4);
+        addShake(0.25f, 8f);
+        events.add(new GameEvent(EventType.RELIC_GAINED, ship.x, ship.y, r.ordinal()));
+    }
+
+    /** 圣盾外壳会把护盾上限抬高一层，失去圣物时恢复。 */
+    private void refreshShieldCap() {
+        ship.shieldCap = hasRelic(Relic.AEGIS_FIELD)
+                ? Ship.MAX_SHIELD_LAYERS + 1 : Ship.MAX_SHIELD_LAYERS;
+        if (ship.shieldLayers > ship.shieldCap) ship.shieldLayers = ship.shieldCap;
+    }
+
+    /** 坠机惩罚：按难度决定掉什么。 */
+    private void applyDeathPenalty() {
+        Difficulty.Penalty p = settings.difficulty.penalty;
+        if (p == Difficulty.Penalty.KEEP_ALL) return;
+        if (p == Difficulty.Penalty.KEEP_WEAPONS) {
+            // 雷电式惩罚：坠机火力降 1 级，武器与圣物保留
+            if (ship.powerLevel > 1) ship.powerLevel--;
+            return;
+        }
+        // STRIP（硬核）：特殊武器、圣物、护盾、炮台全部清零
+        for (int i = 1; i < ship.weaponTimers.length; i++) {
+            ship.weaponTimers[i] = 0f;
+            ship.weaponStacks[i] = 0;
+        }
+        ship.weapon = WeaponType.VULCAN;
+        ship.weaponTimer = 0f;
+        ship.powerLevel = 1;
+        ship.hasShield = false;
+        ship.shieldLayers = 0;
+        ship.nanoTimer = 0f;
+        nanoCd = 0f;
+        relicMask = 0;
+        relicBeamCd = 0f;
+        relicAegisCd = 0f;
+        refreshShieldCap();
+        resetWeaponCooldowns();
+        for (Turret t : turrets) if (t.active) retireTurret(t);
+    }
+
+    /** 重生保护：短暂无敌 + 清掉身边敌弹，避免"落地成盒"。 */
+    private void respawnSafely() {
+        float secs = settings.difficulty.respawnInvuln;
+        ship.makeInvulnerable(secs);
+        respawnGrace = secs;
+        clearBulletsAround(ship.x, ship.y, settings.difficulty.respawnClearRadius);
+        resetWeaponCooldowns();
+        events.add(new GameEvent(EventType.RESPAWN, ship.x, ship.y, (int) (secs * 10f)));
+    }
+
+    private void clearBulletsAround(float x, float y, float radius) {
+        float r2 = radius * radius;
+        for (EnemyBullet b : enemyBullets) {
+            if (!b.active) continue;
+            float dx = b.x - x, dy = b.y - y;
+            if (dx * dx + dy * dy > r2) continue;
+            b.active = false;
+            spark(b.x, b.y, 2, 3);
+        }
+    }
+
+    private static float clamp(float v, float lo, float hi) {
+        return v < lo ? lo : (v > hi ? hi : v);
+    }
+
+    /**
+     * 系统返回键的统一处理：Activity 与 View 共用这一条状态映射，
+     * 避免"视图没拿到焦点 → 返回键落到系统默认行为 → 整个应用被切到后台"。
+     * @return true 表示本次返回已被游戏消费，Activity 不应继续 finish()
+     */
+    public boolean consumeBack() {
+        switch (state) {
+            case PLAYING:
+                pauseIfPlaying();
+                return true;
+            case PAUSED:
+                handleUiAction(Ui.Action.RESUME);
+                return true;
+            case GAME_OVER:
+                handleUiAction(Ui.Action.QUIT_TO_MENU);
+                return true;
+            default:
+                if (settingsOpen || cheatOpen || codexOpen) {
+                    closePanels();
+                    return true;
+                }
+                return false;   // 裸主菜单：放行，让 Activity 正常退出
+        }
+    }
 
     private void updateSpawning(float dt) {
         if (!spawningEnabled) return;
@@ -1115,7 +1520,23 @@ public class GameWorld {
         float margin = type.radius + 30f;
         float x = margin + RNG.get().nextFloat() * (WIDTH - margin * 2);
         e.init(type, x, -type.radius - 10f, enemySpeedScale);
+        maybeElite(e, type);
     }
+
+    /**
+     * 精英词缀：中后期低概率出现，厚血、3 倍分、必掉道具。
+     * 炮灰无人机不当精英（一屏 5 架的编队会突然变成硬骨头，节奏会崩）。
+     */
+    private void maybeElite(Enemy e, EnemyType type) {
+        float t = mode == GameMode.ENDLESS ? timeAlive * 1.6f : timeAlive;
+        if (t < 45f || type == EnemyType.DRONE) return;
+        float chance = ELITE_BASE_CHANCE * settings.difficulty.eliteScale;
+        if (RNG.get().nextFloat() >= chance) return;
+        e.makeElite();
+        spark(e.x, e.y, 5, 4);
+    }
+
+    private static final float ELITE_BASE_CHANCE = 0.055f;
 
     /** 敌机一旦登场就解锁图鉴条目（不要求击杀）。 */
     private void recordEnemyInCodex(EnemyType type) {
@@ -1137,12 +1558,17 @@ public class GameWorld {
         float wSplit = t > 45f ? Math.min(0.16f, 0.08f + (t - 45f) / 1000f) : 0f;
         float wHeal = t > 60f ? Math.min(0.11f, 0.06f + (t - 60f) / 1200f) : 0f;
         float wSnipe = t > 75f ? Math.min(0.13f, 0.07f + (t - 75f) / 1200f) : 0f;
+        float wMiner = t > 95f ? Math.min(0.14f, 0.07f + (t - 95f) / 1400f) : 0f;
+        float wShield = t > 110f ? Math.min(0.13f, 0.06f + (t - 110f) / 1500f) : 0f;
+        float wCarrier = t > 135f ? Math.min(0.10f, 0.05f + (t - 135f) / 1600f) : 0f;
         // 保留至少 15% 无人机当"炮灰"：非无人机权重整体归一
-        float sum = wTank + wHunter + wWeaver + wSui + wSplit + wHeal + wSnipe;
+        float sum = wTank + wHunter + wWeaver + wSui + wSplit + wHeal + wSnipe
+                + wMiner + wShield + wCarrier;
         if (sum > 0.85f) {
             float k = 0.85f / sum;
             wTank *= k; wHunter *= k; wWeaver *= k;
             wSui *= k; wSplit *= k; wHeal *= k; wSnipe *= k;
+            wMiner *= k; wShield *= k; wCarrier *= k;
         }
         float c = 0f;
         if (r < (c += wTank)) return EnemyType.TANK;
@@ -1152,7 +1578,25 @@ public class GameWorld {
         if (r < (c += wSplit)) return EnemyType.SPLITTER;
         if (r < (c += wHeal)) return EnemyType.HEALER;
         if (r < (c += wSnipe)) return EnemyType.SNIPER;
+        if (r < (c += wMiner)) return EnemyType.MINER;
+        if (r < (c += wShield)) return EnemyType.SHIELDER;
+        if (r < (c += wCarrier)) return EnemyType.CARRIER;
         return EnemyType.DRONE;
+    }
+
+    /** 清零所有武器冷却：重生后立刻能开火，测试也用它隔离上一轮弹道。 */
+    public void resetWeaponCooldowns() {
+        for (int i = 0; i < weaponCd.length; i++) weaponCd[i] = 0f;
+    }
+
+    /** 按各自冷却开一路武器；冷却未到则本帧静默（基础炮与所有特殊武器共用这条路径）。 */
+    private void volley(WeaponType type, int stack) {
+        int i = type.ordinal();
+        if (weaponCd[i] > 0f) return;
+        fireWeapon(type, stack);
+        weaponCd[i] = type.cooldown
+                * (ship.rapidTimer > 0f ? 0.5f : 1f)
+                * (ship.overdriveTimer > 0f ? Ship.OVERDRIVE_FIRE_MULT : 1f);
     }
 
     /** 弹道生成：武器类型 × 火力等级 × 同类叠加层数共同决定数量与形状。 */
@@ -1160,7 +1604,8 @@ public class GameWorld {
         shotsFired++;
         weaponVolleyMask |= 1 << type.ordinal();
         // 火力等级（永久 POWER）+ OVERDRIVE 临时等级 + 同类叠层（每层约等于半级）
-        int lvl = ship.powerLevel + (ship.overdriveTimer > 0f ? 1 : 0)
+        int lvl = ship.powerLevel
+                + (ship.overdriveTimer > 0f ? 1 + (hasRelic(Relic.OVERDRIVE_CORE) ? 1 : 0) : 0)
                 + Math.max(0, stack - 1);
         switch (type) {
             case SPREAD: {
@@ -1250,6 +1695,21 @@ public class GameWorld {
                 }
                 break;
             }
+            case BOUNCE: {
+                // 弹跳弹：撞墙反弹最多 3 次，专打盾卫这类正面怪物
+                int balls = Math.min(5, 1 + lvl / 2 + Math.max(0, stack - 1));
+                for (int i = 0; i < balls; i++) {
+                    Bullet b = freeBullet();
+                    if (b == null) return;
+                    float ang = (float) (-Math.PI / 2 + (i - (balls - 1) / 2f) * 0.34f);
+                    b.init(ship.x, ship.y - Ship.RADIUS - 8f,
+                            (float) Math.cos(ang) * 1000f, (float) Math.sin(ang) * 1000f,
+                            WeaponType.BOUNCE.damage, false);
+                    b.bounces = MAX_BOUNCES;
+                    b.radius = 10f;
+                }
+                break;
+            }
             default: {
                 // VULCAN：单发 / 双发平行 / 三向
                 int vulcanLvl = Math.min(Ship.MAX_POWER, lvl);
@@ -1272,6 +1732,17 @@ public class GameWorld {
                                     (float) Math.cos(ang) * 1150f, (float) Math.sin(ang) * 1150f,
                                     1, false);
                         }
+                    }
+                }
+                if (hasRelic(Relic.MIRROR_LANCE)) {
+                    // 镜像枪圣物：基础炮追加两路 ±25° 的镜像弹
+                    for (int i = -1; i <= 1; i += 2) {
+                        Bullet b = freeBullet();
+                        if (b == null) return;
+                        float ang = (float) (-Math.PI / 2 + i * 0.44f);
+                        b.init(ship.x, ship.y - Ship.RADIUS - 6f,
+                                (float) Math.cos(ang) * 1150f, (float) Math.sin(ang) * 1150f,
+                                1, false);
                     }
                 }
             }
@@ -1378,6 +1849,20 @@ public class GameWorld {
                 float dx = b.x - e.x, dy = b.y - e.y;
                 float rr = b.radius + e.type.radius;
                 if (dx * dx + dy * dy <= rr * rr) {
+                    if (blockedByShield(e, b)) {
+                        // 盾卫正面挡弹：只消耗护盾耐久，舰体无伤
+                        b.active = false;
+                        registerHit(b);
+                        e.chipShield(b.damage);
+                        spark(b.x, b.y, 4, 10);
+                        events.add(new GameEvent(EventType.SHIELD_BLOCK, b.x, b.y,
+                                e.shieldHp <= 0f ? 1 : 0));
+                        if (e.shieldHp <= 0f) {
+                            addShake(0.14f, 6f);
+                            spark(e.x, e.y + e.type.radius, 10, 10);
+                        }
+                        continue;
+                    }
                     if (b.piercing) b.hitCooldown = 0.06f;
                     else b.active = false;
                     registerHit(b);
@@ -1429,6 +1914,11 @@ public class GameWorld {
                 grazes++;
                 if (ship.overdriveTimer <= 0f) {
                     grazeCharge = Math.min(1f, grazeCharge + GRAZE_CHARGE_PER_BULLET);
+                }
+                if (hasRelic(Relic.GRAZE_LEECH)) {
+                    // 虹吸矩阵：擦弹同时给冲刺充能，鼓励贴弹走位
+                    ship.dashCharge = Math.min(Ship.DASH_MAX_CHARGE,
+                            ship.dashCharge + GRAZE_DASH_PER_BULLET);
                 }
                 if (!grazedThisFrame) {
                     grazedThisFrame = true;
@@ -1496,6 +1986,20 @@ public class GameWorld {
             case CHAIN:
                 castChainLightning();
                 break;
+            case BOUNCE:
+                ship.addWeapon(WeaponType.BOUNCE);
+                weaponCd[WeaponType.BOUNCE.ordinal()] = 0f;
+                break;
+            case NOVA:
+                detonateNova();
+                break;
+            case NANITE:
+                ship.nanoTimer = extendTimer(ship.nanoTimer, Ship.NANITE_DURATION);
+                nanoCd = 0.25f;   // 拾取瞬间就补一层，手感"立刻变强"
+                break;
+            case TURRET:
+                deployTurret(p.x, p.y + 40f);
+                break;
             case BONUS:
                 // 突袭奖励：大量分数 + 双倍分数 + 随机武器 + 清空敌弹
                 addScore(400 + 60 * wave, SCORE_PICKUP);
@@ -1554,6 +2058,9 @@ public class GameWorld {
     /** 带来源的得分入口，来源用于结算页"分数构成"图。 */
     void addScore(int base, int source) {
         int gained = base * (x2Timer > 0f ? 2 : 1);
+        // 难度得分倍率：休闲打 75 折、硬核 1.5 倍，标准档保持原值
+        float scale = settings.difficulty.scoreScale;
+        if (scale != 1f) gained = Math.round(gained * scale);
         score += gained;
         int idx = source >= 0 && source < SCORE_SOURCES ? source : SCORE_OTHER;
         scoreBySource[idx] += gained;
@@ -1604,12 +2111,17 @@ public class GameWorld {
         final EnemyType type = e.type;
         final float ex = e.x, ey = e.y;
         final int depth = e.splitDepth;
+        final boolean elite = e.elite;
         comboKills++;
         if (comboKills > maxCombo) maxCombo = comboKills;
         comboTimer = COMBO_WINDOW;
-        addScore(type.score * comboMultiplier(), SCORE_ENEMY);
+        addScore(type.score * (elite ? Enemy.ELITE_SCORE_MULT : 1) * comboMultiplier(), SCORE_ENEMY);
         kills++;
         explode(ex, ey, type.colorHint);
+        if (elite) {
+            spark(ex, ey, 10, 4);
+            addShake(0.12f, 5f);
+        }
         if (type == EnemyType.SUICIDER) {
             // 自杀机解体时散出一圈碎片，逼玩家不要贴脸击杀
             for (int i = 0; i < 5; i++) {
@@ -1637,7 +2149,16 @@ public class GameWorld {
         addShake(type == EnemyType.TANK ? 0.22f : 0.05f,
                  type == EnemyType.TANK ? 9f : 2.5f);
         if (type == EnemyType.TANK || type == EnemyType.SPLITTER) addHitStop(0.045f);
-        maybeDropPowerUp(type, ex, ey);
+        if (type == EnemyType.MINER) {
+            // 击毁布雷艇：它刚布下的水雷一并解除，否则越打越乱
+            for (EnemyBullet b : enemyBullets) {
+                if (b.active && b.mine && Math.abs(b.y - ey) < 520f) {
+                    b.active = false;
+                    spark(b.x, b.y, 3, 8);
+                }
+            }
+        }
+        maybeDropPowerUp(type, ex, ey, elite);
         events.add(new GameEvent(EventType.ENEMY_KILLED, ex, ey, type.ordinal()));
         if (comboKills % 5 == 0 && comboKills <= 20) {
             events.add(new GameEvent(EventType.COMBO, ex, ey, comboKills));
@@ -1645,36 +2166,46 @@ public class GameWorld {
     }
 
     /** Tanks and support hulls drop often, drones rarely. 武器/火力类道具权重最高（雷电式成长曲线）。 */
-    private void maybeDropPowerUp(EnemyType type, float x, float y) {
+    private void maybeDropPowerUp(EnemyType type, float x, float y, boolean elite) {
         float chance = type == EnemyType.TANK ? 0.45f
                 : type == EnemyType.SPLITTER ? 0.32f
                 : type == EnemyType.HEALER ? 0.36f
                 : type == EnemyType.SNIPER ? 0.22f
+                : type == EnemyType.CARRIER ? 0.55f
+                : type == EnemyType.SHIELDER ? 0.30f
+                : type == EnemyType.MINER ? 0.24f
                 : type == EnemyType.HUNTER ? 0.12f
                 : type == EnemyType.SUICIDER ? 0.04f : 0.05f;
-        chance = Math.min(1f, chance * settings.dropRatePct / 100f);
-        if (RNG.get().nextFloat() >= chance) return;
+        chance = Math.min(1f, chance * settings.dropRatePct / 100f
+                    * settings.difficulty.dropScale);
+        if (!elite && RNG.get().nextFloat() >= chance) return; // 精英必掉
         spawnPowerUp(dropKind(RNG.get().nextFloat()), x, y);
     }
 
     /**
-     * 掉落分布。BONUS 只由突袭奖励波投放，不在常规掉落表内。
+     * 掉落分布（v1.10）。BONUS 只由突袭奖励波投放，不在常规掉落表内。
+     * 追踪弹 MISSILE 提到 14%（用户反馈"想要更多追踪弹"），
+     * 新增 BOUNCE/NOVA/NANITE/TURRET 四类各占 3%~3.5%。
      * 独立成纯函数便于测试边界。
      */
     public static PowerUp.Kind dropKind(float roll) {
-        if (roll < 0.13f) return PowerUp.Kind.SPREAD;
-        if (roll < 0.26f) return PowerUp.Kind.POWER;
-        if (roll < 0.37f) return PowerUp.Kind.LASER;
-        if (roll < 0.47f) return PowerUp.Kind.MISSILE;
-        if (roll < 0.56f) return PowerUp.Kind.SHIELD;
-        if (roll < 0.64f) return PowerUp.Kind.BOMB;
-        if (roll < 0.71f) return PowerUp.Kind.ORBIT;
-        if (roll < 0.77f) return PowerUp.Kind.CHAIN;
-        if (roll < 0.83f) return PowerUp.Kind.RAPID;
-        if (roll < 0.87f) return PowerUp.Kind.X2;
-        if (roll < 0.91f) return PowerUp.Kind.LIFE;
-        if (roll < 0.95f) return PowerUp.Kind.WINGMAN;
-        return PowerUp.Kind.TIME;
+        if (roll < 0.12f) return PowerUp.Kind.SPREAD;
+        if (roll < 0.24f) return PowerUp.Kind.POWER;
+        if (roll < 0.38f) return PowerUp.Kind.MISSILE;
+        if (roll < 0.46f) return PowerUp.Kind.LASER;
+        if (roll < 0.54f) return PowerUp.Kind.SHIELD;
+        if (roll < 0.60f) return PowerUp.Kind.BOMB;
+        if (roll < 0.65f) return PowerUp.Kind.ORBIT;
+        if (roll < 0.70f) return PowerUp.Kind.CHAIN;
+        if (roll < 0.74f) return PowerUp.Kind.RAPID;
+        if (roll < 0.78f) return PowerUp.Kind.X2;
+        if (roll < 0.81f) return PowerUp.Kind.LIFE;
+        if (roll < 0.84f) return PowerUp.Kind.WINGMAN;
+        if (roll < 0.87f) return PowerUp.Kind.TIME;
+        if (roll < 0.905f) return PowerUp.Kind.BOUNCE;
+        if (roll < 0.935f) return PowerUp.Kind.NOVA;
+        if (roll < 0.965f) return PowerUp.Kind.NANITE;
+        return PowerUp.Kind.TURRET;
     }
 
     /** Public for tests; spawns a pickup at the given spot. */
@@ -1837,6 +2368,12 @@ public class GameWorld {
             case SETTINGS_BACK:
                 settingsOpen = false;
                 break;
+            case SET_DIFF_CASUAL:
+            case SET_DIFF_STANDARD:
+            case SET_DIFF_HARDCORE:
+                settings.setDifficulty(difficultyFor(a));
+                saveSettings();
+                break;
             case RESUME:
                 state = State.PLAYING;
                 break;
@@ -1855,6 +2392,15 @@ public class GameWorld {
                     clearShipInput(); // 否则摇杆残影会留在暂停遮罩下
                 }
                 break;
+        }
+    }
+
+    /** 分段按钮 → 难度档位。 */
+    private static Difficulty difficultyFor(Ui.Action a) {
+        switch (a) {
+            case SET_DIFF_CASUAL: return Difficulty.CASUAL;
+            case SET_DIFF_HARDCORE: return Difficulty.HARDCORE;
+            default: return Difficulty.STANDARD;
         }
     }
 
@@ -1888,7 +2434,8 @@ public class GameWorld {
     private void onPlayerHit() {
         if (settings.godMode) return;
         if (ship.consumeShield()) { // 每一层护盾各挡一次伤害
-            ship.makeInvulnerable();
+            ship.makeInvulnerable(settings.difficulty.respawnInvuln);
+            respawnGrace = settings.difficulty.respawnInvuln;
             addShake(0.25f, 10f);
             addHitStop(0.06f);
             events.add(new GameEvent(EventType.SHIELD_BROKEN, ship.x, ship.y));
@@ -1900,8 +2447,7 @@ public class GameWorld {
         addShake(0.4f, 16f);
         addHitStop(0.09f);
         lives--;
-        // 雷电式惩罚：坠机火力降 1 级
-        if (ship.powerLevel > 1) ship.powerLevel--;
+        applyDeathPenalty();
         events.add(new GameEvent(EventType.PLAYER_HIT, ship.x, ship.y));
         if (lives <= 0) {
             lives = 0;
@@ -1918,7 +2464,7 @@ public class GameWorld {
             flushCodex();
             events.add(new GameEvent(EventType.GAME_OVER, ship.x, ship.y));
         } else {
-            ship.makeInvulnerable();
+            respawnSafely();
         }
     }
 
@@ -2015,6 +2561,17 @@ public class GameWorld {
         lastFusion = null;
         attackSeq = 0;
         bossRamTrailCd = 0f;
+        // v1.10：圣物 / 重生保护 / 新星 / 炮台 全部归零
+        relicMask = 0;
+        lastRelic = null;
+        relicBanner = 0f;
+        relicsGained = 0;
+        respawnGrace = 0f;
+        novaFlash = 0f;
+        relicBeamCd = 0f;
+        relicAegisCd = 0f;
+        nanoCd = 0f;
+        for (Turret t : turrets) t.active = false;
         for (int i = 0; i < SCORE_SOURCES; i++) scoreBySource[i] = 0;
         for (int i = 0; i < MAX_ARCS; i++) arcAge[i] = 0f;
         for (int i = 0; i < orbitCd.length; i++) orbitCd[i] = 0f;

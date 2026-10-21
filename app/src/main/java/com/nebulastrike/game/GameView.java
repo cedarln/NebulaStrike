@@ -42,6 +42,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
         getHolder().addCallback(this);
         setFocusable(true);
         setFocusableInTouchMode(true);
+        // 立刻索取焦点：否则 KeyEvent 不会走到本 View，返回键只能靠 Activity 兜底
+        requestFocus();
         world = new GameWorld(System.nanoTime(), true);
         world.attachStore(new SharedPrefsStore(context));
         // low-RAM devices start with reduced fx from frame one (auto quality recovers if fast)
@@ -183,30 +185,26 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
         }
     }
 
-    /** Back button: pause/resume in game, exit from menu. Returns true if consumed. */
+    /**
+     * Back button: pause/resume in game, close panels, exit from the bare menu.
+     * 逻辑统一在 GameWorld.consumeBack()（可单测），Activity 的 onBackPressed 与本方法共用它。
+     * @return true 表示这次返回已被游戏消化，不应再交给系统默认行为
+     */
     public boolean handleBack() {
-        switch (world.state) {
-            case PLAYING:
-                world.pauseIfPlaying();
-                return true;
-            case PAUSED:
-                world.handleUiAction(Ui.Action.RESUME);
-                return true;
-            case GAME_OVER:
-                world.handleUiAction(Ui.Action.QUIT_TO_MENU);
-                return true;
-            default:
-                if (world.settingsOpen || world.cheatOpen || world.codexOpen) {
-                    world.closePanels();
-                    return true;
-                }
-                return false; // let the activity finish
-        }
+        boolean consumed = world.consumeBack();
+        if (consumed) audio.uiTick();
+        return consumed;
+    }
+
+    /** 供 Activity 的 onBackPressed 使用：返回键被游戏消化时给一声轻响。 */
+    void playBackUiSound() {
+        audio.uiTick();
     }
 
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
+            // 有焦点时也走同一条路径；未消费时交回系统（Activity 会正常退出）
             return handleBack() || super.onKeyDown(keyCode, event);
         }
         return super.onKeyDown(keyCode, event);
@@ -307,6 +305,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
     public void surfaceCreated(SurfaceHolder holder) {
         // Surface 重建（切后台回来、锁屏解锁）后音频轨道已被释放，必须重新启动
         audio.init(world.settings);
+        // Surface 重建后焦点可能还给 Activity，重新索取以保证 KeyEvent 通路
+        requestFocus();
         running = true;
         thread = new Thread(this, "game-loop");
         thread.start();

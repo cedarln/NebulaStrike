@@ -17,13 +17,20 @@ public enum EnemyType {
     /** 医疗艇：为附近友舰回血，优先击杀目标。 */
     HEALER(32f, 3, 130f, 40, 6),
     /** 狙击塔：下降到上空悬停，预警后射出高速瞄准弹。 */
-    SNIPER(34f, 3, 210f, 45, 7);
+    SNIPER(34f, 3, 210f, 45, 7),
+    /** 布雷艇（v1.10）：缓慢推进，沿途留下接触即炸的水雷。 */
+    MINER(34f, 3, 130f, 35, 8),
+    /** 母舰（v1.10）：厚血慢速，持续放出无人机，优先击杀可断源。 */
+    CARRIER(56f, 12, 88f, 90, 9),
+    /** 盾卫（v1.10）：正面护盾挡下所有非穿透弹，要用激光或打穿护盾才能伤舰体。 */
+    SHIELDER(38f, 6, 120f, 60, 10);
 
     public final float radius;
     public final int hp;
     public final float baseSpeed;
     public final int score;
-    /** Palette index used by the renderer (0 cyan, 1 green, 2 orange, 3 magenta, 4 yellow, 5 lime, 6 rose, 7 violet). */
+    /** Palette index used by the renderer (0 cyan, 1 green, 2 orange, 3 magenta, 4 yellow,
+     *  5 lime, 6 rose, 7 violet, 8 mint, 9 crimson, 10 steel). */
     public final int colorHint;
 
     EnemyType(float radius, int hp, float baseSpeed, int score, int colorHint) {
@@ -36,6 +43,12 @@ public enum EnemyType {
 
     /** 是否属于"后期解锁"兵种（图鉴/生成权重按登场时间排序用）。 */
     public boolean isAdvanced() {
-        return this == SUICIDER || this == SPLITTER || this == HEALER || this == SNIPER;
+        switch (this) {
+            case SUICIDER: case SPLITTER: case HEALER: case SNIPER:
+            case MINER: case CARRIER: case SHIELDER:
+                return true;
+            default:
+                return false;
+        }
     }
 }

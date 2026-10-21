@@ -24,6 +24,8 @@ public class Bullet {
     public boolean cluster;
     /** 破片本身不再二次爆裂，防止无限递归生成。 */
     public boolean fragment;
+    /** 弹跳弹剩余反弹次数（>0 时撞到左右壁会镜像 vx，见 GameWorld.bulletBounds）。 */
+    public int bounces;
 
     public void init(float x, float y, float vy) {
         init(x, y, 0f, vy, 1, false);
@@ -44,6 +46,7 @@ public class Bullet {
         this.len = 0f;
         this.cluster = false;
         this.fragment = false;
+        this.bounces = 0;
         this.landed = false;
     }
 

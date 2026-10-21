@@ -229,6 +229,26 @@ public class AudioEngine {
                 case RUSH:
                     play(SfxId.ALARM, 0.55f, 1.25f, 0f);
                     break;
+                case NOVA:
+                    play(SfxId.NOVA, 0.98f, vary(0.05f), 0f);
+                    break;
+                case TURRET_DEPLOY:
+                    play(SfxId.TURRET_DEPLOY, 0.72f, vary(0.06f), panFor(e.x));
+                    break;
+                case RELIC_GAINED:
+                    play(SfxId.RELIC, 1f, 1f + Math.min(0.25f, Math.max(0, e.code) * 0.05f), 0f);
+                    break;
+                case RESPAWN:
+                    play(SfxId.RESPAWN, 0.80f, 1f, 0f);
+                    break;
+                case MINE:
+                    play(SfxId.MINE, 0.40f, vary(0.14f), panFor(e.x));
+                    break;
+                case SHIELD_BLOCK:
+                    // code==1 表示护盾被击穿，用更亮的破碎声收尾
+                    play(e.code == 1 ? SfxId.SHIELD_BREAK : SfxId.SHIELD_BLOCK,
+                            e.code == 1 ? 0.70f : 0.42f, vary(0.10f), panFor(e.x));
+                    break;
             }
         }
     }
@@ -264,6 +284,22 @@ public class AudioEngine {
             play(SfxId.BONUS, 0.92f, 1f, panFor(e.x));
             return;
         }
+        if (kind == PowerUp.Kind.BOUNCE) {
+            play(SfxId.SHOOT_BOUNCE, 0.75f, 1.2f, panFor(e.x));
+            return;
+        }
+        if (kind == PowerUp.Kind.NOVA) {
+            play(SfxId.NOVA, 0.95f, 1f, 0f);
+            return;
+        }
+        if (kind == PowerUp.Kind.NANITE) {
+            play(SfxId.HEAL, 0.70f, 1.15f, panFor(e.x));
+            return;
+        }
+        if (kind == PowerUp.Kind.TURRET) {
+            play(SfxId.TURRET_DEPLOY, 0.80f, 1f, panFor(e.x));
+            return;
+        }
         float pitch = kind == PowerUp.Kind.SHIELD ? 1.18f : 1f;
         play(SfxId.POWERUP, 0.65f, pitch, panFor(e.x));
     }
@@ -288,6 +324,9 @@ public class AudioEngine {
                 break;
             case SWARM:
                 play(SfxId.SHOOT_LASER, 0.34f, 1.5f, panFor(x));
+                break;
+            case BOUNCE:
+                play(SfxId.SHOOT_BOUNCE, 0.40f, vary(0.07f), panFor(x));
                 break;
             default:
                 play(SfxId.SHOOT_VULCAN, 0.40f, vary(0.06f), panFor(x));
@@ -345,6 +384,13 @@ public class AudioEngine {
             case FUSION: return 300_000_000L;
             case BOSS_RAM: return 450_000_000L;
             case BONUS: return 300_000_000L;
+            case SHOOT_BOUNCE: return 46_000_000L;
+            case NOVA: return 600_000_000L;
+            case TURRET_DEPLOY: return 320_000_000L;
+            case RELIC: return 500_000_000L;
+            case RESPAWN: return 400_000_000L;
+            case MINE: return 140_000_000L;
+            case SHIELD_BLOCK: return 70_000_000L;
             default: return 0L;
         }
     }

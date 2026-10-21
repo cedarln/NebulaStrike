@@ -11,14 +11,17 @@ import com.nebulastrike.game.core.Boss;
 import com.nebulastrike.game.core.BossLaser;
 import com.nebulastrike.game.core.BossPart;
 import com.nebulastrike.game.core.Bullet;
+import com.nebulastrike.game.core.Difficulty;
 import com.nebulastrike.game.core.Enemy;
 import com.nebulastrike.game.core.EnemyType;
 import com.nebulastrike.game.core.GameMode;
 import com.nebulastrike.game.core.GameWorld;
 import com.nebulastrike.game.core.Particle;
 import com.nebulastrike.game.core.PowerUp;
+import com.nebulastrike.game.core.Relic;
 import com.nebulastrike.game.core.Ship;
 import com.nebulastrike.game.core.Star;
+import com.nebulastrike.game.core.Turret;
 import com.nebulastrike.game.core.Ui;
 import com.nebulastrike.game.core.WeaponType;
 
@@ -90,6 +93,7 @@ public class Renderer {
         drawPowerUps(c, w);
         drawEnemyBullets(c, w);
         drawEnemies(c, w);
+        drawTurrets(c, w);
         if (w.boss.active) {
             drawBoss(c, w);
             drawBossLasers(c, w);
@@ -140,6 +144,25 @@ public class Renderer {
             paint.setShader(null);
             paint.setColor(((int) (160 * w.bombFlash)) << 24);
             c.drawRect(0, 0, VW, VH, paint);
+        }
+
+        // 新星冲击：向外扩散的暖白冲击环 + 整屏薄亮
+        if (w.novaFlash > 0f) {
+            float k = w.novaFlash;
+            paint.setStyle(Paint.Style.FILL);
+            paint.setShader(null);
+            paint.setColor(((int) (70 * k) << 24) | 0x00DFFFFF);
+            c.drawRect(0, 0, VW, VH, paint);
+            Ship s = w.ship;
+            float t = 1f - k;
+            paint.setStyle(Paint.Style.STROKE);
+            for (int i = 0; i < 2; i++) {
+                float rr = 60f + (720f + i * 200f) * Math.min(1f, t + i * 0.10f);
+                paint.setStrokeWidth((16f - i * 8f) * k);
+                paint.setColor(((int) ((0xB0 - i * 0x40) * k) << 24) | 0x00BFFFFF);
+                c.drawCircle(s.x, s.y, rr, paint);
+            }
+            paint.setStyle(Paint.Style.FILL);
         }
 
         drawHud(c, w);
@@ -258,6 +281,20 @@ public class Renderer {
                 c.drawCircle(b.x, b.y, b.radius, paint);
                 paint.setColor(0xAAFFFFFF);
                 c.drawCircle(b.x, b.y, b.radius * 0.4f, paint);
+            } else if (b.bounces > 0) {
+                // 弹跳弹：薄荷绿橡胶球，剩余反弹次数越多亮环越密
+                paint.setColor(0xFF6BFFC8);
+                c.drawCircle(b.x, b.y, b.radius, paint);
+                paint.setColor(0xFFEAFFF6);
+                c.drawCircle(b.x - b.radius * 0.28f, b.y - b.radius * 0.3f,
+                        b.radius * 0.34f, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2f);
+                for (int i = 1; i <= b.bounces; i++) {
+                    paint.setColor(((0x90 - i * 0x22) << 24) | 0x006BFFC8);
+                    c.drawCircle(b.x, b.y, b.radius + 5f * i, paint);
+                }
+                paint.setStyle(Paint.Style.FILL);
             } else {
                 paint.setColor(0xFF7DF9FF);
                 c.drawCircle(b.x, b.y, b.radius, paint);
@@ -291,6 +328,10 @@ public class Renderer {
                 case ORBIT:  color = 0xFFE8F1FF; label = "O"; break;
                 case CHAIN:  color = 0xFFFFF06B; label = "Z"; break;
                 case BONUS:  color = 0xFFB04DFF; label = "G"; break;
+                case BOUNCE: color = 0xFF6BFFC8; label = "BN"; break;
+                case NOVA:   color = 0xFFDFF6FF; label = "NV"; break;
+                case NANITE: color = 0xFF5CFFB8; label = "NA"; break;
+                case TURRET: color = 0xFFC0CCE8; label = "TR"; break;
                 default: color = 0xFFFF5C7A; label = "B"; break;
             }
             boolean hot = p.attracted;
@@ -326,7 +367,7 @@ public class Renderer {
             paint.setStyle(Paint.Style.FILL);
 
             paint.setColor(0xFF0A0C18);
-            paint.setTextSize(23f);
+            paint.setTextSize(label.length() > 2 ? 17f : 23f);
             paint.setFakeBoldText(true);
             paint.setTextAlign(Paint.Align.CENTER);
             c.drawText(label, p.x, p.y + 8f, paint);
@@ -338,6 +379,10 @@ public class Renderer {
     private void drawEnemyBullets(Canvas c, GameWorld w) {
         for (com.nebulastrike.game.core.EnemyBullet b : w.enemyBullets) {
             if (!b.active) continue;
+            if (b.mine) {
+                drawMine(c, b, w.timeAlive);
+                continue;
+            }
             // fading trail
             glow.setColor(0x55FF7A4D);
             c.drawCircle(b.x - b.vx * 0.02f, b.y - b.vy * 0.02f, b.radius * 0.8f, glow);
@@ -347,6 +392,40 @@ public class Renderer {
             paint.setColor(0xFFFFE08A);
             c.drawCircle(b.x, b.y, b.radius * 0.45f, paint);
         }
+    }
+
+    /** 水雷：静止的带刺球，外圈危险环缓慢呼吸，核心忽明忽暗。 */
+    private void drawMine(Canvas c, com.nebulastrike.game.core.EnemyBullet b, float time) {
+        float r = b.radius;
+        float hot = 0.5f + 0.5f * (float) Math.sin(time * 6f + b.x * 0.02f);
+        glow.setColor(((int) (0x40 + 0x50 * hot) << 24) | 0x00FF5C7A);
+        c.drawCircle(b.x, b.y, r * 2.1f, glow);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2.5f);
+        paint.setColor(((int) (0x60 + 0x60 * hot) << 24) | 0x00FF7089);
+        c.drawCircle(b.x, b.y, r * 1.7f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xFF2A1020);
+        for (int i = 0; i < 8; i++) {
+            float a = (float) (i * Math.PI / 4.0);
+            float sx = b.x + (float) Math.cos(a) * r * 1.45f;
+            float sy = b.y + (float) Math.sin(a) * r * 1.45f;
+            c.save();
+            c.translate(sx, sy);
+            c.rotate((float) Math.toDegrees(a));
+            shapePath.rewind();
+            shapePath.moveTo(6f, 0f);
+            shapePath.lineTo(-4f, 4f);
+            shapePath.lineTo(-4f, -4f);
+            shapePath.close();
+            paint.setColor(0xFF3A1428);
+            c.drawPath(shapePath, paint);
+            c.restore();
+        }
+        paint.setColor(0xFFB03A5A);
+        c.drawCircle(b.x, b.y, r, paint);
+        paint.setColor(((int) (0xB0 + 0x4F * hot) << 24) | 0x00FFD166);
+        c.drawCircle(b.x, b.y, r * 0.45f, paint);
     }
 
     /**
@@ -430,6 +509,18 @@ public class Renderer {
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(base);
             float r = e.type.radius;
+            if (e.elite) {
+                // 精英机：琥珀色脉冲光环 + 描边，一眼认出"高血量高掉落"
+                float pulse = 0.5f + 0.5f * (float) Math.sin(w.timeAlive * 5f + e.y * 0.02f);
+                glow.setColor(((int) (0x48 + 0x40 * pulse) << 24) | 0x00FFB84D);
+                c.drawCircle(e.x, e.y, r * 1.75f + 5f * pulse, glow);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2.2f);
+                paint.setColor(0xAAFFD166);
+                c.drawCircle(e.x, e.y, r * 1.32f, paint);
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(base);
+            }
             switch (e.type) {
                 case DRONE:
                     triangle(c, e.x, e.y, r, true);
@@ -533,7 +624,97 @@ public class Renderer {
                     c.drawCircle(e.x, e.y - r * 0.2f, r * 0.22f, paint);
                     break;
                 }
+                case MINER: {
+                    // 布雷机：腹部弹舱一张一合，倒计时到点就掉一枚水雷
+                    hexagon(c, e.x, e.y, r, base);
+                    float gate = 0.5f + 0.5f * (float) Math.sin(w.timeAlive * 4f);
+                    paint.setColor(0xFF101528);
+                    c.drawRect(e.x - r * 0.55f, e.y + r * 0.1f,
+                            e.x + r * 0.55f, e.y + r * 0.35f + r * 0.25f * gate, paint);
+                    glow.setColor(((int) (0x40 + 0x60 * (1f - Math.min(1f, e.mineCd / 1.2f))) << 24)
+                            | 0x00FF5C7A);
+                    c.drawCircle(e.x, e.y + r * 0.75f, r * 0.34f, glow);
+                    paint.setColor(0xFFE8F1FF);
+                    c.drawRect(e.x - r * 0.14f, e.y - r * 0.75f,
+                            e.x + r * 0.14f, e.y - r * 0.35f, paint);
+                    break;
+                }
+                case CARRIER: {
+                    // 母舰：宽体甲板 + 两条弹射槽，两侧小艇剪影提示"会放无人机"
+                    shapePath.rewind();
+                    shapePath.moveTo(e.x, e.y - r * 0.85f);
+                    shapePath.lineTo(e.x + r * 1.25f, e.y - r * 0.2f);
+                    shapePath.lineTo(e.x + r * 0.85f, e.y + r * 0.75f);
+                    shapePath.lineTo(e.x - r * 0.85f, e.y + r * 0.75f);
+                    shapePath.lineTo(e.x - r * 1.25f, e.y - r * 0.2f);
+                    shapePath.close();
+                    c.drawPath(shapePath, paint);
+                    paint.setColor(0xFF101528);
+                    c.drawRect(e.x - r * 0.9f, e.y - r * 0.05f,
+                            e.x + r * 0.9f, e.y + r * 0.2f, paint);
+                    paint.setColor(0xFFFF8FD1);
+                    float blink = 0.5f + 0.5f * (float) Math.sin(w.timeAlive * 7f + e.y);
+                    c.drawCircle(e.x - r * 0.62f, e.y + r * 0.45f, r * 0.16f * blink + 3f, paint);
+                    c.drawCircle(e.x + r * 0.62f, e.y + r * 0.45f, r * 0.16f * blink + 3f, paint);
+                    break;
+                }
+                case SHIELDER: {
+                    // 护盾机：机身外圈能量盾，盾值越低越透明、裂纹越密
+                    octagon(c, e.x, e.y, r * 0.8f, base);
+                    paint.setColor(0xFF101528);
+                    c.drawCircle(e.x, e.y, r * 0.34f, paint);
+                    float frac = e.shieldHp > 0f
+                            ? e.shieldHp / Enemy.SHIELDER_SHIELD : 0f;
+                    if (frac > 0f) {
+                        paint.setStyle(Paint.Style.STROKE);
+                        paint.setStrokeWidth(4f);
+                        paint.setColor(((int) (0x50 + 0xA0 * frac) << 24) | 0x007DF9FF);
+                        c.drawCircle(e.x, e.y, r * 1.18f, paint);
+                        paint.setStrokeWidth(2f);
+                        paint.setColor(((int) (0x30 + 0x60 * frac) << 24) | 0x00AFF6FF);
+                        float sh = r * 1.18f;
+                        arcRect.set(e.x - sh, e.y - sh, e.x + sh, e.y + sh);
+                        c.drawArc(arcRect, w.timeAlive * 120f % 360f, 150f * frac, false, paint);
+                        paint.setStyle(Paint.Style.FILL);
+                        paint.setColor(0xFF7DF9FF);
+                        c.drawCircle(e.x, e.y - r * 0.1f, r * 0.2f * frac + 2f, paint);
+                    }
+                    break;
+                }
             }
+        }
+    }
+
+    /** 玩家炮台：底座 + 旋转炮管 + 耐久条，倒计时最后 2 秒开始闪烁。 */
+    private void drawTurrets(Canvas c, GameWorld w) {
+        for (Turret t : w.turrets) {
+            if (t == null || !t.active) continue;
+            float r = Turret.RADIUS;
+            float fade = Math.min(1f, t.life / 2f);
+            float blink = t.life < 2f
+                    ? 0.45f + 0.55f * (0.5f + 0.5f * (float) Math.sin(w.timeAlive * 14f)) : 1f;
+            glow.setColor(((int) (0x40 * fade * blink) << 24) | 0x00C0CCE8);
+            c.drawCircle(t.x, t.y, r * 1.7f, glow);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(((int) (0xE6 * fade * blink) << 24) | 0x00323C58);
+            hexagon(c, t.x, t.y, r, ((int) (0xF0 * fade * blink) << 24) | 0x0044506E);
+            // 三根炮管朝上
+            paint.setColor(((int) (0xF0 * fade) << 24) | 0x00AFF6FF);
+            for (int i = -1; i <= 1; i++) {
+                float ox = i * r * 0.45f;
+                float reco = i == 0 && t.fireCd < 0.12f ? 5f : 0f;
+                c.drawRect(t.x + ox - 3f, t.y - r * 1.35f + reco,
+                        t.x + ox + 3f, t.y - r * 0.2f, paint);
+            }
+            // 耐久条
+            float wpx = r * 2f;
+            float frac = Math.max(0f, t.hp / Turret.MAX_HP);
+            paint.setColor(((int) (0xC0 * fade) << 24) | 0x00151A2A);
+            c.drawRect(t.x - wpx / 2f, t.y + r * 0.9f, t.x + wpx / 2f, t.y + r * 0.9f + 6f, paint);
+            paint.setColor(((int) (0xF0 * fade) << 24)
+                    | (frac > 0.5f ? 0x007CFF6B : frac > 0.2f ? 0x00FFD166 : 0x00FF5C7A));
+            c.drawRect(t.x - wpx / 2f, t.y + r * 0.9f,
+                    t.x - wpx / 2f + wpx * frac, t.y + r * 0.9f + 6f, paint);
         }
     }
 
@@ -555,7 +736,7 @@ public class Renderer {
             for (int i = 0; i < 5; i++) {
                 float oy = b.y - r * 0.7f + i * (r * 0.35f);
                 float lag = 40f + i * 26f;
-                paint.setColor(((int) (0xA0 - i * 0x14) << 24) | 0x00FF5C7A);
+                paint.setColor(((0xA0 - i * 0x14) << 24) | 0x00FF5C7A);
                 paint.setStrokeWidth(6f - i);
                 c.drawLine(b.x - dir * 30f, oy, b.x - dir * lag, oy, paint);
             }
@@ -910,8 +1091,9 @@ public class Renderer {
     private void drawShip(Canvas c, GameWorld w) {
         Ship s = w.ship;
         if (w.state == GameWorld.State.GAME_OVER) return;
-        // invulnerability blink
-        if (s.invulnerable && (int) (w.timeAlive * 12) % 2 == 0) return;
+        // 重生保护期内战舰常亮并罩护罩；普通无敌仍然闪烁
+        boolean grace = w.respawnGrace > 0f;
+        if (s.invulnerable && !grace && (int) (w.timeAlive * 12) % 2 == 0) return;
 
         // overdrive aura: 擦弹奖励的视觉状态
         if (s.overdriveTimer > 0f) {
@@ -1008,6 +1190,55 @@ public class Renderer {
                 }
             }
         }
+
+        // 圣物僚机（ETERNAL_WING）：常驻僚机用金色描边区分
+        if (w.hasRelic(Relic.ETERNAL_WING)) {
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2f);
+            paint.setColor(0xAAFFD166);
+            for (int i = -1; i <= 1; i += 2) {
+                c.drawCircle(s.x + i * 52f, s.y + 2f, 16f, paint);
+            }
+            paint.setStyle(Paint.Style.FILL);
+        }
+
+        // 纳米修复：舰身环绕的绿色微粒带，说明火力正在自动升级
+        if (s.nanoTimer > 0f) {
+            float fade = Math.min(1f, s.nanoTimer / 2f);
+            for (int i = 0; i < 6; i++) {
+                float a = (w.timeAlive * 2.4f + i * (float) (Math.PI / 3.0f));
+                float rr = Ship.RADIUS * (1.25f + 0.12f * (float) Math.sin(a * 3f));
+                glow.setColor(((int) (0x70 * fade) << 24) | 0x005CFFB8);
+                c.drawCircle(s.x + (float) Math.cos(a) * rr,
+                        s.y + (float) Math.sin(a) * rr * 0.85f, 7f, glow);
+            }
+        }
+
+        // 重生保护罩：蓝色气泡 + 逆时针收拢的倒计时弧，剩余 1 秒开始闪烁
+        if (grace) {
+            float total = Math.max(0.01f, w.settings.difficulty.respawnInvuln);
+            float frac = Math.min(1f, w.respawnGrace / total);
+            float blink = w.respawnGrace < 1f
+                    ? 0.55f + 0.45f * (float) Math.sin(w.timeAlive * 16f) : 1f;
+            float rr = Ship.RADIUS * 2.6f;
+            glow.setColor(((int) (0x38 * frac * blink) << 24) | 0x007DF9FF);
+            c.drawCircle(s.x, s.y, rr * 1.15f, glow);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(3f);
+            paint.setColor(((int) (0xCC * frac * blink) << 24) | 0x009BE8FF);
+            c.drawCircle(s.x, s.y, rr, paint);
+            paint.setStrokeWidth(6f);
+            paint.setColor(((int) (0xFF * blink) << 24) | 0x00E8F1FF);
+            arcRect.set(s.x - rr, s.y - rr, s.x + rr, s.y + rr);
+            c.drawArc(arcRect, -90f, 360f * frac, false, paint);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setTextSize(24f);
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setColor(((int) (0xAA * blink) << 24) | 0x00E8F1FF);
+            c.drawText("无敌 " + (int) Math.ceil(w.respawnGrace) + "s",
+                    s.x, s.y - rr - 14f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
     }
 
     // ---- HUD & screens ----
@@ -1019,6 +1250,7 @@ public class Renderer {
             case LANCE: return 0xFFB0FFF6;
             case CLUSTER: return 0xFFFFB03A;
             case SWARM: return 0xFFCFB8FF;
+            case BOUNCE: return 0xFF6BFFC8;
             default: return 0xFFFFD166;
         }
     }
@@ -1144,7 +1376,27 @@ public class Renderer {
         if (w.slowTimer > 0f) {
             statusBar(c, "TIME SLOW", 0xFF8FE3FF,
                     w.slowTimer / GameWorld.SLOW_DURATION, statusY);
+            statusY += 38f;
         }
+        if (w.ship.nanoTimer > 0f) {
+            statusBar(c, "NANITE", 0xFF5CFFB8,
+                    w.ship.nanoTimer / Ship.NANITE_DURATION, statusY);
+            statusY += 38f;
+        }
+        int turretCount = 0;
+        float turretFrac = 0f;
+        for (Turret t : w.turrets) {
+            if (t != null && t.active) {
+                turretCount++;
+                turretFrac += Math.min(1f, t.life / Turret.LIFE);
+            }
+        }
+        if (turretCount > 0) {
+            statusBar(c, "TURRET x" + turretCount, 0xFFC0CCE8,
+                    turretFrac / turretCount, statusY);
+        }
+
+        drawRelicChips(c, w);
 
         // 擦弹充能：固定放左下，避免和左上角的状态条抢位置
         if (w.ship.overdriveTimer > 0f) {
@@ -1176,6 +1428,34 @@ public class Renderer {
         drawBanners(c, w);
     }
 
+    /** 已持有圣物的角标：右上角竖排金色芯片，鼠标点不到，只做状态提示。 */
+    private void drawRelicChips(Canvas c, GameWorld w) {
+        if (w.relicMask == 0) return;
+        float y = 150f;
+        paint.setTextAlign(Paint.Align.CENTER);
+        for (Relic r : Relic.values()) {
+            if (!w.hasRelic(r)) continue;
+            int rgb = r.colorRgb();
+            glow.setColor((0x44 << 24) | rgb);
+            c.drawCircle(VW - 46f, y + 8f, 30f, glow);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor((0xE0 << 24) | 0x00121A2E);
+            c.drawCircle(VW - 46f, y + 8f, 21f, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2.5f);
+            paint.setColor((0xCC << 24) | rgb);
+            c.drawCircle(VW - 46f, y + 8f, 21f, paint);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor((0xFF << 24) | rgb);
+            paint.setTextSize(22f);
+            paint.setFakeBoldText(true);
+            c.drawText(r.badge(), VW - 46f, y + 16f, paint);
+            paint.setFakeBoldText(false);
+            y += 48f;
+        }
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
     /** 中央提示：突袭奖励波 / 武器融合解锁，两者都用短促的缩放动画。 */
     private void drawBanners(Canvas c, GameWorld w) {
         paint.setTextAlign(Paint.Align.CENTER);
@@ -1190,6 +1470,20 @@ public class Renderer {
             paint.setTextSize(26f * s);
             paint.setColor(((int) (0xCC * k) << 24) | 0x00FFE08A);
             c.drawText("护航编队 + 奖励补给", VW / 2f, 342f, paint);
+            paint.setFakeBoldText(false);
+        }
+        if (w.relicBanner > 0f && w.lastRelic != null) {
+            float k = Math.min(1f, w.relicBanner / 0.4f);
+            float in = Math.min(1f, (3.4f - w.relicBanner) / 0.3f);
+            float s = 0.75f + 0.25f * in;
+            int rgb = w.lastRelic.colorRgb();
+            paint.setTextSize(52f * s);
+            paint.setFakeBoldText(true);
+            paint.setColor(((int) (0xFF * k) << 24) | rgb);
+            c.drawText("圣物 · " + w.lastRelic.label(), VW / 2f, 500f, paint);
+            paint.setTextSize(26f * s);
+            paint.setColor(((int) (0xD8 * k) << 24) | 0x00E8F1FF);
+            c.drawText(w.lastRelic.blurb(), VW / 2f, 542f, paint);
             paint.setFakeBoldText(false);
         }
         if (w.fusionFlash > 0f && w.lastFusion != null) {
@@ -1351,7 +1645,8 @@ public class Renderer {
 
         paint.setTextSize(28f);
         paint.setColor(0xFFFFD166);
-        c.drawText("BEST  " + w.bestScore + "    v" + w.currentVersion, VW / 2f, 800f, paint);
+        c.drawText("BEST  " + w.bestScore + "    " + w.settings.difficulty.label()
+                + "难度    v" + w.currentVersion, VW / 2f, 800f, paint);
 
         drawUpdateButton(c, w);
         drawDualBoard(c, w, VW / 2f - 165f, 830f, 330f, 44f, 22f);
@@ -1404,7 +1699,19 @@ public class Renderer {
         paint.setTextAlign(Paint.Align.CENTER);
         paint.setTextSize(64f);
         paint.setColor(0xFFE8F1FF);
-        c.drawText("SETTINGS", VW / 2f, 400f, paint);
+        c.drawText("SETTINGS", VW / 2f, 330f, paint);
+
+        paint.setTextSize(22f);
+        paint.setColor(0xFF8FA3C8);
+        c.drawText("难度档位 · 影响掉率、重生保护与坠机惩罚", VW / 2f, 380f, paint);
+
+        Difficulty diff = w.settings.difficulty;
+        diffSegment(c, Ui.DIFF_CASUAL, Difficulty.CASUAL, diff);
+        diffSegment(c, Ui.DIFF_STANDARD, Difficulty.STANDARD, diff);
+        diffSegment(c, Ui.DIFF_HARDCORE, Difficulty.HARDCORE, diff);
+        paint.setTextSize(22f);
+        paint.setColor(0xFFC8D6F0);
+        c.drawText(diff.blurb(), VW / 2f, 486f, paint);
 
         toggle(c, Ui.TOGGLE_SOUND, "SOUND", w.settings.sound);
         toggle(c, Ui.TOGGLE_PARTICLES, "PARTICLES", w.settings.particles);
@@ -1415,7 +1722,34 @@ public class Renderer {
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
-    /** 金手指面板：数值类参数用 [-] 值 [+] 行，覆盖掉率/生命/敌速/火力与无敌。 */
+    /** 难度分段按钮：选中格实心高亮，未选中只留描边。 */
+    private void diffSegment(Canvas c, Ui.Rect r, Difficulty d, Difficulty chosen) {
+        boolean active = d == chosen;
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(active ? 0xFF27405F : 0x22FFFFFF);
+        c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 12f, 12f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(active ? 3f : 1.5f);
+        paint.setColor(active ? diffColor(d) : 0x556B7A99);
+        c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 12f, 12f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(active ? diffColor(d) : 0xFF8FA3C8);
+        paint.setTextSize(27f);
+        paint.setFakeBoldText(active);
+        paint.setTextAlign(Paint.Align.CENTER);
+        c.drawText(d.label(), r.cx(), r.cy() + 10f, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    private static int diffColor(Difficulty d) {
+        switch (d) {
+            case CASUAL: return 0xFF7CFF6B;
+            case HARDCORE: return 0xFFFF5C7A;
+            default: return 0xFFAFF6FF;
+        }
+    }
+
     private void drawCheats(Canvas c, GameWorld w) {
         paint.setShader(null);
         paint.setStyle(Paint.Style.FILL);
@@ -1497,7 +1831,7 @@ public class Renderer {
                 boolean known = w.settings.enemySeen(t);
                 codexRowFrame(c, i, known);
                 float y = Ui.CODEX_ROW_Y + i * Ui.CODEX_ROW_H;
-                codexEnemyIcon(c, t, 175f, y + 52f, known);
+                codexEnemyIcon(c, t, 175f, y + 40f, known);
                 if (known) {
                     codexText(c, 250f, y, enemyName(t),
                             "HP " + t.hp + "  ·  " + t.score + " 分  ·  半径 " + Math.round(t.radius),
@@ -1513,7 +1847,7 @@ public class Renderer {
                 boolean known = kills > 0;
                 codexRowFrame(c, tier, known);
                 float y = Ui.CODEX_ROW_Y + tier * Ui.CODEX_ROW_H;
-                codexBossIcon(c, tier, 175f, y + 52f, known);
+                codexBossIcon(c, tier, 175f, y + 40f, known);
                 codexText(c, 250f, y, known ? Boss.titleFor(tier) : "？？？",
                         known ? bossStats(tier) : "击败后解锁",
                         known ? bossDesc(tier) : "尚未战胜这艘舰体",
@@ -1566,19 +1900,19 @@ public class Renderer {
         paint.setStyle(Paint.Style.FILL);
     }
 
-    /** 图鉴行文案：名称 + 数值 + 说明三行。 */
+    /** 图鉴行文案：名称 + 数值 + 说明三行（行高 86，说明压到 76 基线）。 */
     private void codexText(Canvas c, float x, float rowY, String name,
                            String stats, String desc, int nameColor) {
-        paint.setTextSize(31f);
+        paint.setTextSize(29f);
         paint.setFakeBoldText(true);
         paint.setColor(nameColor);
-        c.drawText(name, x, rowY + 38f, paint);
+        c.drawText(name, x, rowY + 30f, paint);
         paint.setFakeBoldText(false);
-        paint.setTextSize(22f);
+        paint.setTextSize(20f);
         paint.setColor(0xFF8FA3C8);
-        c.drawText(stats, x, rowY + 66f, paint);
+        c.drawText(stats, x, rowY + 54f, paint);
         paint.setColor(0xFFC8D6F0);
-        c.drawText(desc, x, rowY + 94f, paint);
+        c.drawText(desc, x, rowY + 76f, paint);
     }
 
     /** 缩略敌机图标：复用战场轮廓，未发现的只留灰色描边。 */
@@ -1630,6 +1964,35 @@ public class Renderer {
                 octagon(c, x, y, r, base);
                 paint.setColor(known ? 0xFF101528 : 0x406B7A99);
                 c.drawRect(x - r * 0.16f, y + r * 0.2f, x + r * 0.16f, y + r * 1.05f, paint);
+                break;
+            case MINER:
+                hexagon(c, x, y, r, base);
+                paint.setColor(known ? 0xFF101528 : 0x306B7A99);
+                c.drawRect(x - r * 0.5f, y + r * 0.15f, x + r * 0.5f, y + r * 0.45f, paint);
+                paint.setColor(known ? 0xFFFF5C7A : 0x406B7A99);
+                c.drawCircle(x, y + r * 0.75f, r * 0.26f, paint);
+                break;
+            case CARRIER: {
+                paint.setColor(base);
+                shapePath.rewind();
+                shapePath.moveTo(x, y - r * 0.85f);
+                shapePath.lineTo(x + r * 1.2f, y - r * 0.15f);
+                shapePath.lineTo(x + r * 0.8f, y + r * 0.7f);
+                shapePath.lineTo(x - r * 0.8f, y + r * 0.7f);
+                shapePath.lineTo(x - r * 1.2f, y - r * 0.15f);
+                shapePath.close();
+                c.drawPath(shapePath, paint);
+                paint.setColor(known ? 0xFF101528 : 0x306B7A99);
+                c.drawRect(x - r * 0.85f, y - r * 0.02f, x + r * 0.85f, y + r * 0.2f, paint);
+                break;
+            }
+            case SHIELDER:
+                octagon(c, x, y, r * 0.8f, base);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2.5f);
+                paint.setColor(known ? 0xAA7DF9FF : 0x556B7A99);
+                c.drawCircle(x, y, r * 1.1f, paint);
+                paint.setStyle(Paint.Style.FILL);
                 break;
             default:
                 break;
@@ -1683,7 +2046,11 @@ public class Renderer {
             case SUICIDER: return "自杀机 SUICIDER";
             case SPLITTER: return "分裂舱 SPLITTER";
             case HEALER: return "医疗艇 HEALER";
-            default: return "狙击塔 SNIPER";
+            case SNIPER: return "狙击塔 SNIPER";
+            case MINER: return "布雷艇 MINER";
+            case CARRIER: return "母舰 CARRIER";
+            case SHIELDER: return "盾卫 SHIELDER";
+            default: return t.name();
         }
     }
 
@@ -1696,7 +2063,11 @@ public class Renderer {
             case SUICIDER: return "锁定飞船加速俯冲，撞击即爆";
             case SPLITTER: return "击毁后裂成两架无人机";
             case HEALER: return "周期脉冲，为周围友舰回血";
-            default: return "悬停预警后射出高速瞄准弹";
+            case SNIPER: return "悬停预警后射出高速瞄准弹";
+            case MINER: return "沿途布下水雷，击毁后水雷全清";
+            case CARRIER: return "持续投放小僚机，本体掉率高";
+            case SHIELDER: return "正面能量盾挡弹，需绕射或弹跳弹";
+            default: return "未知机型";
         }
     }
 
@@ -1756,7 +2127,39 @@ public class Renderer {
         button(c, Ui.RESUME, "RESUME", 0xFF274BFF, 0xFFE8F1FF, true);
         button(c, Ui.RESTART, "RESTART", 0xFF182040, 0xFF8FA3C8, false);
         button(c, Ui.QUIT_TO_MENU, "MENU", 0xFF182040, 0xFF8FA3C8, false);
+        drawPauseStatus(c, w);
         paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /** 暂停页状态摘要：难度、已持有圣物与在场炮台，方便确认当前 build。 */
+    private void drawPauseStatus(Canvas c, GameWorld w) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0x66000011);
+        c.drawRoundRect(120f, 636f, 780f, 636f + 132f, 18f, 18f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setTextSize(24f);
+        paint.setColor(diffColor(w.settings.difficulty));
+        c.drawText(w.settings.difficulty.label() + "难度", 150f, 682f, paint);
+        int turrets = 0;
+        for (Turret t : w.turrets) if (t != null && t.active) turrets++;
+        paint.setTextSize(22f);
+        paint.setColor(0xFF8FA3C8);
+        c.drawText("炮台 " + turrets + " 座", 150f, 724f, paint);
+        if (w.relicMask == 0) {
+            paint.setColor(0x668FA3C8);
+            c.drawText("圣物 · 尚未击败 BOSS", 300f, 682f, paint);
+        } else {
+            float x = 300f, ry = 682f;
+            for (Relic r : Relic.values()) {
+                if (!w.hasRelic(r)) continue;
+                paint.setColor((0xE0 << 24) | r.colorRgb());
+                float tw = paint.measureText(r.label());
+                if (x + tw > 756f && x > 300f) { x = 300f; ry += 42f; }
+                c.drawText(r.label(), x, ry, paint);
+                x += tw + 20f;
+            }
+        }
+        paint.setTextAlign(Paint.Align.CENTER);
     }
 
     private void drawGameOver(Canvas c, GameWorld w) {
@@ -1773,7 +2176,8 @@ public class Renderer {
         paint.setTextSize(44f);
         paint.setColor(0xFFFFFFFF);
         c.drawText("Score " + w.score + "   •   "
-                + (w.mode == GameMode.ENDLESS ? "ENDLESS" : "WAVE " + w.wave), VW / 2f, 468f, paint);
+                + (w.mode == GameMode.ENDLESS ? "ENDLESS" : "WAVE " + w.wave)
+                + "   •   " + w.settings.difficulty.label(), VW / 2f, 468f, paint);
 
         if (w.newBest) {
             float pulse = 1f + 0.06f * (float) Math.sin(w.stateTimer * 6f);
@@ -2095,7 +2499,8 @@ public class Renderer {
     }
 
     /** Neon palette shared across the game.
-     *  0 cyan 1 green 2 orange 3 magenta 4 yellow 5 lime 6 rose 7 violet */
+     *  0 cyan 1 green 2 orange 3 magenta 4 yellow 5 lime 6 rose 7 violet
+     *  8 mint 9 crimson 10 steel */
     private static int palette(int idx, int alpha) {
         int rgb;
         switch (idx) {
@@ -2106,6 +2511,9 @@ public class Renderer {
             case 5: rgb = 0xBFFF4D; break;
             case 6: rgb = 0xFF7089; break;
             case 7: rgb = 0xB08FFF; break;
+            case 8: rgb = 0x6BFFC8; break;
+            case 9: rgb = 0xFF4D6A; break;
+            case 10: rgb = 0xC0CCE8; break;
             default: rgb = 0x5CE1FF; break;
         }
         return (alpha << 24) | rgb;

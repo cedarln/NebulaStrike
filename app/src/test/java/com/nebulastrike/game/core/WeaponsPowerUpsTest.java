@@ -19,15 +19,21 @@ public class WeaponsPowerUpsTest {
     public void spreadFiresThreeBullets() {
         world.ship.weapon = WeaponType.SPREAD;
         world.update(1f / 60f);
-        assertEquals(3, countActive(world.bullets));
+        // v1.10：扇形 3 发 + 常驻基础炮 1 发，拾取武器只做叠加不做替换
+        assertEquals(4, countActive(world.bullets));
+        int angled = 0;
+        for (Bullet b : world.bullets) if (b.active && Math.abs(b.vx) > 100f) angled++;
+        assertEquals("SPREAD 应有两发斜射", 2, angled);
     }
 
     @Test
     public void missileFiresTwoHomingShots() {
         world.ship.weapon = WeaponType.MISSILE;
         world.update(1f / 60f);
-        assertEquals(2, countActive(world.bullets));
-        for (Bullet b : world.bullets) if (b.active) assertTrue(b.homing);
+        assertEquals(3, countActive(world.bullets));
+        assertEquals("追踪弹固定两发", 2, countHoming(world.bullets));
+        for (Bullet b : world.bullets)
+            if (b.active && !b.homing) assertEquals("剩下那发是常驻基础炮", 0f, b.vx, 1f);
     }
 
     @Test
@@ -35,8 +41,8 @@ public class WeaponsPowerUpsTest {
         world.ship.weapon = WeaponType.MISSILE;
         world.update(1f / 60f); // fire
         Bullet m = null;
-        for (Bullet b : world.bullets) if (b.active) { m = b; break; }
-        assertNotNull(m);
+        for (Bullet b : world.bullets) if (b.active && b.homing) { m = b; break; }
+        assertNotNull("场上应有一发追踪弹", m);
         // enemy far to the right
         Enemy e = world.enemies[0];
         e.init(EnemyType.DRONE, m.x + 600f, m.y + 60f, 0f);
@@ -112,6 +118,12 @@ public class WeaponsPowerUpsTest {
     private static int countActive(Bullet[] bullets) {
         int n = 0;
         for (Bullet b : bullets) if (b.active) n++;
+        return n;
+    }
+
+    private static int countHoming(Bullet[] bullets) {
+        int n = 0;
+        for (Bullet b : bullets) if (b.active && b.homing) n++;
         return n;
     }
 }

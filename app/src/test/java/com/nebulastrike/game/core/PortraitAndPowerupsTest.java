@@ -192,19 +192,34 @@ public class PortraitAndPowerupsTest {
 
     @Test
     public void dropTableCoversEveryDroppableKind() {
-        // 纯函数 dropKind：每个区段取一点，必须覆盖除 BONUS 外的全部枚举
+        // 纯函数 dropKind：每个权重区段取中点，必须覆盖除 BONUS 外的全部枚举
         // （BONUS 只由突袭奖励波投放，不进入随机掉落表）
-        float[] probe = {0f, 0.20f, 0.32f, 0.42f, 0.50f, 0.60f, 0.68f, 0.74f,
-                0.80f, 0.85f, 0.89f, 0.93f, 1.0f};
+        float[] probe = {0.06f, 0.18f, 0.30f, 0.42f, 0.50f, 0.57f, 0.62f, 0.67f,
+                0.72f, 0.76f, 0.795f, 0.825f, 0.855f, 0.89f, 0.92f, 0.95f, 0.99f};
         java.util.Set<PowerUp.Kind> seen = java.util.EnumSet.noneOf(PowerUp.Kind.class);
         for (float r : probe) seen.add(GameWorld.dropKind(r));
         java.util.Set<PowerUp.Kind> expected = java.util.EnumSet.allOf(PowerUp.Kind.class);
         expected.remove(PowerUp.Kind.BONUS);
         assertEquals(expected, seen);
         assertEquals(PowerUp.Kind.SPREAD, GameWorld.dropKind(0.0f));
-        assertEquals(PowerUp.Kind.TIME, GameWorld.dropKind(1.0f));
-        assertEquals(PowerUp.Kind.ORBIT, GameWorld.dropKind(0.68f));
-        assertEquals(PowerUp.Kind.CHAIN, GameWorld.dropKind(0.74f));
+        assertEquals(PowerUp.Kind.TURRET, GameWorld.dropKind(1.0f));
+        assertEquals(PowerUp.Kind.ORBIT, GameWorld.dropKind(0.62f));
+        assertEquals(PowerUp.Kind.CHAIN, GameWorld.dropKind(0.67f));
+    }
+
+    /** 用户反馈"想要更多追踪弹"：MISSILE 权重应达到 14%，且高权重段留给新道具。 */
+    @Test
+    public void missileDropShareIsRaisedAndNewKindsAppear() {
+        int[] hits = new int[PowerUp.Kind.values().length];
+        for (int i = 0; i < 10000; i++) {
+            hits[GameWorld.dropKind(i / 10000f).ordinal()]++;
+        }
+        assertEquals(14, Math.round(hits[PowerUp.Kind.MISSILE.ordinal()] / 100f));
+        for (PowerUp.Kind kind : new PowerUp.Kind[]{PowerUp.Kind.BOUNCE,
+                PowerUp.Kind.NOVA, PowerUp.Kind.NANITE, PowerUp.Kind.TURRET}) {
+            assertTrue(kind + " 应进入掉落表", hits[kind.ordinal()] > 0);
+        }
+        assertEquals("BONUS 不参与随机掉落", 0, hits[PowerUp.Kind.BONUS.ordinal()]);
     }
 
     private Enemy firstFreeEnemy(GameWorld w) {
@@ -225,6 +240,20 @@ public class PortraitAndPowerupsTest {
         for (Bullet b : w.bullets) b.active = false;
     }
 
+    /** 穿透光束（LASER/LANCE 一类），按 piercing 判定。 */
+    private int countBeams(GameWorld w) {
+        int n = 0;
+        for (Bullet b : w.bullets) if (b.active && b.piercing) n++;
+        return n;
+    }
+
+    /** 实体弹丸（含常驻基础炮），用来和光束分开计数。 */
+    private int countShells(GameWorld w) {
+        int n = 0;
+        for (Bullet b : w.bullets) if (b.active && !b.piercing) n++;
+        return n;
+    }
+
     // ---- 火力等级 POWER（子弹数量） ----
 
     @Test
@@ -238,7 +267,7 @@ public class PortraitAndPowerupsTest {
         w.update(1f / 60f); // 收集
         assertEquals(2, w.ship.powerLevel);
         clearBullets(w);
-        w.ship.resetCooldown();
+        w.resetWeaponCooldowns();
         w.update(1f / 60f); // L2：双发平行
         assertEquals(2, activeBullets(w));
 
@@ -246,7 +275,7 @@ public class PortraitAndPowerupsTest {
         w.update(1f / 60f);
         assertEquals(3, w.ship.powerLevel);
         clearBullets(w);
-        w.ship.resetCooldown();
+        w.resetWeaponCooldowns();
         w.update(1f / 60f); // L3：双平行 + 双斜
         assertEquals(4, activeBullets(w));
     }
@@ -299,15 +328,14 @@ public class PortraitAndPowerupsTest {
         assertEquals(Ship.WEAPON_DURATION, w.ship.weaponTimer, 0.01f);
 
         clearBullets(w);
-        w.ship.resetCooldown();
-        w.update(1f / 60f); // L1：单束
-        assertEquals(1, activeBullets(w));
+        w.resetWeaponCooldowns();
+        w.update(1f / 60f); // L1：LASER 单束 + 常驻基础炮一发
+        assertEquals("一束激光", 1, countBeams(w));
+        assertEquals("基础炮不消失，激光只是额外一路火力", 1, countShells(w));
         for (Bullet b : w.bullets) {
-            if (b.active) {
-                assertTrue(b.piercing);
+            if (b.active && b.piercing) {
                 assertEquals(0f, b.vx, 0.001f);
                 assertTrue(b.vy < 0f);
-                break;
             }
         }
     }
@@ -320,12 +348,11 @@ public class PortraitAndPowerupsTest {
         w.ship.weapon = WeaponType.LASER;
         w.ship.weaponTimer = 5f;
         w.ship.powerLevel = 3;
-        w.ship.resetCooldown();
-        w.update(1f / 60f); // L3：三束
-        assertEquals(3, activeBullets(w));
-        int lasers = 0;
-        for (Bullet b : w.bullets) if (b.active && b.piercing) lasers++;
-        assertEquals(3, lasers);
+        w.resetWeaponCooldowns();
+        w.update(1f / 60f); // L3：三束激光 + L3 基础炮四发
+        assertEquals(3, countBeams(w));
+        assertEquals(4, countShells(w));
+        assertEquals(7, activeBullets(w));
     }
 
     @Test
@@ -335,16 +362,17 @@ public class PortraitAndPowerupsTest {
         w.ship.reset(GameWorld.WIDTH / 2f, GameWorld.HEIGHT - 140f);
         w.ship.weapon = WeaponType.LASER;
         w.ship.weaponTimer = 5f;
-        // TANK 高血量，放在飞船正上方
+        // 血量拉满的 TANK，保证 0.2 秒内打不死，才能验证"命中后不消失"
         Enemy tank = firstFreeEnemy(w);
         tank.init(EnemyType.TANK, w.ship.x, w.ship.y - 140f, 1f);
-        int hp0 = (int) tank.hp;
+        tank.hp = 500f;
+        float hp0 = tank.hp;
 
         clearBullets(w);
-        w.ship.resetCooldown();
+        w.resetWeaponCooldowns();
         for (int i = 0; i < 12; i++) w.update(1f / 60f); // 0.2s：激光飞过并命中
         assertTrue("激光应命中并造成伤害", tank.hp < hp0);
-        assertTrue("穿透弹命中后应继续存在", tank.hp > 0); // TANK 不死，弹未消失
+        assertTrue("目标仍未被击毁", tank.active);
         boolean beamAlive = false;
         for (Bullet b : w.bullets) if (b.active && b.piercing) beamAlive = true;
         assertTrue("激光命中后仍应飞行（穿透）", beamAlive);
@@ -363,7 +391,7 @@ public class PortraitAndPowerupsTest {
         int spawned = 0;
         for (PowerUp p : w.powerups) if (p.active) spawned++;
         assertEquals(PowerUp.Kind.values().length, spawned);
-        assertEquals(14, spawned);
+        assertEquals(18, spawned);
     }
 
     @Test

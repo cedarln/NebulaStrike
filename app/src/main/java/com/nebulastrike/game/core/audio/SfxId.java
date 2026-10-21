@@ -33,5 +33,13 @@ public enum SfxId {
     BOSS_RAM,
     HEAL,
     ORBIT,
-    BONUS
+    BONUS,
+    /** v1.10：弹跳弹、新星冲击、部署炮台、Boss 遗物、重生护盾、水雷、护盾格挡 */
+    SHOOT_BOUNCE,
+    NOVA,
+    TURRET_DEPLOY,
+    RELIC,
+    RESPAWN,
+    MINE,
+    SHIELD_BLOCK
 }
