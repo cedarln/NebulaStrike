@@ -59,6 +59,9 @@ public final class SfxBank {
         put(SfxId.GRAVITY, gravityDeploy(), 0.58f);
         put(SfxId.GRAVITY_ABSORB, gravityAbsorb(), 0.34f);
         put(SfxId.GRAVITY_BURST, gravityBurst(), 0.60f);
+        put(SfxId.ULT_READY, ultReady(), 0.46f);
+        put(SfxId.ULT_CAST, ultCast(), 0.92f);
+        put(SfxId.ULT_LANCE, ultLance(), 0.56f);
     }
 
     public static SfxBank create() {
@@ -987,6 +990,74 @@ public final class SfxBank {
                     + (chord + jet) * 0.35 * env(t, 0.5, 0.004, 1.4)));
         }
         echo(x, 0.07, 0.24);
+        return x;
+    }
+
+    /**
+     * 终极槽充满：四音上行铃 + 尾部持续颤音，告诉玩家"可以按了"，
+     * 音量刻意低于开火音，免得在混战里盖掉命中反馈。
+     */
+    private static float[] ultReady() {
+        int n = frames(0.62);
+        float[] x = new float[n];
+        double[] notes = {523.25, 659.25, 783.99, 1046.5};
+        double ph = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            int step = (int) Math.min(notes.length - 1, t / 0.1);
+            double trem = 1.0 + 0.18 * Math.sin(t * 330.0);
+            ph += notes[step] * trem / SAMPLE_RATE;
+            double bell = (sine(ph) + sine(ph * 2.0) * 0.35 + sine(ph * 3.17) * 0.16) * 0.3;
+            x[i] = (float) (bell * env(t - step * 0.1, 0.2, 0.002, 1.1)
+                    * Math.max(0.25, 1.0 - t / 0.7));
+        }
+        echo(x, 0.09, 0.22);
+        return x;
+    }
+
+    /** 释放终极技：低频塌缩 + 破空爆音，末尾留下时停特有的金属余振。 */
+    private static float[] ultCast() {
+        int n = frames(1.05);
+        float[] x = new float[n];
+        Random r = new Random(508);
+        double ph = 0, sub = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double k = Math.min(1.0, t / 0.3);
+            // 基频从 180Hz 塌到 42Hz（时空"往下沉"），下方再叠一层 60Hz 次低频
+            ph += (180 - 138 * k) / SAMPLE_RATE;
+            sub += 60.0 / SAMPLE_RATE;
+            double body = (sine(ph) * 0.6 + tri(ph * 0.5) * 0.25) * Math.exp(-t * 2.2);
+            double boom = noise(r) * 0.55 * Math.exp(-t * 9.0);
+            // 余振：高频金属泛音缓慢衰减，撑起时停那一段安静
+            double ring = (sine(ph * 6.02) * 0.1 + sine(ph * 9.01) * 0.06)
+                    * Math.max(0.0, 1.0 - t / 1.05) * Math.exp(-t * 1.6);
+            x[i] = (float) ((body + boom + ring + sine(sub) * 0.3 * Math.exp(-t * 1.4))
+                    * env(t, 1.05, 0.004, 0.7));
+        }
+        echo(x, 0.13, 0.3);
+        return x;
+    }
+
+    /** 光矛齐射：连续破空声，一发比一发高，收尾是穿刺束特有的金属呼啸。 */
+    private static float[] ultLance() {
+        int n = frames(0.66);
+        float[] x = new float[n];
+        Random r = new Random(514);
+        double ph = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            int idx = (int) (t / 0.055);
+            double local = t - idx * 0.055;
+            double freq = 740 + idx * 95 + local * 900;
+            ph += freq / SAMPLE_RATE;
+            double whistle = (sine(ph) * 0.4 + saw(ph * 0.5) * 0.18)
+                    * Math.max(0.0, 1.0 - local / 0.055);
+            double air = noise(r) * 0.16 * Math.max(0.0, 1.0 - local / 0.04);
+            x[i] = (float) ((whistle + air) * env(t, 0.66, 0.003, 0.55)
+                    * Math.max(0.2, 1.0 - t / 0.8));
+        }
+        echo(x, 0.045, 0.2);
         return x;
     }
 

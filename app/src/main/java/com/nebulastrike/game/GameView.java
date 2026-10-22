@@ -30,6 +30,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
     private volatile boolean running;
     private long lastBombAt;
     private long lastDashAt;
+    private long lastUltAt;
     private int lastShotsSeen;
     private int lastWingmanSeen;
     /** 浮动摇杆：拖动中手指的 pointerId（-1 = 未拖动） */
@@ -110,6 +111,18 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                 lastDashAt = now;
                 // 成功时由 DASH 事件驱动音效；能量不足才在这里给一个"空挡"反馈
                 if (!world.tryDash()) audio.dashBlocked();
+            }
+            return;
+        }
+
+        // 终极技键：槽量足够才释放（放在最外侧，避免连招时误触把大招放空）
+        if (world.state == GameWorld.State.PLAYING
+                && Ui.ult(world.settings.leftHanded).contains(v[0], v[1])) {
+            long now = System.nanoTime();
+            if (now - lastUltAt > 260_000_000L) {
+                lastUltAt = now;
+                // 成功由 ULT_CAST 事件驱动音效；槽不够才给"还没攒满"的空挡反馈
+                if (!world.tryUltimate()) audio.ultBlocked();
             }
             return;
         }
@@ -250,6 +263,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case FUSION: haptics.tick(); break;
                     case RUSH: haptics.tick(); break;
                     case DASH: haptics.tick(); break;
+                    case ULT_CAST: haptics.bomb(); break;
+                    case ULT_READY: haptics.tick(); break;
                 }
             }
             if (world.shotsFired != lastShotsSeen) {

@@ -24,6 +24,7 @@ import com.nebulastrike.game.core.Relic;
 import com.nebulastrike.game.core.Ship;
 import com.nebulastrike.game.core.Star;
 import com.nebulastrike.game.core.Turret;
+import com.nebulastrike.game.core.Ultimate;
 import com.nebulastrike.game.core.Ui;
 import com.nebulastrike.game.core.WeaponType;
 
@@ -189,8 +190,39 @@ public class Renderer {
             paint.setStyle(Paint.Style.FILL);
         }
 
+        drawUltFlash(c, w);
+
         drawHud(c, w);
         c.restore();
+    }
+
+    /**
+     * 终极技释放：整屏金色薄亮 + 从船位向外炸开的三重棱环。
+     * 和时停配合，按下的一瞬间要"看不清战场也没关系"，先让人意识到规则被打破了。
+     */
+    private void drawUltFlash(Canvas c, GameWorld w) {
+        float k = w.ultFlash;
+        if (k <= 0f) return;
+        paint.setStyle(Paint.Style.FILL);
+        paint.setShader(null);
+        paint.setColor(((int) (86 * k) << 24) | 0x00FFE08A);
+        c.drawRect(0, 0, VW, VH, paint);
+        Ship s = w.ship;
+        float t = 1f - k;
+        paint.setStyle(Paint.Style.STROKE);
+        for (int i = 0; i < 3; i++) {
+            float rr = 40f + (520f + i * 230f) * Math.min(1f, t + i * 0.08f);
+            paint.setStrokeWidth((14f - i * 4f) * k);
+            paint.setColor(((int) ((0xC0 - i * 0x30) * k) << 24)
+                    | (i == 1 ? 0x007DF9FF : 0x00FFE08A));
+            c.save();
+            c.translate(s.x, s.y - 30f);
+            c.rotate(30f * i + 90f * t);
+            c.drawLine(-rr, 0f, rr, 0f, paint);
+            c.drawLine(0f, -rr, 0f, rr, paint);
+            c.restore();
+        }
+        paint.setStyle(Paint.Style.FILL);
     }
 
     private void drawBackground(Canvas c, GameWorld w) {
@@ -233,7 +265,27 @@ public class Renderer {
         paint.setStyle(Paint.Style.FILL);
         for (Bullet b : w.bullets) {
             if (!b.active) continue;
-            if (b.piercing && b.homing) {
+            if (b.ult) {
+                // 终极光矛：金色长枪 + 冷白核心，沿飞行方向拖出一道亮痕
+                float ang = (float) Math.atan2(b.vy, b.vx);
+                glow.setColor(0x66FFE08A);
+                c.save();
+                c.translate(b.x, b.y);
+                c.rotate((float) Math.toDegrees(ang));
+                c.drawCircle(0, 0, b.radius + 8f, glow);
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(0xFFFFD166);
+                shapePath.rewind();
+                shapePath.moveTo(26f, 0f);
+                shapePath.lineTo(-4f, b.radius * 0.55f);
+                shapePath.lineTo(-20f, 0f);
+                shapePath.lineTo(-4f, -b.radius * 0.55f);
+                shapePath.close();
+                c.drawPath(shapePath, paint);
+                paint.setColor(0xFFFFFFFF);
+                c.drawRoundRect(-16f, -2.5f, 20f, 2.5f, 2f, 2f, paint);
+                c.restore();
+            } else if (b.piercing && b.homing) {
                 // 蜂群穿刺束（SWARM）：短细的紫青飞镖，带拖尾亮点
                 float ang = (float) Math.atan2(b.vy, b.vx);
                 c.save();
@@ -1805,6 +1857,67 @@ public class Renderer {
             paint.setColor(i < full ? 0xFFFFF06B : 0x33FFF06B);
             c.drawCircle(d.cx() - 12f + i * 24f, d.cy() + 36f, 5f, paint);
         }
+        drawUltButton(c, w);
+        paint.setStyle(Paint.Style.FILL);
+    }
+
+    /**
+     * 终极技按键：环形槽量 + 三档刻度。攒满时金边脉冲并显示 READY，
+     * 释放后（时停仍在生效）整圈变冷白，提醒"这一波是你买来的输出窗口"。
+     */
+    private void drawUltButton(Canvas c, GameWorld w) {
+        Ui.Rect u = Ui.ult(w.settings.leftHanded);
+        Ultimate ult = w.ult;
+        float frac = Math.max(0f, Math.min(1f, ult.charge / Ultimate.CAP));
+        boolean ready = ult.full();
+        boolean active = ult.stasisTimer > 0f;
+        float pulse = ready ? 0.5f + 0.5f * (float) Math.sin(w.timeAlive * 7f) : 0f;
+        int base = active ? 0xE8F1FF : 0xFFD166;
+
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(ready || active
+                ? (((int) (0x30 + 0x40 * pulse)) << 24) | base : 0x1A182040);
+        c.drawCircle(u.cx(), u.cy(), 46f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(5f);
+        paint.setColor(ready ? ((int) (0xAA + 0x55 * pulse)) << 24 | base : 0x448FA3C8);
+        c.drawCircle(u.cx(), u.cy(), 52f, paint);
+        if (frac < 0.999f) {
+            arcRect.set(u.cx() - 52f, u.cy() - 52f, u.cx() + 52f, u.cy() + 52f);
+            paint.setStrokeWidth(5f);
+            paint.setColor(frac > 0f ? 0xFF7DF9FF : 0x338FA3C8);
+            c.drawArc(arcRect, -90f, 360f * frac, false, paint);
+        }
+
+        // 中心符号：八角星（大招 = 全屏点名），未满时半透明
+        paint.setStyle(Paint.Style.FILL);
+        float a = ready || active ? 1f : 0.45f;
+        paint.setColor(((int) (0xFF * a) << 24) | base);
+        float ox = u.cx(), oy = u.cy() - 4f;
+        shapePath.rewind();
+        for (int i = 0; i < 8; i++) {
+            double ang = i * Math.PI / 4f;
+            float r = (i & 1) == 0 ? 20f : 8f;
+            float px = (float) (ox + Math.cos(ang) * r);
+            float py = (float) (oy + Math.sin(ang) * r);
+            if (i == 0) shapePath.moveTo(px, py);
+            else shapePath.lineTo(px, py);
+        }
+        shapePath.close();
+        c.drawPath(shapePath, paint);
+
+        // 三档刻度：34 / 67 / 100，让"提前放"和"憋满放"的差别一眼可见
+        for (int i = 0; i < 3; i++) {
+            float threshold = i == 0 ? Ultimate.MIN_CAST : i == 1 ? Ultimate.TIER_TWO : Ultimate.CAP;
+            paint.setColor(ult.charge >= threshold ? 0xFFFFF06B : 0x33FFF06B);
+            c.drawCircle(u.cx() - 16f + i * 16f, u.cy() + 36f, 5f, paint);
+        }
+
+        paint.setTextSize(15f);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setColor(ready ? 0xFFFFE08A : 0x888FA3C8);
+        c.drawText(ready ? "READY" : active ? "STASIS" : "ULT", u.cx(), u.cy() - 60f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
         paint.setStyle(Paint.Style.FILL);
     }
 
@@ -1851,6 +1964,7 @@ public class Renderer {
                 "冲刺途中贴身撞上敌弹会把它弹反成友军火力 · 连反多得分成倍涨",
                 "打到 45 秒起会随机出现异变波 · 规则变狠但这段时间得分加成最高 1.6 倍",
                 "GV 重力井会把附近的敌弹吸进去 · 吸满 12 发朝上方喷还成自己的子弹",
+                "ULT 终极槽靠击坠 / 擦弹 / 弹反 / 吞弹积累 · 攒满按右下角大招键，全屏点名",
                 "同类道具叠加不替换 · 集齐两把基础武器自动融合出第三把",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
@@ -2351,11 +2465,21 @@ public class Renderer {
         for (GravityWell g : w.gravityWells) if (g != null && g.active) wells++;
         paint.setTextSize(22f);
         paint.setColor(0xFF8FA3C8);
-        c.drawText("炮台 " + turrets + " 座", 150f, 724f, paint);
+        float summaryX = 150f;
+        c.drawText("炮台 " + turrets + " 座", summaryX, 724f, paint);
+        summaryX += paint.measureText("炮台 " + turrets + " 座") + 28f;
         if (wells > 0) {
-            float tw = paint.measureText("炮台 " + turrets + " 座");
             paint.setColor(0xFFC9A0FF);
-            c.drawText("重力井 " + wells + " 口", 150f + tw + 28f, 724f, paint);
+            c.drawText("重力井 " + wells + " 口", summaryX, 724f, paint);
+            summaryX += paint.measureText("重力井 " + wells + " 口") + 28f;
+            paint.setColor(0xFF8FA3C8);
+        }
+        // 终极槽进度：暂停时最该看的数字——"再打多久能放大招"
+        if (w.ult.charge > 0.5f || w.ult.casts > 0) {
+            paint.setColor(w.ult.full() ? 0xFFFFE08A : 0xFFB08FFF);
+            String ultLabel = "大招 " + (int) (w.ult.charge * 100f / Ultimate.CAP)
+                    + "% · 已放 " + w.ult.casts + " 次";
+            c.drawText(ultLabel, summaryX, 724f, paint);
             paint.setColor(0xFF8FA3C8);
         }
         if (w.relicMask == 0) {
@@ -2460,9 +2584,9 @@ public class Renderer {
     }
 
     /**
-     * 本局数据卡（4 列 × 4 行）：火力质量（命中/连击/击坠/精英）、弹幕操作
-     * （擦弹/暴击/截弹/弹反）、机动与吸收（最高连反/冲刺/吞弹/BOSS）、
-     * 收获（圣物/异变/受伤/存活）。
+     * 本局数据卡（5 列 × 4 行 = 20 格）：火力质量（命中/连击/击坠/精英/擦弹）、
+     * 弹幕操作（暴击/截弹/弹反/最高连反/冲刺）、吸收与终结（吞弹/喷还/井口/大招/折弹）、
+     * 收获（BOSS/圣物/异变/受伤/存活）。
      */
     private void drawRunStats(Canvas c, GameWorld w) {
         paint.setStyle(Paint.Style.FILL);
@@ -2475,10 +2599,10 @@ public class Renderer {
         paint.setStyle(Paint.Style.FILL);
         paint.setTextAlign(Paint.Align.CENTER);
 
-        String[] labels = {"ACCURACY", "MAX COMBO", "KILLS", "ELITES",
-                "GRAZES", "CRITS", "BREAK", "PARRY",
-                "MAX STREAK", "DASH", "EATEN", "BOSS",
-                "RELICS", "MUTANTS", "HITS", "TIME"};
+        String[] labels = {"ACCURACY", "MAX COMBO", "KILLS", "ELITES", "GRAZES",
+                "CRITS", "BREAK", "PARRY", "MAX STREAK", "DASH",
+                "EATEN", "BURST", "WELLS", "ULT", "REFLECT",
+                "BOSS", "RELICS", "MUTANTS", "HITS", "TIME"};
         String[] values = {
                 w.accuracyPct() + "%",
                 "x" + w.maxCombo,
@@ -2491,25 +2615,30 @@ public class Renderer {
                 "x" + w.maxParryStreak,
                 String.valueOf(w.ship.dashesUsed),
                 String.valueOf(w.gravityAbsorbed),
+                String.valueOf(w.gravityBursts),
+                String.valueOf(w.gravityWellsDeployed),
+                String.valueOf(w.ult.casts),
+                String.valueOf(w.ultConverted),
                 String.valueOf(w.bossesDefeated),
                 String.valueOf(w.relicsGained),
                 String.valueOf(w.mutatorsSeen),
                 String.valueOf(w.hitsTaken),
                 ((int) w.timeAlive) + "s"
         };
-        float[] cx = {202.5f, 367.5f, 532.5f, 697.5f};
+        float[] cx = {186f, 318f, 450f, 582f, 714f};
         float[] rowY = {570f, 612f, 654f, 696f};
         for (int i = 0; i < labels.length; i++) {
-            float x = cx[i % 4];
-            float y = rowY[i / 4];
-            paint.setTextSize(15f);
+            float x = cx[i % 5];
+            float y = rowY[i / 5];
+            paint.setTextSize(14f);
             paint.setColor(0xFF8FA3C8);
             c.drawText(labels[i], x, y, paint);
-            paint.setTextSize(24f);
+            paint.setTextSize(23f);
             paint.setColor(i == 1 ? 0xFFFFD166 : i == 4 ? 0xFFFF8FD1
                     : i == 5 ? 0xFFFFB03A : i == 6 ? 0xFF7DF9FF
-                    : i == 7 ? 0xFFB0FFF6 : i == 10 ? 0xFFC9A0FF
-                    : i == 13 ? 0xFFB08FFF : 0xFFE8F1FF);
+                    : i == 7 ? 0xFFB0FFF6 : i == 10 || i == 12 ? 0xFFC9A0FF
+                    : i == 13 ? 0xFFE08A : i == 14 ? 0xFFB0FFF6
+                    : i == 17 ? 0xFFB08FFF : 0xFFE8F1FF);
             c.drawText(values[i], x, y + 23f, paint);
         }
         paint.setTextAlign(Paint.Align.LEFT);

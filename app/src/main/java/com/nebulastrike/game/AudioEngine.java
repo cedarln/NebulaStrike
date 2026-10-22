@@ -285,6 +285,21 @@ public class AudioEngine {
                     play(SfxId.GRAVITY_BURST, 0.6f + Math.min(0.35f, e.code * 0.03f),
                             vary(0.06f), panFor(e.x));
                     break;
+                case ULT_READY:
+                    play(SfxId.ULT_READY, 0.75f, 1f, 0f);
+                    break;
+                case ULT_CAST:
+                    // code = 档位：憋满的第三档要明显更沉
+                    play(SfxId.ULT_CAST, 0.7f + 0.1f * Math.max(1, e.code),
+                            1f - 0.07f * Math.max(0, 3 - e.code), 0f);
+                    break;
+                case ULT_LANCE:
+                    // code = 实际放出的矛数，空场放空矛时声音更薄
+                    if (e.code > 0) {
+                        play(SfxId.ULT_LANCE, 0.4f + Math.min(0.4f, e.code * 0.02f),
+                                vary(0.08f), panFor(e.x));
+                    }
+                    break;
             }
         }
     }
@@ -379,6 +394,11 @@ public class AudioEngine {
         play(SfxId.UI, 0.18f, 0.6f, 0f);
     }
 
+    /** 终极槽还没攒够时的空挡反馈：比冲刺更低更闷，避免误以为"坏了"。 */
+    public void ultBlocked() {
+        play(SfxId.UI, 0.22f, 0.45f, 0f);
+    }
+
     public void uiTick() {
         play(SfxId.UI, 0.30f, vary(0.08f), 0f);
     }
@@ -435,6 +455,9 @@ public class AudioEngine {
             case GRAVITY: return 300_000_000L;     // 一口井八秒多才再部署
             case GRAVITY_ABSORB: return 55_000_000L;  // 吸弹是连续动作，限流后仍有"连吞"层次
             case GRAVITY_BURST: return 220_000_000L;
+            case ULT_READY: return 0L;              // 攒满才响一次，不需要限流
+            case ULT_CAST: return 0L;               // 大招本身是稀有事件
+            case ULT_LANCE: return 0L;
             default: return 0L;
         }
     }

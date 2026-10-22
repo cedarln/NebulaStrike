@@ -32,6 +32,12 @@ public final class Ui {
     /** 冲刺键：贴在炸弹键外侧（左手模式镜像到另一侧）。 */
     public static final Rect DASH_RIGHT = new Rect(640f, 1462f, 118f, 118f);
     public static final Rect DASH_LEFT = new Rect(142f, 1462f, 118f, 118f);
+    /**
+     * 终极技键：贴在冲刺键外侧，和冲刺排成一行（左手模式镜像）。
+     * 满槽才有反应，所以刻意放在最靠边、最难误触的位置。
+     */
+    public static final Rect ULT_RIGHT = new Rect(770f, 1462f, 118f, 118f);
+    public static final Rect ULT_LEFT = new Rect(12f, 1462f, 118f, 118f);
 
     public static Rect bomb(boolean leftHanded) {
         return leftHanded ? BOMB_LEFT : BOMB_RIGHT;
@@ -39,6 +45,10 @@ public final class Ui {
 
     public static Rect dash(boolean leftHanded) {
         return leftHanded ? DASH_LEFT : DASH_RIGHT;
+    }
+
+    public static Rect ult(boolean leftHanded) {
+        return leftHanded ? ULT_LEFT : ULT_RIGHT;
     }
 
     // settings panel (menu only)

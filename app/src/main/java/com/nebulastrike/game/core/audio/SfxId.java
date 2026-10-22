@@ -57,5 +57,11 @@ public enum SfxId {
     /** v1.15：吞掉一颗敌弹（库存越多音越高） */
     GRAVITY_ABSORB,
     /** v1.15：重力井喷还（由抑到扬的爆开声） */
-    GRAVITY_BURST
+    GRAVITY_BURST,
+    /** v1.16：终极槽充满的上扬提示铃（一局内每次攒满只响一次） */
+    ULT_READY,
+    /** v1.16：释放终极技（低频塌缩 + 破空爆音） */
+    ULT_CAST,
+    /** v1.16：光矛齐射的破空连响（档位越高越密） */
+    ULT_LANCE
 }

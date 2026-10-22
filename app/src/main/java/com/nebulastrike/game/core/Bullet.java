@@ -26,6 +26,8 @@ public class Bullet {
     public boolean fragment;
     /** 弹跳弹剩余反弹次数（>0 时撞到左右壁会镜像 vx，见 GameWorld.bulletBounds）。 */
     public int bounces;
+    /** v1.16：终极技光矛——寻敌、贯穿、伤害随档位成长，渲染层单独画成金色长枪。 */
+    public boolean ult;
 
     public void init(float x, float y, float vy) {
         init(x, y, 0f, vy, 1, false);
@@ -47,6 +49,7 @@ public class Bullet {
         this.cluster = false;
         this.fragment = false;
         this.bounces = 0;
+        this.ult = false;
         this.landed = false;
     }
 

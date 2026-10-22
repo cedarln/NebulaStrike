@@ -41,7 +41,13 @@ public class GameWorld {
         /** v1.15：重力井吞掉一颗敌弹（code = 该井当前库存） */
         GRAVITY_ABSORB,
         /** v1.15：重力井喷还（code = 喷出的弹数） */
-        GRAVITY_BURST
+        GRAVITY_BURST,
+        /** v1.16：终极槽充满，可以放大招（HUD 提示一次） */
+        ULT_READY,
+        /** v1.16：释放终极技（code = 档位 1/2/3） */
+        ULT_CAST,
+        /** v1.16：终极技光矛齐射（code = 实际放出的矛数） */
+        ULT_LANCE
     }
     public static final class GameEvent {
         public final EventType type;
@@ -99,6 +105,8 @@ public class GameWorld {
     public static final int FLOAT_MUTATOR = 0xFFD166;
     /** 重力井吞弹飘字（Renderer 直接取用）。 */
     public static final int FLOAT_GRAVITY = 0xC9A0FF;
+    /** 终极技充能折算 / 折弹得分的飘字色（金色）。 */
+    public static final int FLOAT_ULT = 0xFFE08A;
 
     /** 暴击：命中有小概率加成伤害，过载期间概率更高。 */
     public static final float CRIT_CHANCE = 0.08f;
@@ -181,6 +189,34 @@ public class GameWorld {
     public int gravityBursts;
     /** 本局部署过的重力井口数。 */
     public int gravityWellsDeployed;
+    /** 本局被终极技折成友军弹的敌弹数（结算数据卡）。 */
+    public int ultConverted;
+
+    // ---- v1.16：终极技能 ULT（迭代 6）----
+    /** 终极槽状态（纯逻辑，见 {@link Ultimate}）：战斗行为积累，玩家选时机释放。 */
+    public final Ultimate ult = new Ultimate();
+    /** 释放终极技的屏幕余晖（渲染层用，与 novaFlash 同族）。 */
+    public float ultFlash;
+    /** 光矛飞行速度：比普通导弹快一档，大招要"唰"地穿过去。 */
+    public static final float ULT_LANCE_SPEED = 1250f;
+    /** 光矛半径：渲染与命中都用，比喷还弹更粗。 */
+    public static final float ULT_LANCE_RADIUS = 15f;
+    /** 终极技把敌弹折成友军弹时的伤害（与弹反同级，仍够点弹幕门槛）。 */
+    public static final int ULT_CONVERT_DAMAGE = 3;
+    /** 每折一颗敌弹的分数。 */
+    public static final int ULT_CONVERT_SCORE = 2;
+    /** 终极槽充能倍率：休闲档更容易攒满，硬核档更考验节奏。 */
+    public static final float ULT_CHARGE_CASUAL = 1.3f;
+    public static final float ULT_CHARGE_HARDCORE = 0.8f;
+    /** 各类战斗行为的充能量（击坠 / 精英 / 擦弹 / 点弹 / 弹反 / 吞弹 / 部件 / Boss）。 */
+    public static final float ULT_GAIN_KILL = 3f;
+    public static final float ULT_GAIN_ELITE = 10f;
+    public static final float ULT_GAIN_GRAZE = 0.6f;
+    public static final float ULT_GAIN_BREAK = 1f;
+    public static final float ULT_GAIN_PARRY = 2f;
+    public static final float ULT_GAIN_ABSORB = 1.5f;
+    public static final float ULT_GAIN_BOSS_PART = 8f;
+    public static final float ULT_GAIN_BOSS = 30f;
 
     /** 首个异变在 45 秒后出现：开局教学段保持纯净，玩家先学会基本循环再遇变量。 */
     public static final float MUTATOR_FIRST_AT = 45f;
@@ -434,13 +470,16 @@ public class GameWorld {
             return;
         }
         timeAlive += dt;
+        float realDt = dt;   // 时停与余晖按真实时间流逝，不受 hit-stop 缩放影响
         // hit-stop：大事件后短暂慢放（残影、爆炸与电弧仍按缩放后的时间推进，视觉上就是"凝滞一瞬"）
         if (hitStopTimer > 0f) {
             hitStopTimer = Math.max(0f, hitStopTimer - dt);
             dt *= HIT_STOP_SCALE;
         }
         if (slowTimer > 0f) slowTimer = Math.max(0f, slowTimer - dt);
-        float timeScale = slowTimer > 0f ? SLOW_TIME_SCALE : 1f;
+        ult.updateStasis(realDt);
+        // 终极技时停与缓时道具叠乘：两者同时生效时取更慢的一档，不会出现"敌机比子弹快"
+        float timeScale = (slowTimer > 0f ? SLOW_TIME_SCALE : 1f) * ult.timeScale();
         updateMutators(dt);
         updateDifficulty();
         updateSpawning(dt);
@@ -570,6 +609,7 @@ public class GameWorld {
             boss.active = false;
             bossActive = false;
             bossesDefeated++;
+            ultCharge(ULT_GAIN_BOSS, boss.x, boss.y);
             for (BossLaser l : bossLasers) l.active = false;
             for (int i = 0; i < boss.partCount; i++) {
                 BossPart p = boss.parts[i];
@@ -847,6 +887,7 @@ public class GameWorld {
         spark(px, py, 8, color);
         addShake(0.16f, 7f);
         addScore(80 + boss.level * 20 + (p.kind == BossPart.Kind.SHIELD ? 150 : 0), SCORE_PART);
+        ultCharge(ULT_GAIN_BOSS_PART, px, py);
         events.add(new GameEvent(EventType.BOSS_PART_DESTROYED, px, py, p.kind.ordinal()));
         if (p.kind == BossPart.Kind.SHIELD) {
             // 护盾发生器下线：减伤消失，给一次明显的视觉与手感反馈
@@ -1333,6 +1374,7 @@ public class GameWorld {
         if (mutatorBanner > 0f) mutatorBanner = Math.max(0f, mutatorBanner - dt);
         if (parryFlash > 0f) parryFlash = Math.max(0f, parryFlash - dt * 4f);
         if (gravityFlash > 0f) gravityFlash = Math.max(0f, gravityFlash - dt * 2.2f);
+        if (ultFlash > 0f) ultFlash = Math.max(0f, ultFlash - dt * 1.6f);
         updateRelics(dt);
         updateNano(dt);
         updateTurrets(dt);
@@ -1497,6 +1539,7 @@ public class GameWorld {
         b.active = false;
         g.stored++;
         gravityAbsorbed++;
+        ultCharge(ULT_GAIN_ABSORB, b.x, b.y);
         int gained = addScore(GRAVITY_ABSORB_SCORE, SCORE_OTHER);
         spark(b.x, b.y, 4, 7);
         spawnFloatText(g.x, g.y - GravityWell.RADIUS - 14f, gained, FLOAT_GRAVITY, false);
@@ -1557,9 +1600,175 @@ public class GameWorld {
         spark(g.x, g.y, 5, 7);
     }
 
-    /** 布雷艇投雷、母舰放机（两者的倒计时都在 Enemy.update 里推进）。 */
-    private void updateMinersAndCarriers() {
+    // ---- v1.16：终极技能 ULT（迭代 6）----
+
+    /**
+     * 终极槽充能：击坠、擦弹、点弹、弹反、吞弹、拆部件、杀 Boss 全部往一个槽里汇。
+     *
+     * <p>槽满之后还在战斗不会浪费——溢出的槽量按 {@link Ultimate#OVERFLOW_SCORE}
+     * 折算成分数。玩家"没空按大招"只该延后收益，不该变成损失。
+     */
+    private void ultCharge(float amount, float x, float y) {
+        if (amount <= 0f || state != State.PLAYING) return;
+        boolean wasFull = ult.full();
+        float overflow = ult.add(amount * ultChargeScale());
+        if (overflow > 0f) {
+            ult.overflowSpent += (int) Math.ceil(overflow);
+            int gained = addScore(Math.round(overflow * Ultimate.OVERFLOW_SCORE), SCORE_OTHER);
+            spawnFloatText(x, y, gained, FLOAT_ULT, false);
+        }
+        if (!wasFull && ult.full()) {
+            events.add(new GameEvent(EventType.ULT_READY, ship.x, ship.y));
+        }
+    }
+
+    /** 难度档影响攒槽速度：休闲更容易体验大招，硬核更考验节奏。 */
+    private float ultChargeScale() {
+        if (settings.difficulty == Difficulty.CASUAL) return ULT_CHARGE_CASUAL;
+        if (settings.difficulty == Difficulty.HARDCORE) return ULT_CHARGE_HARDCORE;
+        return 1f;
+    }
+
+    /**
+     * 释放终极技：时停 + 全屏光矛点名 + 把满屏敌弹折成自己的弹幕。
+     * 档位由释放瞬间的槽量决定（34 / 67 / 100），提前放、憋满放都是合法选择。
+     *
+     * @return false 表示槽量不足，本次没有消耗
+     */
+    public boolean tryUltimate() {
+        if (state != State.PLAYING) return false;
+        int tier = ult.spend();
+        if (tier == 0) return false;
+        ult.stasisTimer = Ultimate.stasisForTier(tier);
+        ultFlash = 1f;
+        ship.makeInvulnerable(Ultimate.invulnForTier(tier));
+        int lances = fireUltimateLances(Ultimate.lancesForTier(tier),
+                Ultimate.damageForTier(tier));
+        int converted = convertEnemyBullets();
+        ultConverted += converted;
+        addShake(0.35f + 0.12f * tier, 16f + 6f * tier);
+        addHitStop(0.06f + 0.03f * tier);
+        spark(ship.x, ship.y - 40f, 14, 9);
+        spawnFloatText(ship.x, ship.y - 170f,
+                lances + converted > 0 ? ULT_CONVERT_SCORE * converted : 0, FLOAT_ULT, true);
+        events.add(new GameEvent(EventType.ULT_CAST, ship.x, ship.y, tier));
+        events.add(new GameEvent(EventType.ULT_LANCE, ship.x, ship.y, lances));
+        return true;
+    }
+
+    /**
+     * 光矛齐射：把所有可打目标按离船距离升序排好，最近的先点名；
+     * 矛数多于目标时轮转补弹，空场则朝天放空矛——保证"按下一定有画面"。
+     */
+    private int fireUltimateLances(int count, int damage) {
+        int n = collectUltimateTargets();
+        int fired = 0;
+        for (int i = 0; i < count; i++) {
+            Bullet b = freeBullet();
+            if (b == null) break;
+            float tx = n == 0 ? ship.x : ultXs[i % n];
+            float ty = n == 0 ? ship.y - 600f : ultYs[i % n];
+            float dx = tx - ship.x;
+            float dy = ty - (ship.y - 30f);
+            float d = (float) Math.sqrt(dx * dx + dy * dy);
+            if (d < 1e-3f) {
+                dx = 0f;
+                dy = -1f;
+                d = 1f;
+            }
+            // 起点左右错开，24 发光矛不会叠成一根柱子
+            b.init(ship.x + ((i % 5) - 2) * 26f, ship.y - 34f,
+                    dx / d * ULT_LANCE_SPEED, dy / d * ULT_LANCE_SPEED, damage, true);
+            b.ult = true;
+            b.piercing = true;
+            b.hitCooldown = 0.16f;
+            b.radius = ULT_LANCE_RADIUS;
+            b.len = 34f;
+            bulletsFired++;
+            fired++;
+        }
+        return fired;
+    }
+
+    /** 目标点缓冲（一次释放最多 24 发光矛，64 个槽足够覆盖全屏敌机 + Boss 部件）。 */
+    private final float[] ultXs = new float[64];
+    private final float[] ultYs = new float[64];
+
+    /** 收集敌机 / Boss 部件 / Boss 核心为光矛目标，按离船距离升序排好。 */
+    private int collectUltimateTargets() {
+        int n = 0;
         for (Enemy e : enemies) {
+            if (!e.active) continue;
+            if (n == ultXs.length) break;
+            ultXs[n] = e.x;
+            ultYs[n] = e.y;
+            n++;
+        }
+        if (boss.active) {
+            for (int i = 0; i < boss.partCount && n < ultXs.length; i++) {
+                BossPart p = boss.parts[i];
+                if (!p.active) continue;
+                ultXs[n] = p.worldX(boss);
+                ultYs[n] = p.worldY(boss);
+                n++;
+            }
+            if (n < ultXs.length) {
+                ultXs[n] = boss.x;
+                ultYs[n] = boss.y;
+                n++;
+            }
+        }
+        // 目标数不超过 64，插入排序足够而且零分配
+        for (int i = 1; i < n; i++) {
+            float x = ultXs[i], y = ultYs[i];
+            float sx = x - ship.x, sy = y - ship.y;
+            float d = sx * sx + sy * sy;
+            int j = i - 1;
+            while (j >= 0) {
+                float jx = ultXs[j] - ship.x, jy = ultYs[j] - ship.y;
+                if (jx * jx + jy * jy <= d) break;
+                ultXs[j + 1] = ultXs[j];
+                ultYs[j + 1] = ultYs[j];
+                j--;
+            }
+            ultXs[j + 1] = x;
+            ultYs[j + 1] = y;
+        }
+        return n;
+    }
+
+    /**
+     * 把满屏敌弹折成友军子弹（与冲刺弹反同一条规则：折返后保证朝上、拉到正常弹速）。
+     * 弹池剩余空间不够就停止转换，避免大招把子弹池占满导致后续武器哑火。
+     */
+    private int convertEnemyBullets() {
+        int converted = 0;
+        for (EnemyBullet b : enemyBullets) {
+            if (!b.active) continue;
+            if (freeBullet() == null) break;
+            b.active = false;
+            float vx = -b.vx * 1.1f;
+            float vy = -b.vy * 1.1f;
+            if (vy > -300f) vy = -900f;
+            float sp = (float) Math.sqrt(vx * vx + vy * vy);
+            if (sp < PARRY_MIN_SPEED && sp > 1e-4f) {
+                float k = PARRY_MIN_SPEED / sp;
+                vx *= k;
+                vy *= k;
+            }
+            Bullet shot = freeBullet();
+            if (shot == null) break;
+            shot.init(b.x, b.y, vx, vy, ULT_CONVERT_DAMAGE, false);
+            bulletsFired++;
+            converted++;
+            addScore(ULT_CONVERT_SCORE, SCORE_OTHER);
+            spark(b.x, b.y, 3, 9);
+        }
+        return converted;
+    }
+
+    /** 布雷艇投雷、母舰放机（两者的倒计时都在 Enemy.update 里推进）。 */
+    private void updateMinersAndCarriers() {        for (Enemy e : enemies) {
             if (!e.active) continue;
             if (e.type == EnemyType.MINER && e.mineCd <= 0f
                     && e.y > 120f && e.y < HEIGHT * 0.72f) {
@@ -1741,6 +1950,8 @@ public class GameWorld {
             burstGravityWell(g);
             retireGravityWell(g);
         }
+        // 终极槽不清零，只保留一半：硬核的惩罚是"这一条命要更稳"，不是"前面白打了"
+        ult.charge *= 0.5f;
     }
 
     /** 重生保护：短暂无敌 + 清掉身边敌弹，避免"落地成盒"。 */
@@ -2250,6 +2461,7 @@ public class GameWorld {
             if (d > rr && d <= rr + GRAZE_BAND) {
                 b.grazed = true;
                 grazes++;
+                ultCharge(ULT_GAIN_GRAZE, b.x, b.y);
                 if (ship.overdriveTimer <= 0f) {
                     grazeCharge = Math.min(1f, grazeCharge
                             + GRAZE_CHARGE_PER_BULLET
@@ -2474,6 +2686,7 @@ public class GameWorld {
                 elite || type.score >= 25 || comboMultiplier() >= 3);
         kills++;
         if (elite) elitesKilled++;
+        ultCharge(elite ? ULT_GAIN_ELITE : ULT_GAIN_KILL, ex, ey);
         if (mutator.isActive()) mutatorKills++;
         explode(ex, ey, type.colorHint);
         if (elite) {
@@ -2952,6 +3165,9 @@ public class GameWorld {
         gravityAbsorbed = 0;
         gravityBursts = 0;
         gravityWellsDeployed = 0;
+        ultConverted = 0;
+        ult.reset();
+        ultFlash = 0f;
         for (int i = 0; i < SCORE_SOURCES; i++) scoreBySource[i] = 0;
         for (int i = 0; i < MAX_ARCS; i++) arcAge[i] = 0f;
         for (int i = 0; i < orbitCd.length; i++) orbitCd[i] = 0f;
@@ -3106,6 +3322,7 @@ public class GameWorld {
                 else b.active = false;
                 eb.active = false;
                 bulletsShotDown++;
+                ultCharge(ULT_GAIN_BREAK, eb.x, eb.y);
                 breakPulse = 1f;
                 addScore(BULLET_BREAK_SCORE, SCORE_OTHER);
                 spark(eb.x, eb.y, 3, eb.mine ? 8 : 0);
@@ -3130,6 +3347,7 @@ public class GameWorld {
             b.active = false;
             parryStreak++;
             parries++;
+            ultCharge(ULT_GAIN_PARRY, b.x, b.y);
             if (parryStreak > maxParryStreak) maxParryStreak = parryStreak;
             parryFlash = 1f;
             int gained = addScore(PARRY_SCORE * parryStreak, SCORE_OTHER);
