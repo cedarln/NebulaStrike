@@ -268,6 +268,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case ULT_READY: haptics.tick(); break;
                     // 成就用长震：一局里最难得的正面事件，手感要和大招区分开
                     case ACHIEVEMENT_UNLOCKED: haptics.bomb(); break;
+                    // 日常开局：短促一下即可，只是"今天开始了"的确认
+                    case DAILY_START: haptics.tick(); break;
                     case MIRAGE_REVEAL: haptics.tick(); break;
                     // EMP 放出去要"撞一下"，磁暴艇被打爆吞弹只是轻提示
                     case MAG_BURST:

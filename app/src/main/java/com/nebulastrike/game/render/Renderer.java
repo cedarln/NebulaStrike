@@ -13,6 +13,7 @@ import com.nebulastrike.game.core.Boss;
 import com.nebulastrike.game.core.BossLaser;
 import com.nebulastrike.game.core.BossPart;
 import com.nebulastrike.game.core.Bullet;
+import com.nebulastrike.game.core.DailyChallenge;
 import com.nebulastrike.game.core.Difficulty;
 import com.nebulastrike.game.core.Enemy;
 import com.nebulastrike.game.core.EnemyType;
@@ -20,6 +21,7 @@ import com.nebulastrike.game.core.FloatText;
 import com.nebulastrike.game.core.GameMode;
 import com.nebulastrike.game.core.GameWorld;
 import com.nebulastrike.game.core.GravityWell;
+import com.nebulastrike.game.core.Mutator;
 import com.nebulastrike.game.core.Particle;
 import com.nebulastrike.game.core.PowerUp;
 import com.nebulastrike.game.core.Relic;
@@ -1612,8 +1614,15 @@ public class Renderer {
         c.drawText(String.valueOf(w.score), 40f, 70f, paint);
 
         paint.setTextSize(30f);
-        paint.setColor(w.mode == GameMode.ENDLESS ? 0xFFB08FFF : 0xFF8FA3C8);
-        c.drawText((w.mode == GameMode.ENDLESS ? "ENDLESS " : "WAVE ") + w.wave, VW / 2f - 70f, 60f, paint);
+        if (w.daily()) {
+            // 日常局的顶部标签就是"今天的规则"：常驻、不闪烁，和随机异变波区分开
+            paint.setColor(w.dailyRule.colorRgb);
+            c.drawText("日常 " + w.dailyRule.label + " · W" + w.wave, VW / 2f - 70f, 60f, paint);
+        } else {
+            paint.setColor(w.mode == GameMode.ENDLESS ? 0xFFB08FFF : 0xFF8FA3C8);
+            c.drawText((w.mode == GameMode.ENDLESS ? "ENDLESS " : "WAVE ") + w.wave,
+                    VW / 2f - 70f, 60f, paint);
+        }
 
         // 异变波芯片：名字 + 剩余时间条，最后 3 秒闪烁提示"窗口快关了，抓紧刷"
         if (w.mutator.isActive()) {
@@ -1831,6 +1840,30 @@ public class Renderer {
     /** 中央提示：突袭奖励波 / 武器融合解锁，两者都用短促的缩放动画。 */
     private void drawBanners(Canvas c, GameWorld w) {
         paint.setTextAlign(Paint.Align.CENTER);
+        // 日常开局横幅：把今天这套规则念一遍再开打（放在最上层，其它横幅让它三分）
+        if (w.dailyBanner > 0f && w.daily()) {
+            float k = Math.min(1f, w.dailyBanner / 0.4f);
+            float in = Math.min(1f, (3.2f - w.dailyBanner) / 0.3f);
+            float s = 0.75f + 0.25f * in;
+            int rgb = w.dailyRule.colorRgb;
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(40f * s);
+            paint.setFakeBoldText(true);
+            paint.setColor(((int) (0xFF * k) << 24) | 0xFF7DF9FF);
+            c.drawText("每日挑战 · " + DailyChallenge.display(w.dailyKey), VW / 2f, 545f, paint);
+            paint.setTextSize(34f * s);
+            paint.setColor(((int) (0xF0 * k) << 24) | rgb);
+            c.drawText(w.dailyRule.label + "全程", VW / 2f, 585f, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextSize(23f * s);
+            paint.setColor(((int) (0xE0 * k) << 24) | 0xFFC8D6F0);
+            c.drawText(w.dailyRule.blurb, VW / 2f, 616f, paint);
+            c.drawText("开局 " + w.dailyLives + " 条命 · 全局得分 ×"
+                            + DailyChallenge.livesScoreBonus(w.dailyLives)
+                            + " · 同一天重开同一条时间线",
+                    VW / 2f, 646f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
         if (w.mutatorBanner > 0f && w.mutator.isActive()) {
             float k = Math.min(1f, w.mutatorBanner / 0.4f);
             float in = Math.min(1f, (3.2f - w.mutatorBanner) / 0.35f);
@@ -2122,7 +2155,8 @@ public class Renderer {
         c.drawText("SLIDE ANYWHERE TO FLY  •  AUTO FIRE  •  BOMB BUTTON", VW / 2f, 360f, paint);
 
         button(c, Ui.START, "CAMPAIGN", 0xFF274BFF, 0xFFE8F1FF, true);
-        button(c, Ui.START_ENDLESS, "ENDLESS", 0xFF8A2BE2, 0xFFFFD166, true);
+        button(c, Ui.START_ENDLESS, "ENDLESS", 0xFF8A2BE2, 0xFFFFD166, true, 34f);
+        drawDailyButton(c, w);
         button(c, Ui.SETTINGS, "SETTINGS", 0xFF182040, 0xFF8FA3C8, false, 30f);
         button(c, Ui.CHEATS, w.settings.cheatsActive() ? "LAB ON" : "LAB",
                 0xFF182040, 0xFFFF8FD1, false, 30f);
@@ -2156,6 +2190,7 @@ public class Renderer {
                 "磁暴艇 MAGNETON 会把直射弹掰弯 · 换激光 / 导弹 / 长枪照旧，打爆它还能吞掉一圈敌弹",
                 "集群蜂后 QUEEN 边飞边产幼机，越残血产得越快 · 优先击杀她，一屏幼机当场崩溃",
                 "达成成就当场 +300 分并涨军衔 · 单局取历史最佳、生涯只累加，进度永远不倒退",
+                "每日挑战 DAILY 由当天日期决定规则、命数与种子 · 同一天重开就是同一条时间线，可以刷分",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
@@ -2163,6 +2198,42 @@ public class Renderer {
         float fade = Math.min(1f, Math.min(inHint, 4.5f - inHint) / 0.45f);
         paint.setColor(((int) (0xAA * fade) << 24) | 0x8FA3C8);
         c.drawText(hints[Math.min(hintIndex, hints.length - 1)], VW / 2f, 1185f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /** 日常挑战入口：把今天摇到的规则直接写在按钮上，点下去之前就知道要面对什么。 */
+    private void drawDailyButton(Canvas c, GameWorld w) {
+        Ui.Rect r = Ui.START_DAILY;
+        int key = w.todayKey();
+        Mutator rule = DailyChallenge.ruleFor(key);
+        int lives = DailyChallenge.livesFor(key);
+        boolean played = w.dailyPlayedToday();
+        int accent = played ? 0xFF6FE38B : 0xFF7DF9FF;
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(played ? 0xFF123528 : 0xFF0E2A46);
+        c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3f);
+        paint.setColor(((int) (0xCC * (played ? 1f : 0.8f)) << 24) | accent);
+        c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setFakeBoldText(true);
+        paint.setTextSize(32f);
+        paint.setColor(played ? 0xFF8AF3A6 : 0xFFCFF4FF);
+        c.drawText(played ? "DAILY ✓" : "DAILY", r.cx(), r.cy() - 2f, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextSize(18f);
+        paint.setColor(0xFFC8D6F0);
+        c.drawText(DailyChallenge.display(key) + " · " + rule.label + " · " + lives + " 命",
+                r.cx(), r.cy() + 26f, paint);
+        paint.setTextSize(15f);
+        paint.setColor(0x99C8D6F0);
+        int best = w.settings.dailyBest(key);
+        c.drawText(best > 0 ? "今日最佳 " + best + " 分 · 连胜 "
+                        + w.settings.dailyStreak(key) + " 天"
+                : "连胜 " + w.settings.dailyStreak(key) + " 天 · 今日待打卡",
+                r.cx(), r.y - 8f, paint);
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
@@ -2821,11 +2892,28 @@ public class Renderer {
 
         paint.setTextSize(44f);
         paint.setColor(0xFFFFFFFF);
-        c.drawText("Score " + w.score + "   •   "
-                + (w.mode == GameMode.ENDLESS ? "ENDLESS" : "WAVE " + w.wave)
-                + "   •   " + w.settings.difficulty.label(), VW / 2f, 468f, paint);
+        String modeTag = w.daily()
+                ? "日常 " + DailyChallenge.display(w.dailyKey) + " · " + w.dailyRule.label
+                : (w.mode == GameMode.ENDLESS ? "ENDLESS" : "WAVE " + w.wave)
+                        + "   •   " + w.settings.difficulty.label();
+        c.drawText("Score " + w.score + "   •   " + modeTag, VW / 2f, 468f, paint);
 
-        if (w.newBest) {
+        if (w.daily()) {
+            // 日常局不动历史最高分：这一行只讲"今天"
+            int todayBest = w.settings.dailyBest(w.dailyKey);
+            if (w.dailyImproved) {
+                float pulse = 1f + 0.06f * (float) Math.sin(w.stateTimer * 6f);
+                paint.setTextSize(38f * pulse);
+                paint.setColor(0xFFFFD166);
+                c.drawText("★ 今日新纪录 " + todayBest + " ★", VW / 2f, 520f, paint);
+            } else {
+                paint.setTextSize(34f);
+                paint.setColor(0xFF8FA3C8);
+                c.drawText("今日最佳 " + todayBest + "  ·  开局 " + w.dailyLives
+                        + " 条命 · 得分 ×" + DailyChallenge.livesScoreBonus(w.dailyLives),
+                        VW / 2f, 518f, paint);
+            }
+        } else if (w.newBest) {
             float pulse = 1f + 0.06f * (float) Math.sin(w.stateTimer * 6f);
             paint.setTextSize(38f * pulse);
             paint.setColor(0xFFFFD166);
@@ -2837,7 +2925,12 @@ public class Renderer {
         }
 
         drawRunStats(c, w);
-        drawLeaderboard(c, w.board(w.mode), w.mode, VW / 2f - 160f, 740f, 320f, 28f, 22f, w.scoreRank);
+        if (w.daily()) {
+            drawDailyCalendar(c, w);
+        } else {
+            drawLeaderboard(c, w.board(w.mode), w.mode,
+                    VW / 2f - 160f, 740f, 320f, 28f, 22f, w.scoreRank);
+        }
         drawScoreBreakdown(c, w);
 
         paint.setTextSize(40f);
@@ -2998,6 +3091,63 @@ public class Renderer {
     }
 
     /** Compact one-board panel (game-over screen): the board of the run's mode. */
+    /**
+     * 日常局的"榜单"就是日历本身：最近 14 天各格一天，打过显示当日最佳、没打过留空。
+     * 它替代普通局的 TOP 5，画在同一片区域（原榜单 y 740 起、高约 220）。
+     */
+    private void drawDailyCalendar(Canvas c, GameWorld w) {
+        float boxX = VW / 2f - 300f, boxY = 740f, boxW = 600f, boxH = 212f;
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0x99000011);
+        c.drawRoundRect(boxX, boxY, boxX + boxW, boxY + boxH, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(0x66274BFF);
+        c.drawRoundRect(boxX, boxY, boxX + boxW, boxY + boxH, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        int today = w.todayKey();
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(22f);
+        paint.setColor(0xFF8FA3C8);
+        c.drawText("最近 " + DailyChallenge.HISTORY_SLOTS + " 天  ·  已打卡 "
+                        + w.settings.dailyPlayed() + " 天  ·  连胜 "
+                        + w.settings.dailyStreak(today) + " 天",
+                VW / 2f, boxY + 26f, paint);
+
+        final int cols = 7;
+        float cellW = (boxW - 32f) / cols;
+        float cellH = 74f;
+        float firstX = boxX + 16f + cellW / 2f;
+        float firstY = boxY + 46f;
+        for (int i = 0; i < DailyChallenge.HISTORY_SLOTS; i++) {
+            int col = i % cols, row = i / cols;
+            float cx = firstX + col * cellW;
+            float cy = firstY + row * (cellH + 8f);
+            int key = i < w.settings.dailyKeys.length ? w.settings.dailyKeys[i] : 0;
+            boolean played = key > 0;
+            boolean isToday = key == today;
+            paint.setColor(isToday ? 0x40FFD166 : played ? 0x2E274BFF : 0x1FFFFFFF);
+            c.drawRoundRect(cx - cellW / 2f + 3f, cy, cellW - 6f, cy + cellH, 8f, 8f, paint);
+            if (isToday) {
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2f);
+                paint.setColor(0xB0FFD166);
+                c.drawRoundRect(cx - cellW / 2f + 3f, cy, cellW - 6f, cy + cellH, 8f, 8f, paint);
+                paint.setStyle(Paint.Style.FILL);
+            }
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(17f);
+            paint.setColor(played ? 0xFFAFF6FF : 0x558FA3C8);
+            c.drawText(played ? DailyChallenge.display(key) : "--", cx, cy + 24f, paint);
+            paint.setTextSize(15f);
+            paint.setColor(played ? 0xFFFFFFFF : 0x448FA3C8);
+            c.drawText(played ? String.valueOf(w.settings.dailyScores[i]) : "未打卡",
+                    cx, cy + 52f, paint);
+        }
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
     private void drawLeaderboard(Canvas c, int[] board, GameMode mode, float x, float y,
                                  float wdt, float rowH, float size, int highlightRank) {
         paint.setStyle(Paint.Style.FILL);

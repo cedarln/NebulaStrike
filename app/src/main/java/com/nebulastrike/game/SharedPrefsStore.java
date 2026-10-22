@@ -40,6 +40,10 @@ public class SharedPrefsStore implements SettingsStore {
             into.achieveBest[i] = prefs.getInt("achieveBest" + i, 0);
             into.achieveTotal[i] = prefs.getInt("achieveTotal" + i, 0);
         }
+        for (int i = 0; i < into.dailyKeys.length; i++) {
+            into.dailyKeys[i] = prefs.getInt("dailyKey" + i, 0);
+            into.dailyScores[i] = prefs.getInt("dailyScore" + i, 0);
+        }
         into.sanitize();
     }
 
@@ -55,6 +59,7 @@ public class SharedPrefsStore implements SettingsStore {
 
     @Override
     public int[] leaderboard(GameMode mode) {
+        if (mode == GameMode.DAILY) return new int[5];   // 日常走日历，不占分数榜
         String prefix = mode == GameMode.ENDLESS ? "elb" : "lb";
         int[] out = new int[5];
         for (int i = 0; i < out.length; i++) out[i] = prefs.getInt(prefix + i, 0);
@@ -63,6 +68,7 @@ public class SharedPrefsStore implements SettingsStore {
 
     @Override
     public void saveLeaderboard(GameMode mode, int[] scores) {
+        if (mode == GameMode.DAILY) return;
         String prefix = mode == GameMode.ENDLESS ? "elb" : "lb";
         SharedPreferences.Editor e = prefs.edit();
         for (int i = 0; i < 5 && i < scores.length; i++) e.putInt(prefix + i, scores[i]);
@@ -93,6 +99,10 @@ public class SharedPrefsStore implements SettingsStore {
         for (int i = 0; i < s.achieveBest.length; i++) {
             e.putInt("achieveBest" + i, s.achieveBest[i]);
             e.putInt("achieveTotal" + i, s.achieveTotal[i]);
+        }
+        for (int i = 0; i < s.dailyKeys.length; i++) {
+            e.putInt("dailyKey" + i, s.dailyKeys[i]);
+            e.putInt("dailyScore" + i, s.dailyScores[i]);
         }
         e.apply();
     }

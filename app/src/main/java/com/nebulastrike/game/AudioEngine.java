@@ -325,6 +325,10 @@ public class AudioEngine {
                     // 居中不 pans：成就属于整局，不属于屏幕左边还是右边
                     play(SfxId.ACHIEVEMENT, 0.86f, 1f, 0f);
                     break;
+                case DAILY_START:
+                    // 开局横幅音：同样居中，code 是今日规则在 Mutator 里的序号
+                    play(SfxId.DAILY_START, 0.8f, 1f, 0f);
+                    break;
             }
         }
     }

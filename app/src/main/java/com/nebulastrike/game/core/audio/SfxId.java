@@ -71,5 +71,7 @@ public enum SfxId {
     /** v1.17：蜂后产卵的三声虫鸣颤音 */
     BROOD_CHIRP,
     /** v1.18：成就解锁的三音号角（比攒满铃更宽，末尾挂高八度余韵） */
-    ACHIEVEMENT
+    ACHIEVEMENT,
+    /** v1.19：每日挑战开局的双音钟（先低后高，像"今天开始了"的盖章） */
+    DAILY_START
 }

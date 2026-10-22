@@ -57,7 +57,9 @@ public class GameWorld {
         /** v1.17：特化遭遇保底登场（code = EnemyType.ordinal()） */
         NEW_SHIP_DEBUT,
         /** v1.18：解锁成就（code = {@link Achievement#ordinal()}） */
-        ACHIEVEMENT_UNLOCKED
+        ACHIEVEMENT_UNLOCKED,
+        /** v1.19：每日挑战开局（code = 日期键对今日规则的序号） */
+        DAILY_START
     }
     public static final class GameEvent {
         public final EventType type;
@@ -473,6 +475,32 @@ public class GameWorld {
     /** 每种统计口径的本局读数，交给判定器（复用同一个数组，不每帧分配）。 */
     private final int[] runMetrics = new int[Achievement.Metric.COUNT];
 
+    // ---- v1.19 每日挑战 ----
+    /** 今日日期键（yyyyMMdd）；非日常模式为 0。 */
+    public int dailyKey;
+    /** 今日常驻规则（一种异变倍率）；非日常模式恒为 {@link Mutator#NONE}。 */
+    public Mutator dailyRule = Mutator.NONE;
+    /** 今日命数（1~3），由日期决定，与 LAB 无关。 */
+    public int dailyLives = 3;
+    /** 本局是否刷新了今日最佳（结算页提示）。 */
+    public boolean dailyImproved;
+    /** 开局横幅剩余秒数。 */
+    public float dailyBanner;
+    /**
+     * 测试可以把"今天"钉死（传入指定毫秒）；0 = 取系统时间。
+     * 日常挑战的一切规则都由日期推导，所以这条缝只用于复现，不影响真实存档。
+     */
+    public volatile long dailyNowMillis;
+    /**
+     * 待装的日常种子。{@link RNG} 是 ThreadLocal，而"点开始"发生在 UI 线程、
+     * 跑模拟在渲染线程——只在开局的调用里 setSeed 会种错线程。
+     * 所以种子先存这里，{@link #update} 第一行在真正的模拟线程上装一次。
+     */
+    private volatile long pendingRngSeed;
+    /** {@link #todayKey()} 的一秒缓存：渲染层每帧要读日期，但不能每帧建 Calendar。 */
+    private int cachedDailyKey;
+    private long cachedDailyCheck;
+
     // ---- 得分构成（结算图用） ----
     public static final int SCORE_ENEMY = 0;
     public static final int SCORE_BOSS = 1;
@@ -547,6 +575,7 @@ public class GameWorld {
     /** Steps the simulation. dt is clamped so backgrounding cannot explode physics. */
     public void update(float dt) {
         dt = Math.min(dt, 1f / 20f);
+        applyPendingRngSeed();
         if (state != State.PLAYING) {
             stateTimer += dt;
             for (Star s : stars) s.update(dt * (state == State.PAUSED ? 0.1f : 0.3f), HEIGHT);
@@ -1336,7 +1365,7 @@ public class GameWorld {
         if (e.fireCd <= 0f) return;
         if (e.y < 60f || e.y > HEIGHT * 0.72f) return; // only fire while on-screen, not too close
         // 异变"铁雨"：冷却时间流逝更快，同样的开火表会变成双倍弹幕密度
-        e.fireCd -= dt * (mutator.isActive() ? mutator.fireScale : 1f);
+        e.fireCd -= dt * fireScaleOf();
         if (e.fireCd > 0f) return;
         switch (e.type) {
             case TANK: // slow triple spread straight down
@@ -1425,14 +1454,14 @@ public class GameWorld {
             enemySpeedScale = 1f + 0.75f * t + 0.25f * over;
             formationPeriod = 1.15f - 0.35f * t;
         }
-        enemySpeedScale *= settings.enemySpeedPct / 100f * settings.difficulty.speedScale;
-        // 异变波：出怪节奏与敌机速度都是纯倍率，窗口一结束立刻回到正常值
-        if (mutator.isActive()) {
-            if (mutator.spawnScale != 1f) {
-                spawnInterval = Math.max(0.12f, spawnInterval / mutator.spawnScale);
-            }
-            if (mutator.speedScale != 1f) enemySpeedScale *= mutator.speedScale;
+        enemySpeedScale *= enemySpeedPctOf() / 100f * difficultyOf().speedScale;
+        // 异变波与今日规则：出怪节奏与敌机速度都是纯倍率，窗口一结束立刻回到今天的基础值
+        float spawn = spawnScaleOf();
+        if (spawn != 1f) {
+            spawnInterval = Math.max(0.12f, spawnInterval / spawn);
         }
+        float spd = speedScaleOf();
+        if (spd != 1f) enemySpeedScale *= spd;
     }
 
     /**
@@ -1488,10 +1517,11 @@ public class GameWorld {
         events.add(new GameEvent(EventType.MUTATOR_CLEAR, ship.x, ship.y - 150f, gained));
     }
 
-    /** 异变对新登场敌机的属性修正：只动血量，速度已经走 {@link #updateDifficulty}。 */
+    /** 异变波与今日规则对新登场敌机的属性修正：只动血量，速度已经走 {@link #updateDifficulty}。 */
     private void applyMutatorToEnemy(Enemy e) {
-        if (!mutator.isActive() || mutator.hpScale == 1f) return;
-        e.hp = Math.max(0.5f, e.hp * mutator.hpScale);
+        float hp = hpScaleOf();
+        if (hp == 1f) return;
+        e.hp = Math.max(0.5f, e.hp * hp);
         e.maxHp = e.hp;
     }
 
@@ -1506,6 +1536,7 @@ public class GameWorld {
         if (respawnGrace > 0f) respawnGrace = Math.max(0f, respawnGrace - dt);
         if (relicBanner > 0f) relicBanner = Math.max(0f, relicBanner - dt);
         if (achieveBanner > 0f) achieveBanner = Math.max(0f, achieveBanner - dt);
+        if (dailyBanner > 0f) dailyBanner = Math.max(0f, dailyBanner - dt);
         if (novaFlash > 0f) novaFlash = Math.max(0f, novaFlash - dt * 2.2f);
         if (breakPulse > 0f) breakPulse = Math.max(0f, breakPulse - dt * 3.2f);
         if (mutatorBanner > 0f) mutatorBanner = Math.max(0f, mutatorBanner - dt);
@@ -1761,8 +1792,9 @@ public class GameWorld {
 
     /** 难度档影响攒槽速度：休闲更容易体验大招，硬核更考验节奏。 */
     private float ultChargeScale() {
-        if (settings.difficulty == Difficulty.CASUAL) return ULT_CHARGE_CASUAL;
-        if (settings.difficulty == Difficulty.HARDCORE) return ULT_CHARGE_HARDCORE;
+        Difficulty d = difficultyOf();
+        if (d == Difficulty.CASUAL) return ULT_CHARGE_CASUAL;
+        if (d == Difficulty.HARDCORE) return ULT_CHARGE_HARDCORE;
         return 1f;
     }
 
@@ -2365,7 +2397,7 @@ public class GameWorld {
 
     /** 坠机惩罚：按难度决定掉什么。 */
     private void applyDeathPenalty() {
-        Difficulty.Penalty p = settings.difficulty.penalty;
+        Difficulty.Penalty p = difficultyOf().penalty;
         if (p == Difficulty.Penalty.KEEP_ALL) return;
         if (p == Difficulty.Penalty.KEEP_WEAPONS) {
             // 雷电式惩罚：坠机火力降 1 级，武器与圣物保留
@@ -2401,10 +2433,10 @@ public class GameWorld {
 
     /** 重生保护：短暂无敌 + 清掉身边敌弹，避免"落地成盒"。 */
     private void respawnSafely() {
-        float secs = settings.difficulty.respawnInvuln;
+        float secs = difficultyOf().respawnInvuln;
         ship.makeInvulnerable(secs);
         respawnGrace = secs;
-        clearBulletsAround(ship.x, ship.y, settings.difficulty.respawnClearRadius);
+        clearBulletsAround(ship.x, ship.y, difficultyOf().respawnClearRadius);
         resetWeaponCooldowns();
         events.add(new GameEvent(EventType.RESPAWN, ship.x, ship.y, (int) (secs * 10f)));
     }
@@ -2502,7 +2534,7 @@ public class GameWorld {
     private void maybeElite(Enemy e, EnemyType type) {
         float t = mode == GameMode.ENDLESS ? timeAlive * 1.6f : timeAlive;
         if (t < 45f || type == EnemyType.DRONE) return;
-        float chance = ELITE_BASE_CHANCE * settings.difficulty.eliteScale;
+        float chance = ELITE_BASE_CHANCE * difficultyOf().eliteScale;
         if (RNG.get().nextFloat() >= chance) return;
         e.makeElite();
         spark(e.x, e.y, 5, 4);
@@ -2917,9 +2949,8 @@ public class GameWorld {
                 grazes++;
                 ultCharge(ULT_GAIN_GRAZE, b.x, b.y);
                 if (ship.overdriveTimer <= 0f) {
-                    grazeCharge = Math.min(1f, grazeCharge
-                            + GRAZE_CHARGE_PER_BULLET
-                            * (mutator.isActive() ? mutator.grazeScale : 1f));
+                    float gs = grazeScaleOf();
+                    grazeCharge = Math.min(1f, grazeCharge + GRAZE_CHARGE_PER_BULLET * gs);
                 }
                 if (hasRelic(Relic.GRAZE_LEECH)) {
                     // 虹吸矩阵：擦弹同时给冲刺充能，鼓励贴弹走位
@@ -2976,7 +3007,7 @@ public class GameWorld {
                 x2Timer = extendTimer(x2Timer, X2_DURATION);
                 break;
             case LIFE:
-                if (lives < Math.max(MAX_LIVES, settings.startLives)) lives++;
+                if (lives < Math.max(MAX_LIVES, startLivesOf())) lives++;
                 else addScore(200, SCORE_PICKUP); // 满命时折算奖励分
                 break;
             case WINGMAN:
@@ -3070,12 +3101,14 @@ public class GameWorld {
     int addScore(int base, int source) {
         int gained = base * (x2Timer > 0f ? 2 : 1);
         // 难度得分倍率：休闲打 75 折、硬核 1.5 倍，标准档保持原值
-        float scale = settings.difficulty.scoreScale;
+        float scale = difficultyOf().scoreScale;
         if (scale != 1f) gained = Math.round(gained * scale);
-        // 异变窗口：所有入账分数都加权，风险与回报同时兑现
-        if (mutator.isActive() && mutator.scoreScale != 1f) {
-            gained = Math.round(gained * mutator.scoreScale);
-        }
+        // 异变窗口与日常规则：同一个口径取更强的一个，不叠乘，风险只兑现一次
+        float ms = mutatorScoreScaleOf();
+        if (ms != 1f) gained = Math.round(gained * ms);
+        // 日常挑战命少分高：只有 DAILY 会 >1，其它模式恒等于 1
+        float bonus = dailyScoreBonus();
+        if (bonus != 1f) gained = Math.round(gained * bonus);
         score += gained;
         int idx = source >= 0 && source < SCORE_SOURCES ? source : SCORE_OTHER;
         scoreBySource[idx] += gained;
@@ -3226,9 +3259,9 @@ public class GameWorld {
                 : type == EnemyType.MIRAGE ? 0.20f
                 : type == EnemyType.HUNTER ? 0.12f
                 : type == EnemyType.SUICIDER ? 0.04f : 0.05f;
-        chance = Math.min(1f, chance * settings.dropRatePct / 100f
-                    * settings.difficulty.dropScale
-                    * (mutator.isActive() ? mutator.dropScale : 1f));
+        chance = Math.min(1f, chance * dropRatePctOf() / 100f
+                    * difficultyOf().dropScale
+                    * dropScaleOf());
         if (!elite && RNG.get().nextFloat() >= chance) return; // 精英必掉
         spawnPowerUp(dropKind(RNG.get().nextFloat()), x, y);
     }
@@ -3286,6 +3319,8 @@ public class GameWorld {
 
     /** @return the board for the given mode. */
     public int[] board(GameMode m) {
+        // 日常局不进分数榜：它的榜单是"最近 14 天日历"，见 {@link #dailyHistory()}
+        if (m == GameMode.DAILY) return new int[5];
         return m == GameMode.ENDLESS ? leaderboardEndless : leaderboard;
     }
 
@@ -3320,6 +3355,10 @@ public class GameWorld {
             case START_ENDLESS:
                 closePanels();
                 restart(GameMode.ENDLESS);
+                break;
+            case START_DAILY:
+                closePanels();
+                restart(GameMode.DAILY);
                 break;
             case CHECK_UPDATE:
                 // IDLE/最新/失败 -> 重新检查；已发现新版本 -> 开始下载；忙碌中忽略
@@ -3510,10 +3549,10 @@ public class GameWorld {
     }
 
     private void onPlayerHit() {
-        if (settings.godMode) return;
+        if (godModeOf()) return;
         if (ship.consumeShield()) { // 每一层护盾各挡一次伤害
-            ship.makeInvulnerable(settings.difficulty.respawnInvuln);
-            respawnGrace = settings.difficulty.respawnInvuln;
+            ship.makeInvulnerable(difficultyOf().respawnInvuln);
+            respawnGrace = difficultyOf().respawnInvuln;
             addShake(0.25f, 10f);
             addHitStop(0.06f);
             events.add(new GameEvent(EventType.SHIELD_BROKEN, ship.x, ship.y));
@@ -3533,12 +3572,17 @@ public class GameWorld {
             stateTimer = 0f;
             clearShipInput();
             addShake(0.6f, 22f);
-            if (score > bestScore) {
-                bestScore = score;
-                newBest = true;
-                if (store != null) store.saveBestScore(bestScore);
+            if (daily()) {
+                // 日常局只写日历：全球同一天同一把尺，历史最高分和两张分数榜留给自由局
+                dailyImproved = recordDailyRun();
+            } else {
+                if (score > bestScore) {
+                    bestScore = score;
+                    newBest = true;
+                    if (store != null) store.saveBestScore(bestScore);
+                }
+                scoreRank = insertScore(score, mode);
             }
-            scoreRank = insertScore(score, mode);
             // 坠机也要把最后一程的增量入账（此时已是 GAME_OVER，只记成就不再改分）
             commitAchievements();
             flushCodex();
@@ -3612,8 +3656,9 @@ public class GameWorld {
         commitAchievements();
         achievements.beginRun();
         mode = m;
+        applyDailyRules(m);
         score = 0;
-        lives = settings.startLives;
+        lives = startLivesOf();
         kills = 0;
         spawnedCount = 0;
         bulletsFired = 0;
@@ -3714,7 +3759,7 @@ public class GameWorld {
         spawnTimer = 0f;
         state = State.PLAYING;
         ship.reset(WIDTH / 2f, HEIGHT - 140f);
-        ship.powerLevel = settings.startPower;
+        ship.powerLevel = startPowerOf();
         for (Bullet b : bullets) b.active = false;
         for (EnemyBullet b : enemyBullets) b.active = false;
         for (Enemy e : enemies) e.active = false;
@@ -3722,6 +3767,178 @@ public class GameWorld {
         for (Particle p : particles) p.active = false;
         for (FloatText f : floatTexts) f.active = false;
         floatBudget = 0;
+        floatCursor = 0;
+    }
+
+    // ---- v1.19 每日挑战：日期决定一切 ----
+
+    /** 当前是否在每日挑战局里。 */
+    public boolean daily() {
+        return mode == GameMode.DAILY;
+    }
+
+    /**
+     * 把 {@link #pendingRngSeed} 装上当前线程的随机流。
+     *
+     * <p>为什么不能就在 {@link #restart} 里 setSeed：{@link RNG} 是 ThreadLocal，
+     * 触屏"开始日常"在 UI 线程回调，而吃随机数的是渲染线程。种子先存着，
+     * 下一帧第一行装上，保证同一天的每一次重开都从同一个随机序列起步。
+     */
+    private void applyPendingRngSeed() {
+        long seed = pendingRngSeed;
+        if (seed == 0L) return;
+        pendingRngSeed = 0L;
+        RNG.setSeed(seed);
+    }
+
+    /**
+     * "今天"的日期键。真实设备读系统时钟；测试通过 {@link #dailyNowMillis} 钉死。
+     * 结果按秒缓存，渲染层每帧调用也不会去 new Calendar。
+     */
+    public int todayKey() {
+        long millis = dailyNowMillis != 0L ? dailyNowMillis : System.currentTimeMillis();
+        if (cachedDailyKey == 0 || millis - cachedDailyCheck >= 1000L) {
+            cachedDailyCheck = millis;
+            cachedDailyKey = DailyChallenge.dateKey(millis);
+        }
+        return cachedDailyKey;
+    }
+
+    /** 开日常局时按日期锁定种子/规则/命数，普通局恢复玩家自己的设置。 */
+    private void applyDailyRules(GameMode m) {
+        dailyImproved = false;
+        if (m == GameMode.DAILY) {
+            dailyKey = todayKey();
+            dailyRule = DailyChallenge.ruleFor(dailyKey);
+            dailyLives = DailyChallenge.livesFor(dailyKey);
+            dailyBanner = 3.2f;
+            // 同一天重开 = 同一条时间线：刷分靠重复练习，不靠重新摇号。
+            // 种子先存着，等 {@link #update} 在跑模拟的那条线程上真正装上（见 applyPendingRngSeed）。
+            pendingRngSeed = DailyChallenge.seedFor(dailyKey);
+            RNG.setSeed(pendingRngSeed);
+            events.add(new GameEvent(EventType.DAILY_START,
+                    WIDTH / 2f, HEIGHT - 140f, dailyRule.ordinal()));
+        } else {
+            dailyKey = 0;
+            dailyRule = Mutator.NONE;
+            dailyLives = settings.startLives;
+            dailyBanner = 0f;
+            // 普通局不改随机流：否则刚打完日常再开自由局，第一帧会去吃日常的种子
+            pendingRngSeed = 0L;
+        }
+    }
+
+    /** 今日得分加成（一条命的日子给 1.5 倍，风险与回报同时兑现）。 */
+    private float dailyScoreBonus() {
+        return daily() ? DailyChallenge.livesScoreBonus(dailyLives) : 1f;
+    }
+
+    // ---- 本局生效系数：日常挑战锁标准难度、屏蔽 LAB，保证全球同一把尺 ----
+
+    private Difficulty difficultyOf() {
+        return daily() ? Difficulty.STANDARD : settings.difficulty;
+    }
+
+    private int dropRatePctOf() {
+        return daily() ? 100 : settings.dropRatePct;
+    }
+
+    private int enemySpeedPctOf() {
+        return daily() ? 100 : settings.enemySpeedPct;
+    }
+
+    private int startPowerOf() {
+        return daily() ? 1 : settings.startPower;
+    }
+
+    private int startLivesOf() {
+        return daily() ? dailyLives : settings.startLives;
+    }
+
+    private boolean godModeOf() {
+        return !daily() && settings.godMode;
+    }
+
+    // ---- 今日规则与随机异变波的叠加：同类倍率只认更极端的一档，不相乘 ----
+
+    /**
+     * 两层倍率相乘会造出"两倍铁雨"这种没人能读的时空，所以同一口径只生效一个：
+     * 取<b>偏离 1 更远</b>的那一档。不能直接取 max——虫群把敌机血量压到 0.6、
+     * 钢铁洪流抬到 2.2，max 会把"削弱"当成"没生效"（0.6 与 1 取大 = 1）。
+     * 普通局 {@link #dailyRule} 是 NONE（全 1），本式恒等于 window，与旧行为逐位相同。
+     */
+    private static float harsher(float window, float daily) {
+        if (daily == 1f) return window;
+        if (window == 1f) return daily;
+        return Math.abs(window - 1f) >= Math.abs(daily - 1f) ? window : daily;
+    }
+
+    private float fireScaleOf() {
+        return harsher(mutator.fireScale, dailyRule.fireScale);
+    }
+
+    private float speedScaleOf() {
+        return harsher(mutator.speedScale, dailyRule.speedScale);
+    }
+
+    private float spawnScaleOf() {
+        return harsher(mutator.spawnScale, dailyRule.spawnScale);
+    }
+
+    private float hpScaleOf() {
+        return harsher(mutator.hpScale, dailyRule.hpScale);
+    }
+
+    private float dropScaleOf() {
+        return harsher(mutator.dropScale, dailyRule.dropScale);
+    }
+
+    private float critScaleOf() {
+        return harsher(mutator.critScale, dailyRule.critScale);
+    }
+
+    private float grazeScaleOf() {
+        return harsher(mutator.grazeScale, dailyRule.grazeScale);
+    }
+
+    private float mutatorScoreScaleOf() {
+        return harsher(mutator.scoreScale, dailyRule.scoreScale);
+    }
+
+    /** 今日规则的展示串（菜单/HUD/结算共用）。 */
+    public String dailySummary() {
+        return DailyChallenge.summary(dailyKey != 0 ? dailyKey : todayKey());
+    }
+
+    /** 最近 14 天的日期键（[0] 是最近一天，0 = 空槽）。 */
+    public int[] dailyKeysSeen() {
+        return settings.dailyKeys;
+    }
+
+    /** 与 {@link #dailyKeysSeen()} 一一对应的当日最佳分。 */
+    public int[] dailyScoresSeen() {
+        return settings.dailyScores;
+    }
+
+    /** 连续打卡天数（从今天往回数，断一天归零）。 */
+    public int dailyStreak() {
+        return settings.dailyStreak(todayKey());
+    }
+
+    /** 今天是否已经打过（菜单上的"已完成/待打卡"标记）。 */
+    public boolean dailyPlayedToday() {
+        return settings.dailyBest(todayKey()) > 0;
+    }
+
+    /**
+     * 结算一局日常挑战：写进"日期 → 当日最佳"的日历，不动历史最高分与两张分数榜。
+     *
+     * @return 是否刷新了今天的最佳
+     */
+    private boolean recordDailyRun() {
+        boolean improved = settings.recordDaily(dailyKey, score);
+        if (improved) codexDirty = true;   // 日历与图鉴共用同一条落盘通道
+        return improved;
     }
 
     private void explode(float x, float y, int color) {
@@ -3936,8 +4153,8 @@ public class GameWorld {
      */
     private int damageOrCrit(int base) {
         float chance = ship.overdriveTimer > 0f ? CRIT_CHANCE_OVERDRIVE : CRIT_CHANCE;
-        // 异变"暴击临界"：把已经存在的暴击判定放大，不新增判定
-        if (mutator.isActive() && mutator.critScale != 1f) chance *= mutator.critScale;
+        // 异变"暴击临界"与今日规则：把已经存在的暴击判定放大，不新增判定
+        chance *= critScaleOf();
         if (base > 1 && RNG.get().nextFloat() < Math.min(0.9f, chance)) {
             crits++;
             return Math.max(base + 1, Math.round(base * CRIT_MULT));

@@ -52,6 +52,67 @@ public class Settings {
         return Achievement.rank(achievementsUnlocked());
     }
 
+    // ---- 每日挑战（v1.19）：最近 N 天的"日期键 → 当日最佳"日历 ----
+    /** 日期键（yyyyMMdd），{@code dailyKeys[0]} 是最近一天；0 表示空槽。 */
+    public final int[] dailyKeys = new int[DailyChallenge.HISTORY_SLOTS];
+    /** 与 {@link #dailyKeys} 一一对应的当日最佳分。 */
+    public final int[] dailyScores = new int[DailyChallenge.HISTORY_SLOTS];
+
+    /** 某天的历史最佳分；没打过返回 0。 */
+    public int dailyBest(int dateKey) {
+        for (int i = 0; i < dailyKeys.length; i++) {
+            if (dailyKeys[i] == dateKey) return dailyScores[i];
+        }
+        return 0;
+    }
+
+    /**
+     * 记录一次日常成绩：同一天只涨不跌，新的一天插到最前面并把同分那天挤掉。
+     *
+     * @return true 表示刷新了今天的最佳
+     */
+    public boolean recordDaily(int dateKey, int score) {
+        if (dateKey <= 0 || score <= 0) return false;
+        for (int i = 0; i < dailyKeys.length; i++) {
+            if (dailyKeys[i] != dateKey) continue;
+            if (score <= dailyScores[i]) return false;
+            dailyScores[i] = score;
+            return true;
+        }
+        for (int i = dailyKeys.length - 1; i > 0; i--) {
+            dailyKeys[i] = dailyKeys[i - 1];
+            dailyScores[i] = dailyScores[i - 1];
+        }
+        dailyKeys[0] = dateKey;
+        dailyScores[0] = score;
+        return true;
+    }
+
+    /** 已打卡天数。 */
+    public int dailyPlayed() {
+        int n = 0;
+        for (int key : dailyKeys) if (key > 0) n++;
+        return n;
+    }
+
+    /**
+     * 连续打卡天数（从今天往回数）。中间断一天就重新计数——
+     * 这是唯一的"惩罚"，但断掉的只是连胜，历史分数一条都不会丢。
+     */
+    public int dailyStreak(int todayKey) {
+        int streak = 0;
+        int want = todayKey;
+        for (int i = 0; i < dailyKeys.length && dailyKeys[i] > 0; i++) {
+            if (dailyKeys[i] == want) {
+                streak++;
+                want = DailyChallenge.previousKey(want);
+            } else if (dailyKeys[i] < want) {
+                break;   // 日历是倒序的，遇到更早又不对齐的那天就是断档
+            }
+        }
+        return streak;
+    }
+
     public boolean enemySeen(EnemyType type) {
         return (codexSeenEnemies & (1 << type.ordinal())) != 0;
     }
@@ -136,6 +197,23 @@ public class Settings {
         for (int i = 0; i < achieveTotal.length; i++) {
             if (achieveTotal[i] < 0) achieveTotal[i] = 0;
         }
+        // 日常日历：日期键必须像 yyyyMMdd，且月日合法；脏值整槽清空（宁可不显示历史也不能画出 0000-00）
+        for (int i = 0; i < dailyKeys.length; i++) {
+            if (!validDateKey(dailyKeys[i])) {
+                dailyKeys[i] = 0;
+            }
+            if (dailyScores[i] < 0 || dailyKeys[i] == 0) {
+                dailyScores[i] = 0;
+            }
+        }
+    }
+
+    /** yyyyMMdd 形式的日期键合法性检查：年份合理、月份 1..12、日期 1..31。 */
+    private static boolean validDateKey(int key) {
+        if (key < 20240101 || key > 99991231) return false;
+        int mm = (key / 100) % 100;
+        int dd = key % 100;
+        return mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31;
     }
 
     private static int clamp(int v, int lo, int hi) {

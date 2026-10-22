@@ -66,6 +66,7 @@ public final class SfxBank {
         put(SfxId.EMP_BURST, empBurst(), 0.74f);
         put(SfxId.BROOD_CHIRP, broodChirp(), 0.48f);
         put(SfxId.ACHIEVEMENT, achievement(), 0.66f);
+        put(SfxId.DAILY_START, dailyStart(), 0.6f);
     }
 
     public static SfxBank create() {
@@ -1156,6 +1157,35 @@ public final class SfxBank {
             x[i] = (float) ((horn + tail) * env(t, 0.9, 0.004, 1.0));
         }
         echo(x, 0.12, 0.24);
+        return x;
+    }
+
+    /**
+     * 每日挑战开局：低-高双音钟 + 一层极轻的呼吸垫。
+     * 和 {@code achievement} 的三音号角刻意分开——日常局一开始就可能连解成就，
+     * 两个音色撞车会让玩家分不清"今天开始了"和"刚刚解锁"。
+     */
+    private static float[] dailyStart() {
+        int n = frames(1.1);
+        float[] x = new float[n];
+        double[] bells = {261.63, 392.0};
+        double phA = 0, phB = 0;
+        Random r = new Random(20190101);
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            int idx = t < 0.26 ? 0 : 1;
+            double local = t - idx * 0.26;
+            double f = bells[idx];
+            // 钟声：基音 + 2.76 次泛音（金属感的那个不整数倍泛音），指数衰减
+            phA += f / SAMPLE_RATE;
+            phB += f * 2.76 / SAMPLE_RATE;
+            double bell = (sine(phA) * 0.34 + sine(phB) * 0.13 + sine(phA * 2.0) * 0.08)
+                    * Math.exp(-local * 4.2) * Math.max(0.0, 1.0 - local / 0.62);
+            // 呼吸垫：整条铺底的高通噪声，只有 4% 音量，用来区分"这是新的一天"
+            double pad = noise(r) * 0.04 * Math.min(1.0, t / 0.3) * Math.max(0.0, 1.0 - t / 1.1);
+            x[i] = (float) ((bell + pad) * env(t, 1.1, 0.002, 0.8));
+        }
+        echo(x, 0.16, 0.3);
         return x;
     }
 
