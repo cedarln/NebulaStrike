@@ -8,10 +8,11 @@ public class PowerUp {
     /**
      * ORBIT/CHAIN/BONUS 为 v1.9 新增：轨道球、连锁闪电、突袭奖励。
      * BOUNCE/NOVA/NANITE/TURRET 为 v1.10 新增：弹跳弹、新星冲击、纳米修复、部署炮台。
+     * GRAVITY 为 v1.15 新增：部署重力井（吸掉敌弹再喷还成自己的子弹）。
      * 新类型一律追加在末尾，避免改变既有 ordinal（掉落表、音效、存档都按 ordinal 映射）。
      */
     public enum Kind { SPREAD, MISSILE, LASER, POWER, SHIELD, BOMB, RAPID, X2, LIFE, WINGMAN, TIME,
-        ORBIT, CHAIN, BONUS, BOUNCE, NOVA, NANITE, TURRET }
+        ORBIT, CHAIN, BONUS, BOUNCE, NOVA, NANITE, TURRET, GRAVITY }
 
     public Kind kind;
     public float x, y;

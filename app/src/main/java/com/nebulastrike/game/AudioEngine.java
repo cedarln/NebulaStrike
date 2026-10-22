@@ -272,6 +272,19 @@ public class AudioEngine {
                     play(SfxId.MUTATOR_CLEAR, 0.7f,
                             1f + Math.min(0.35f, e.code / 1200f), 0f);
                     break;
+                case GRAVITY_DEPLOY:
+                    play(SfxId.GRAVITY, 0.90f, vary(0.05f), panFor(e.x));
+                    break;
+                case GRAVITY_ABSORB:
+                    // code = 该井当前库存：越吸越满，音高逐级抬升，喷还前就能听出"快满了"
+                    play(SfxId.GRAVITY_ABSORB, 0.5f + Math.min(0.25f, e.code * 0.02f),
+                            1f + Math.min(0.55f, (e.code - 1) * 0.09f), panFor(e.x));
+                    break;
+                case GRAVITY_BURST:
+                    // code = 喷出的弹数：一次喷得越多越响
+                    play(SfxId.GRAVITY_BURST, 0.6f + Math.min(0.35f, e.code * 0.03f),
+                            vary(0.06f), panFor(e.x));
+                    break;
             }
         }
     }
@@ -419,6 +432,9 @@ public class AudioEngine {
             case PARRY: return 45_000_000L;        // 一次冲刺可能连弹好几发，留出层次
             case MUTATOR: return 0L;               // 三十几秒一次，永不抑制
             case MUTATOR_CLEAR: return 0L;         // 同上
+            case GRAVITY: return 300_000_000L;     // 一口井八秒多才再部署
+            case GRAVITY_ABSORB: return 55_000_000L;  // 吸弹是连续动作，限流后仍有"连吞"层次
+            case GRAVITY_BURST: return 220_000_000L;
             default: return 0L;
         }
     }

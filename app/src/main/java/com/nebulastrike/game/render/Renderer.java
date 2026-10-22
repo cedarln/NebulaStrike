@@ -17,6 +17,7 @@ import com.nebulastrike.game.core.EnemyType;
 import com.nebulastrike.game.core.FloatText;
 import com.nebulastrike.game.core.GameMode;
 import com.nebulastrike.game.core.GameWorld;
+import com.nebulastrike.game.core.GravityWell;
 import com.nebulastrike.game.core.Particle;
 import com.nebulastrike.game.core.PowerUp;
 import com.nebulastrike.game.core.Relic;
@@ -97,6 +98,7 @@ public class Renderer {
         drawEnemyBullets(c, w);
         drawEnemies(c, w);
         drawTurrets(c, w);
+        drawGravityWells(c, w);
         if (w.boss.active) {
             drawBoss(c, w);
             drawBossLasers(c, w);
@@ -165,6 +167,24 @@ public class Renderer {
                 paint.setStrokeWidth((16f - i * 8f) * k);
                 paint.setColor(((int) ((0xB0 - i * 0x40) * k) << 24) | 0x00BFFFFF);
                 c.drawCircle(s.x, s.y, rr, paint);
+            }
+            paint.setStyle(Paint.Style.FILL);
+        }
+
+        // 重力井登场：紫罗兰薄雾 + 从井口收缩的引力环（收缩而非扩散 = "吸进去"）
+        if (w.gravityFlash > 0f) {
+            float k = w.gravityFlash;
+            paint.setStyle(Paint.Style.FILL);
+            paint.setShader(null);
+            paint.setColor(((int) (48 * k) << 24) | 0x00B04DFF);
+            c.drawRect(0, 0, VW, VH, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            for (GravityWell g : w.gravityWells) {
+                if (g == null || !g.active) continue;
+                float rr = GravityWell.PULL_RADIUS * (0.35f + 0.65f * k);
+                paint.setStrokeWidth(6f * k);
+                paint.setColor(((int) (0xA0 * k) << 24) | 0x00C9A0FF);
+                c.drawCircle(g.x, g.y, rr, paint);
             }
             paint.setStyle(Paint.Style.FILL);
         }
@@ -336,6 +356,7 @@ public class Renderer {
                 case NOVA:   color = 0xFFDFF6FF; label = "NV"; break;
                 case NANITE: color = 0xFF5CFFB8; label = "NA"; break;
                 case TURRET: color = 0xFFC0CCE8; label = "TR"; break;
+                case GRAVITY: color = 0xFFC9A0FF; label = "GV"; break;
                 default: color = 0xFFFF5C7A; label = "B"; break;
             }
             boolean hot = p.attracted;
@@ -765,6 +786,56 @@ public class Renderer {
             c.drawRect(t.x - wpx / 2f, t.y + r * 0.9f,
                     t.x - wpx / 2f + wpx * frac, t.y + r * 0.9f + 6f, paint);
         }
+    }
+
+    /**
+     * 重力井：引力范围虚线环 + 双向旋转的吸积弧 + 黑核 + 库存点。
+     * 库存点绕核排成一圈，吸得越满越接近"喷发倒计时"。
+     */
+    private void drawGravityWells(Canvas c, GameWorld w) {
+        for (GravityWell g : w.gravityWells) {
+            if (g == null || !g.active) continue;
+            float fade = Math.min(1f, g.life / 1.6f);
+            float blink = g.life < 1.6f
+                    ? 0.5f + 0.5f * (0.5f + 0.5f * (float) Math.sin(w.timeAlive * 13f)) : 1f;
+            float a = fade * blink;
+            float r = GravityWell.RADIUS;
+            // 引力边界：慢呼吸的细圈，告诉玩家"弹进了这个圈就回不去了"
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2f);
+            float breathe = 0.5f + 0.5f * (float) Math.sin(w.timeAlive * 2.6f);
+            paint.setColor(((int) ((0x22 + 0x14 * breathe) * a) << 24) | 0x00B04DFF);
+            c.drawCircle(g.x, g.y, GravityWell.PULL_RADIUS * (0.94f + 0.06f * breathe), paint);
+            // 吸积盘：两圈反向旋转的弧，一眼认出"在往里卷"
+            for (int i = 0; i < 2; i++) {
+                float rr = r * (1.45f + i * 0.5f);
+                float spin = w.timeAlive * (i == 0 ? 150f : -110f) + i * 40f;
+                paint.setStrokeWidth(6f - i * 2.5f);
+                paint.setColor(((int) ((0xB0 - i * 0x40) * a) << 24)
+                        | (i == 0 ? 0x00C9A0FF : 0x007DF9FF));
+                c.drawArc(g.x - rr, g.y - rr, g.x + rr, g.y + rr, spin, 145f, false, paint);
+            }
+            // 黑核：外发光 + 纯黑中心 + 紫描边
+            glow.setColor(((int) (0x6E * a) << 24) | 0x00B04DFF);
+            c.drawCircle(g.x, g.y, r * 1.6f, glow);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(((int) (0xF5 * a) << 24) | 0x00080412);
+            c.drawCircle(g.x, g.y, r, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(3f);
+            paint.setColor(((int) (0xD0 * a) << 24) | 0x00C9A0FF);
+            c.drawCircle(g.x, g.y, r, paint);
+            // 库存点：吞了几发就亮几颗，绕核一圈慢慢攒满
+            paint.setStyle(Paint.Style.FILL);
+            for (int i = 0; i < g.stored; i++) {
+                double ang = i / (double) GravityWell.CAP * Math.PI * 2.0 + w.timeAlive * 1.1;
+                float ox = g.x + (float) Math.cos(ang) * (r + 13f);
+                float oy = g.y + (float) Math.sin(ang) * (r + 13f);
+                paint.setColor(((int) (0xE8 * a) << 24) | 0x00FFD34A);
+                c.drawCircle(ox, oy, 3.6f, paint);
+            }
+        }
+        paint.setStyle(Paint.Style.FILL);
     }
 
     private void drawBoss(Canvas c, GameWorld w) {
@@ -1479,6 +1550,18 @@ public class Renderer {
         if (turretCount > 0) {
             statusBar(c, "TURRET x" + turretCount, 0xFFC0CCE8,
                     turretFrac / turretCount, statusY);
+            statusY += 38f;
+        }
+        // 重力井：进度条 = 库存/上限，一眼看出"快喷了"
+        int wellCount = 0;
+        float wellFrac = 0f;
+        for (GravityWell g : w.gravityWells) {
+            if (g == null || !g.active) continue;
+            wellCount++;
+            wellFrac += Math.min(1f, (float) g.stored / GravityWell.CAP);
+        }
+        if (wellCount > 0) {
+            statusBar(c, "GRAVITY x" + wellCount, 0xFFC9A0FF, wellFrac / wellCount, statusY);
         }
 
         drawRelicChips(c, w);
@@ -1767,6 +1850,7 @@ public class Renderer {
                 "导弹 / 集束 / 长枪这类重弹可以点爆敌弹 · 但这一发就打不出伤害了",
                 "冲刺途中贴身撞上敌弹会把它弹反成友军火力 · 连反多得分成倍涨",
                 "打到 45 秒起会随机出现异变波 · 规则变狠但这段时间得分加成最高 1.6 倍",
+                "GV 重力井会把附近的敌弹吸进去 · 吸满 12 发朝上方喷还成自己的子弹",
                 "同类道具叠加不替换 · 集齐两把基础武器自动融合出第三把",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
@@ -2263,9 +2347,17 @@ public class Renderer {
         c.drawText(w.settings.difficulty.label() + "难度", 150f, 682f, paint);
         int turrets = 0;
         for (Turret t : w.turrets) if (t != null && t.active) turrets++;
+        int wells = 0;
+        for (GravityWell g : w.gravityWells) if (g != null && g.active) wells++;
         paint.setTextSize(22f);
         paint.setColor(0xFF8FA3C8);
         c.drawText("炮台 " + turrets + " 座", 150f, 724f, paint);
+        if (wells > 0) {
+            float tw = paint.measureText("炮台 " + turrets + " 座");
+            paint.setColor(0xFFC9A0FF);
+            c.drawText("重力井 " + wells + " 口", 150f + tw + 28f, 724f, paint);
+            paint.setColor(0xFF8FA3C8);
+        }
         if (w.relicMask == 0) {
             paint.setColor(0x668FA3C8);
             c.drawText("圣物 · 尚未击败 BOSS", 300f, 682f, paint);
@@ -2368,8 +2460,9 @@ public class Renderer {
     }
 
     /**
-     * 本局数据卡（5 列 × 3 行）：命中率 / 连击 / 擦弹 / 暴击 / 截弹、
-     * 弹反 / 最高连反 / 冲刺 / 击坠 / 精英、BOSS / 圣物 / 异变 / 受伤 / 存活。
+     * 本局数据卡（4 列 × 4 行）：火力质量（命中/连击/击坠/精英）、弹幕操作
+     * （擦弹/暴击/截弹/弹反）、机动与吸收（最高连反/冲刺/吞弹/BOSS）、
+     * 收获（圣物/异变/受伤/存活）。
      */
     private void drawRunStats(Canvas c, GameWorld w) {
         paint.setStyle(Paint.Style.FILL);
@@ -2382,39 +2475,42 @@ public class Renderer {
         paint.setStyle(Paint.Style.FILL);
         paint.setTextAlign(Paint.Align.CENTER);
 
-        String[] labels = {"ACCURACY", "MAX COMBO", "GRAZES", "CRITS", "BREAK",
-                "PARRY", "MAX STREAK", "DASH", "KILLS", "ELITES",
-                "BOSS", "RELICS", "MUTANTS", "HITS", "TIME"};
+        String[] labels = {"ACCURACY", "MAX COMBO", "KILLS", "ELITES",
+                "GRAZES", "CRITS", "BREAK", "PARRY",
+                "MAX STREAK", "DASH", "EATEN", "BOSS",
+                "RELICS", "MUTANTS", "HITS", "TIME"};
         String[] values = {
                 w.accuracyPct() + "%",
                 "x" + w.maxCombo,
+                String.valueOf(w.kills),
+                String.valueOf(w.elitesKilled),
                 String.valueOf(w.grazes),
                 String.valueOf(w.crits),
                 String.valueOf(w.bulletsShotDown),
                 String.valueOf(w.parries),
                 "x" + w.maxParryStreak,
                 String.valueOf(w.ship.dashesUsed),
-                String.valueOf(w.kills),
-                String.valueOf(w.elitesKilled),
+                String.valueOf(w.gravityAbsorbed),
                 String.valueOf(w.bossesDefeated),
                 String.valueOf(w.relicsGained),
                 String.valueOf(w.mutatorsSeen),
                 String.valueOf(w.hitsTaken),
                 ((int) w.timeAlive) + "s"
         };
-        float[] cx = {186f, 318f, 450f, 582f, 714f};
-        float[] rowY = {578f, 630f, 682f};
+        float[] cx = {202.5f, 367.5f, 532.5f, 697.5f};
+        float[] rowY = {570f, 612f, 654f, 696f};
         for (int i = 0; i < labels.length; i++) {
-            float x = cx[i % 5];
-            float y = rowY[i / 5];
-            paint.setTextSize(16f);
+            float x = cx[i % 4];
+            float y = rowY[i / 4];
+            paint.setTextSize(15f);
             paint.setColor(0xFF8FA3C8);
             c.drawText(labels[i], x, y, paint);
-            paint.setTextSize(26f);
-            paint.setColor(i == 1 ? 0xFFFFD166 : i == 2 ? 0xFFFF8FD1
-                    : i == 3 ? 0xFFFFB03A : i == 4 ? 0xFF7DF9FF
-                    : i == 5 ? 0xFFB0FFF6 : i == 12 ? 0xFFB08FFF : 0xFFE8F1FF);
-            c.drawText(values[i], x, y + 25f, paint);
+            paint.setTextSize(24f);
+            paint.setColor(i == 1 ? 0xFFFFD166 : i == 4 ? 0xFFFF8FD1
+                    : i == 5 ? 0xFFFFB03A : i == 6 ? 0xFF7DF9FF
+                    : i == 7 ? 0xFFB0FFF6 : i == 10 ? 0xFFC9A0FF
+                    : i == 13 ? 0xFFB08FFF : 0xFFE8F1FF);
+            c.drawText(values[i], x, y + 23f, paint);
         }
         paint.setTextAlign(Paint.Align.LEFT);
     }

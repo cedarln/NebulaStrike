@@ -56,6 +56,9 @@ public final class SfxBank {
         put(SfxId.PARRY, parry(), 0.52f);
         put(SfxId.MUTATOR, mutatorRiser(), 0.60f);
         put(SfxId.MUTATOR_CLEAR, mutatorClear(), 0.50f);
+        put(SfxId.GRAVITY, gravityDeploy(), 0.58f);
+        put(SfxId.GRAVITY_ABSORB, gravityAbsorb(), 0.34f);
+        put(SfxId.GRAVITY_BURST, gravityBurst(), 0.60f);
     }
 
     public static SfxBank create() {
@@ -925,6 +928,65 @@ public final class SfxBank {
             x[i] = (float) ((bell + spark) * env(t, 0.46, 0.001, 1.0));
         }
         echo(x, 0.07, 0.3);
+        return x;
+    }
+
+    /**
+     * 重力井登场：低频漩涡由低到高涌起再塌回，配一层反向吸入的噪声，
+     * 听起来像"空间被拧开一个口"。
+     */
+    private static float[] gravityDeploy() {
+        int n = frames(0.72);
+        float[] x = new float[n];
+        Random r = new Random(415);
+        double ph = 0, swirl = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double k = Math.min(1.0, t / 0.45);
+            // 基频先升到 210Hz 再塌回 60Hz：开口 → 稳定吸收
+            double freq = t < 0.45 ? 70 + 140 * (t / 0.45) : 210 - 150 * ((t - 0.45) / 0.27);
+            ph += freq / SAMPLE_RATE;
+            swirl += (freq * 1.5) / SAMPLE_RATE;
+            double body = (sine(ph) * 0.55 + tri(swirl) * 0.22) * (0.35 + 0.65 * Math.sin(k * Math.PI));
+            // 吸入感：噪声随时间变密、末尾才被"吞掉"
+            double hiss = noise(r) * 0.20 * Math.sin(k * Math.PI);
+            x[i] = (float) ((body + hiss) * env(t, 0.72, 0.03, 0.8));
+        }
+        echo(x, 0.055, 0.34);
+        return x;
+    }
+
+    /** 吞掉一颗敌弹：短促下行"咕"声，像东西掉进洞里。 */
+    private static float[] gravityAbsorb() {
+        int n = frames(0.16);
+        float[] x = new float[n];
+        double ph = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            ph += (980 - 720 * (t / 0.16)) / SAMPLE_RATE;
+            x[i] = (float) (sine(ph) * env(t, 0.16, 0.002, 1.7));
+        }
+        return x;
+    }
+
+    /** 重力井喷还：下压后向上炸开的扇形喷射，收尾一记亮片和弦。 */
+    private static float[] gravityBurst() {
+        int n = frames(0.5);
+        float[] x = new float[n];
+        Random r = new Random(422);
+        double ph1 = 0, ph2 = 0, ph3 = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double k = Math.min(1.0, t / 0.2);
+            ph1 += (330 + 520 * k) / SAMPLE_RATE;
+            ph2 += (495 + 660 * k) / SAMPLE_RATE;
+            ph3 += (660 + 880 * k) / SAMPLE_RATE;
+            double chord = (sine(ph1) + sine(ph2) * 0.7 + sine(ph3) * 0.5) * 0.34;
+            double jet = noise(r) * 0.30 * Math.max(0.0, 1.0 - t / 0.3);
+            x[i] = (float) ((chord * Math.exp(-t * 4.2) + jet * Math.exp(-t * 6.0)
+                    + (chord + jet) * 0.35 * env(t, 0.5, 0.004, 1.4)));
+        }
+        echo(x, 0.07, 0.24);
         return x;
     }
 

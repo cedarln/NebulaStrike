@@ -35,7 +35,13 @@ public class GameWorld {
         /** v1.14：异变波开始（code = {@link Mutator#ordinal()}） */
         MUTATOR_START,
         /** v1.14：异变波平息（code = 奖励分数） */
-        MUTATOR_CLEAR
+        MUTATOR_CLEAR,
+        /** v1.15：部署重力井 */
+        GRAVITY_DEPLOY,
+        /** v1.15：重力井吞掉一颗敌弹（code = 该井当前库存） */
+        GRAVITY_ABSORB,
+        /** v1.15：重力井喷还（code = 喷出的弹数） */
+        GRAVITY_BURST
     }
     public static final class GameEvent {
         public final EventType type;
@@ -73,6 +79,8 @@ public class GameWorld {
     public final PowerUp[] powerups = new PowerUp[20];
     /** 玩家部署的炮台（TURRET 道具），最多同时 3 座。 */
     public final Turret[] turrets = new Turret[3];
+    /** v1.15：重力井（GRAVITY 道具）同时最多 2 口，避免整屏敌弹被吸干净。 */
+    public final GravityWell[] gravityWells = new GravityWell[2];
     public final Star[] stars = new Star[90];
     /** v1.11 伤害/得分飘字池；满槽时覆盖最旧的一条（与粒子同样的 ring cursor）。 */
     public final FloatText[] floatTexts = new FloatText[40];
@@ -89,6 +97,8 @@ public class GameWorld {
     public static final int FLOAT_PARRY = 0xB0FFF6;
     /** 异变平息奖励飘字（Renderer 直接取用）。 */
     public static final int FLOAT_MUTATOR = 0xFFD166;
+    /** 重力井吞弹飘字（Renderer 直接取用）。 */
+    public static final int FLOAT_GRAVITY = 0xC9A0FF;
 
     /** 暴击：命中有小概率加成伤害，过载期间概率更高。 */
     public static final float CRIT_CHANCE = 0.08f;
@@ -151,6 +161,26 @@ public class GameWorld {
     private int mutatorKills;
     /** 异变波开关：需要确定性的模式（每日挑战 / Boss Rush）可以关掉。 */
     public boolean mutatorsEnabled = true;
+
+    // ---- v1.15：重力井道具 GRAVITY（迭代 5）----
+    /** 喷还弹的伤害：2 点足够越过 {@link #BREAK_MIN_DAMAGE}，能连锁点掉敌弹。 */
+    public static final int GRAVITY_BURST_DAMAGE = 2;
+    /** 喷还弹速：与弹反一致保底拉到正常弹速，避免"飘半天才出屏"。 */
+    public static final float GRAVITY_BURST_SPEED = 1050f;
+    /** 喷还扇形的张角（弧度），以正上方为中心。 */
+    public static final float GRAVITY_BURST_SPREAD = 2.6f;
+    /** 每吞一颗敌弹的分数（吞弹本身是保命，也给小额正反馈）。 */
+    public static final int GRAVITY_ABSORB_SCORE = 3;
+    /** 吞弹也补擦弹槽，但只按擦弹的三成计，避免吸弹比贴弹走位更划算。 */
+    public static final float ABSORB_GRAZE_FACTOR = 0.3f;
+    /** 部署重力井时的屏幕余晖（渲染层用，与 novaFlash 同族）。 */
+    public float gravityFlash;
+    /** 本局被重力井吞掉的敌弹总数（结算数据卡）。 */
+    public int gravityAbsorbed;
+    /** 本局重力井喷还次数。 */
+    public int gravityBursts;
+    /** 本局部署过的重力井口数。 */
+    public int gravityWellsDeployed;
 
     /** 首个异变在 45 秒后出现：开局教学段保持纯净，玩家先学会基本循环再遇变量。 */
     public static final float MUTATOR_FIRST_AT = 45f;
@@ -341,6 +371,7 @@ public class GameWorld {
         for (int i = 0; i < enemies.length; i++) enemies[i] = new Enemy();
         for (int i = 0; i < powerups.length; i++) powerups[i] = new PowerUp();
         for (int i = 0; i < turrets.length; i++) turrets[i] = new Turret();
+        for (int i = 0; i < gravityWells.length; i++) gravityWells[i] = new GravityWell();
         for (int i = 0; i < particles.length; i++) particles[i] = new Particle();
         for (int i = 0; i < stars.length; i++) {
             stars[i] = new Star();
@@ -1293,7 +1324,7 @@ public class GameWorld {
 
     // ---- v1.10：重生保护 / Boss 圣物 / 炮台 / 布雷与母舰 ----
 
-    /** 每帧推进的"轻量"子系统：保护窗口、圣物被动、纳米修复、炮台、布雷与放机。 */
+    /** 每帧推进的"轻量"子系统：保护窗口、圣物被动、纳米修复、炮台、重力井、布雷与放机。 */
     private void updateGrace(float dt) {
         if (respawnGrace > 0f) respawnGrace = Math.max(0f, respawnGrace - dt);
         if (relicBanner > 0f) relicBanner = Math.max(0f, relicBanner - dt);
@@ -1301,9 +1332,11 @@ public class GameWorld {
         if (breakPulse > 0f) breakPulse = Math.max(0f, breakPulse - dt * 3.2f);
         if (mutatorBanner > 0f) mutatorBanner = Math.max(0f, mutatorBanner - dt);
         if (parryFlash > 0f) parryFlash = Math.max(0f, parryFlash - dt * 4f);
+        if (gravityFlash > 0f) gravityFlash = Math.max(0f, gravityFlash - dt * 2.2f);
         updateRelics(dt);
         updateNano(dt);
         updateTurrets(dt);
+        updateGravityWells(dt);
         updateMinersAndCarriers();
     }
 
@@ -1421,6 +1454,107 @@ public class GameWorld {
     private void retireTurret(Turret t) {
         t.active = false;
         spark(t.x, t.y, 6, 4);
+    }
+
+    // ---- v1.15：重力井 ----
+
+    /**
+     * 重力井：拉扯影响范围内的敌弹、吞掉吸到心口的弹，吸满或到期时向上扇形喷还。
+     * 在 {@link #updateGrace} 里调用，早于本帧敌弹位移与命中判定，
+     * 所以被吞掉的弹不可能再打到玩家（同帧也不会出现"既被吞又命中"）。
+     */
+    private void updateGravityWells(float dt) {
+        for (GravityWell g : gravityWells) {
+            if (!g.active) continue;
+            if (!g.update(dt)) {
+                burstGravityWell(g);
+                retireGravityWell(g);
+                continue;
+            }
+            for (EnemyBullet b : enemyBullets) {
+                if (!b.active) continue;
+                float dx = g.x - b.x, dy = g.y - b.y;
+                float d = (float) Math.sqrt(dx * dx + dy * dy);
+                if (d >= GravityWell.PULL_RADIUS) continue;
+                // 越近拉得越猛；保留原有速度分量，弹道会弯成螺旋而不是直直掉下来
+                float pull = g.pullAt(d) * dt;
+                if (d > 1e-3f) {
+                    b.vx += dx / d * pull;
+                    b.vy += dy / d * pull;
+                }
+                if (d > GravityWell.ABSORB_RADIUS + b.radius) continue;
+                absorbIntoWell(g, b);
+                if (g.full()) {
+                    burstGravityWell(g);
+                    break;   // 库存清零，剩下的敌弹下一帧再吸
+                }
+            }
+        }
+    }
+
+    /** 吞掉一颗敌弹：小额分数 + 紫色飘字，同时给一点擦弹充能（贴脸吸弹也是走位）。 */
+    private void absorbIntoWell(GravityWell g, EnemyBullet b) {
+        b.active = false;
+        g.stored++;
+        gravityAbsorbed++;
+        int gained = addScore(GRAVITY_ABSORB_SCORE, SCORE_OTHER);
+        spark(b.x, b.y, 4, 7);
+        spawnFloatText(g.x, g.y - GravityWell.RADIUS - 14f, gained, FLOAT_GRAVITY, false);
+        if (ship.overdriveTimer <= 0f) {
+            grazeCharge = Math.min(1f,
+                    grazeCharge + GRAZE_CHARGE_PER_BULLET * ABSORB_GRAZE_FACTOR);
+        }
+        events.add(new GameEvent(EventType.GRAVITY_ABSORB, b.x, b.y, g.stored));
+    }
+
+    /**
+     * 喷还：把库存敌弹换成玩家子弹，沿正上方 {@link #GRAVITY_BURST_SPREAD} 张角扇形散开。
+     * 伤害 {@link #GRAVITY_BURST_DAMAGE} 越过点弹幕门槛，喷出去的这一波还能继续引爆敌弹。
+     */
+    private void burstGravityWell(GravityWell g) {
+        int n = g.stored;
+        if (n <= 0) return;
+        g.stored = 0;
+        int fired = 0;
+        for (int i = 0; i < n; i++) {
+            Bullet b = freeBullet();
+            if (b == null) break;
+            float k = n == 1 ? 0f : i / (float) (n - 1) - 0.5f;
+            float ang = (float) (-Math.PI / 2 + k * GRAVITY_BURST_SPREAD);
+            b.init(g.x, g.y,
+                    (float) Math.cos(ang) * GRAVITY_BURST_SPEED,
+                    (float) Math.sin(ang) * GRAVITY_BURST_SPEED,
+                    GRAVITY_BURST_DAMAGE, false);
+            b.radius = 11f;
+            fired++;
+        }
+        bulletsFired += fired;
+        if (fired == 0) return;
+        gravityBursts++;
+        spark(g.x, g.y, 10, 7);
+        addShake(0.14f, 7f);
+        events.add(new GameEvent(EventType.GRAVITY_BURST, g.x, g.y, fired));
+    }
+
+    private void deployGravityWell(float x, float y) {
+        for (GravityWell g : gravityWells) {
+            if (g.active) continue;
+            g.init(clamp(x, GravityWell.PULL_RADIUS * 0.4f, WIDTH - GravityWell.PULL_RADIUS * 0.4f),
+                    clamp(y, Ship.RADIUS * 1.6f, HEIGHT - 150f));
+            gravityWellsDeployed++;
+            gravityFlash = 1f;
+            spark(g.x, g.y, 12, 7);
+            addShake(0.12f, 5f);
+            events.add(new GameEvent(EventType.GRAVITY_DEPLOY, g.x, g.y));
+            return;
+        }
+        // 已满：折算奖励分，不浪费这次拾取（与炮台同一处理）
+        addScore(250, SCORE_PICKUP);
+    }
+
+    private void retireGravityWell(GravityWell g) {
+        g.active = false;
+        spark(g.x, g.y, 5, 7);
     }
 
     /** 布雷艇投雷、母舰放机（两者的倒计时都在 Enemy.update 里推进）。 */
@@ -1602,6 +1736,11 @@ public class GameWorld {
         refreshShieldCap();
         resetWeaponCooldowns();
         for (Turret t : turrets) if (t.active) retireTurret(t);
+        for (GravityWell g : gravityWells) {
+            if (!g.active) continue;
+            burstGravityWell(g);
+            retireGravityWell(g);
+        }
     }
 
     /** 重生保护：短暂无敌 + 清掉身边敌弹，避免"落地成盒"。 */
@@ -2201,6 +2340,10 @@ public class GameWorld {
             case TURRET:
                 deployTurret(p.x, p.y + 40f);
                 break;
+            case GRAVITY:
+                // 摆在船上方：井口对着来袭弹幕才有"截住"的感觉，井会自己缓慢下移离场
+                deployGravityWell(p.x, p.y - 170f);
+                break;
             case BONUS:
                 // 突袭奖励：大量分数 + 双倍分数 + 随机武器 + 清空敌弹
                 addScore(400 + 60 * wave, SCORE_PICKUP);
@@ -2399,9 +2542,10 @@ public class GameWorld {
     }
 
     /**
-     * 掉落分布（v1.10）。BONUS 只由突袭奖励波投放，不在常规掉落表内。
+     * 掉落分布（v1.15）。BONUS 只由突袭奖励波投放，不在常规掉落表内。
      * 追踪弹 MISSILE 提到 14%（用户反馈"想要更多追踪弹"），
-     * 新增 BOUNCE/NOVA/NANITE/TURRET 四类各占 3%~3.5%。
+     * 尾部"特殊道具"区（0.87~1.0，共 13%）本轮由四类扩为五类：
+     * BOUNCE 3%、NOVA 3%、NANITE 2.5%、GRAVITY 2.5%、TURRET 2%。
      * 独立成纯函数便于测试边界。
      */
     public static PowerUp.Kind dropKind(float roll) {
@@ -2418,9 +2562,10 @@ public class GameWorld {
         if (roll < 0.81f) return PowerUp.Kind.LIFE;
         if (roll < 0.84f) return PowerUp.Kind.WINGMAN;
         if (roll < 0.87f) return PowerUp.Kind.TIME;
-        if (roll < 0.905f) return PowerUp.Kind.BOUNCE;
-        if (roll < 0.935f) return PowerUp.Kind.NOVA;
-        if (roll < 0.965f) return PowerUp.Kind.NANITE;
+        if (roll < 0.90f) return PowerUp.Kind.BOUNCE;
+        if (roll < 0.93f) return PowerUp.Kind.NOVA;
+        if (roll < 0.955f) return PowerUp.Kind.NANITE;
+        if (roll < 0.98f) return PowerUp.Kind.GRAVITY;
         return PowerUp.Kind.TURRET;
     }
 
@@ -2802,6 +2947,11 @@ public class GameWorld {
         relicAegisCd = 0f;
         nanoCd = 0f;
         for (Turret t : turrets) t.active = false;
+        for (GravityWell g : gravityWells) g.active = false;
+        gravityFlash = 0f;
+        gravityAbsorbed = 0;
+        gravityBursts = 0;
+        gravityWellsDeployed = 0;
         for (int i = 0; i < SCORE_SOURCES; i++) scoreBySource[i] = 0;
         for (int i = 0; i < MAX_ARCS; i++) arcAge[i] = 0f;
         for (int i = 0; i < orbitCd.length; i++) orbitCd[i] = 0f;

@@ -195,7 +195,7 @@ public class PortraitAndPowerupsTest {
         // 纯函数 dropKind：每个权重区段取中点，必须覆盖除 BONUS 外的全部枚举
         // （BONUS 只由突袭奖励波投放，不进入随机掉落表）
         float[] probe = {0.06f, 0.18f, 0.30f, 0.42f, 0.50f, 0.57f, 0.62f, 0.67f,
-                0.72f, 0.76f, 0.795f, 0.825f, 0.855f, 0.89f, 0.92f, 0.95f, 0.99f};
+                0.72f, 0.76f, 0.795f, 0.825f, 0.855f, 0.885f, 0.915f, 0.945f, 0.967f, 0.99f};
         java.util.Set<PowerUp.Kind> seen = java.util.EnumSet.noneOf(PowerUp.Kind.class);
         for (float r : probe) seen.add(GameWorld.dropKind(r));
         java.util.Set<PowerUp.Kind> expected = java.util.EnumSet.allOf(PowerUp.Kind.class);
@@ -216,7 +216,8 @@ public class PortraitAndPowerupsTest {
         }
         assertEquals(14, Math.round(hits[PowerUp.Kind.MISSILE.ordinal()] / 100f));
         for (PowerUp.Kind kind : new PowerUp.Kind[]{PowerUp.Kind.BOUNCE,
-                PowerUp.Kind.NOVA, PowerUp.Kind.NANITE, PowerUp.Kind.TURRET}) {
+                PowerUp.Kind.NOVA, PowerUp.Kind.NANITE, PowerUp.Kind.TURRET,
+                PowerUp.Kind.GRAVITY}) {
             assertTrue(kind + " 应进入掉落表", hits[kind.ordinal()] > 0);
         }
         assertEquals("BONUS 不参与随机掉落", 0, hits[PowerUp.Kind.BONUS.ordinal()]);
@@ -391,7 +392,7 @@ public class PortraitAndPowerupsTest {
         int spawned = 0;
         for (PowerUp p : w.powerups) if (p.active) spawned++;
         assertEquals(PowerUp.Kind.values().length, spawned);
-        assertEquals(18, spawned);
+        assertEquals(19, spawned);
     }
 
     @Test

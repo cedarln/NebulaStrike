@@ -51,5 +51,11 @@ public enum SfxId {
     /** v1.14：异变波开始的错拍上扫警报 */
     MUTATOR,
     /** v1.14：异变平息奖励的三音上行铃 */
-    MUTATOR_CLEAR
+    MUTATOR_CLEAR,
+    /** v1.15：重力井登场（下吸式低频漩涡） */
+    GRAVITY,
+    /** v1.15：吞掉一颗敌弹（库存越多音越高） */
+    GRAVITY_ABSORB,
+    /** v1.15：重力井喷还（由抑到扬的爆开声） */
+    GRAVITY_BURST
 }
