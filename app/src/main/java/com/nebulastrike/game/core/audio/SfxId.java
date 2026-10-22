@@ -41,5 +41,7 @@ public enum SfxId {
     RELIC,
     RESPAWN,
     MINE,
-    SHIELD_BLOCK
+    SHIELD_BLOCK,
+    /** v1.11：暴击金属点缀音 */
+    CRIT
 }

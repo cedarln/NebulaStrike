@@ -249,6 +249,10 @@ public class AudioEngine {
                     play(e.code == 1 ? SfxId.SHIELD_BREAK : SfxId.SHIELD_BLOCK,
                             e.code == 1 ? 0.70f : 0.42f, vary(0.10f), panFor(e.x));
                     break;
+                case CRIT:
+                    // 暴击只点一下，伤害越高越亮；限流见 minIntervalNs
+                    play(SfxId.CRIT, 0.55f, 1f + Math.min(0.35f, e.code * 0.02f), panFor(e.x));
+                    break;
             }
         }
     }
@@ -391,6 +395,7 @@ public class AudioEngine {
             case RESPAWN: return 400_000_000L;
             case MINE: return 140_000_000L;
             case SHIELD_BLOCK: return 70_000_000L;
+            case CRIT: return 130_000_000L;   // 暴击频发，130ms 内只点一次
             default: return 0L;
         }
     }

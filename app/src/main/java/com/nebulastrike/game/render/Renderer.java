@@ -14,6 +14,7 @@ import com.nebulastrike.game.core.Bullet;
 import com.nebulastrike.game.core.Difficulty;
 import com.nebulastrike.game.core.Enemy;
 import com.nebulastrike.game.core.EnemyType;
+import com.nebulastrike.game.core.FloatText;
 import com.nebulastrike.game.core.GameMode;
 import com.nebulastrike.game.core.GameWorld;
 import com.nebulastrike.game.core.Particle;
@@ -45,6 +46,8 @@ public class Renderer {
     private final float[] touchXY = new float[2];
     /** shared scratch buffer for orbit sphere positions */
     private final float[] orbitPos = new float[2];
+    /** shared scratch buffer for 飘字数字，避免每帧为每个数字新建字符串 */
+    private final char[] textBuf = new char[8];
     // static nebulae: fixed positions/colors, gradients built once
     private final RadialGradient nebulaA = new RadialGradient(
             VW * 0.22f, VH * 0.35f, 420f, new int[]{0x141A3C55, 0x00000000}, null, Shader.TileMode.CLAMP);
@@ -102,6 +105,7 @@ public class Renderer {
         drawArcs(c, w);
         drawShip(c, w);
         drawOrbitSpheres(c, w);
+        drawFloatTexts(c, w);   // 伤害/得分飘字，跟随震屏一起位移
 
         // 连击边缘辉光：combo 越高，四边越亮（reducedFx 下关闭）
         if (!w.settings.reducedFx && w.comboKills > 1 && w.state == GameWorld.State.PLAYING) {
@@ -432,6 +436,51 @@ public class Renderer {
      * 放电 / 治疗弧线：沿路径抖动的折线，按剩余寿命淡出。
      * kind 0 = 连锁闪电（青白色、振幅大、有亮芯），kind 1 = 医疗脉冲（绿色、细直）。
      */
+    /**
+     * 伤害与得分飘字：命中数字向上浮起并末段淡出，暴击用琥珀色大号、击杀得分用金色大号。
+     * 低特效开关下整层不画（由 settings.reducedFx 决定）。
+     */
+    private void drawFloatTexts(Canvas c, GameWorld w) {
+        if (w.settings.reducedFx) return;
+        paint.setStyle(Paint.Style.FILL);
+        paint.setShader(null);
+        paint.setTextAlign(Paint.Align.CENTER);
+        for (FloatText f : w.floatTexts) {
+            if (!f.active) continue;
+            int a = (int) (255 * f.alpha());
+            if (a <= 0) continue;
+            int len = formatInt(f.value);
+            paint.setTextSize(f.bold ? 40f : 26f);
+            paint.setFakeBoldText(f.bold);
+            // 深色描边垫底，保证在任何背景上都读得清
+            paint.setColor((a << 24) | 0x081018);
+            c.drawText(textBuf, 0, len, f.x - 1.5f, f.y + 1.5f, paint);
+            paint.setColor((a << 24) | f.color);
+            c.drawText(textBuf, 0, len, f.x, f.y, paint);
+        }
+        paint.setFakeBoldText(false);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /** 把整数写进复用缓冲区并返回长度（飘字专用，零字符串分配）。 */
+    private int formatInt(int v) {
+        boolean neg = v < 0;
+        int n = neg ? -v : v;
+        int i = textBuf.length;
+        do {
+            i--;
+            textBuf[i] = (char) ('0' + n % 10);
+            n /= 10;
+        } while (n > 0);
+        if (neg) {
+            i--;
+            textBuf[i] = '-';
+        }
+        int len = textBuf.length - i;
+        System.arraycopy(textBuf, i, textBuf, 0, len);
+        return len;
+    }
+
     private void drawArcs(Canvas c, GameWorld w) {
         paint.setStyle(Paint.Style.STROKE);
         for (int i = 0; i < GameWorld.MAX_ARCS; i++) {
@@ -2246,7 +2295,7 @@ public class Renderer {
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
-    /** 本局数据卡：命中率 / 连击 / 擦弹 / 击坠 / 受伤 / 存活。 */
+    /** 本局数据卡：命中率 / 连击 / 擦弹 / 暴击 / 击坠 / BOSS / 受伤 / 存活。 */
     private void drawRunStats(Canvas c, GameWorld w) {
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(0x99000011);
@@ -2258,24 +2307,28 @@ public class Renderer {
         paint.setStyle(Paint.Style.FILL);
         paint.setTextAlign(Paint.Align.CENTER);
 
-        String[] labels = {"ACCURACY", "MAX COMBO", "GRAZES", "KILLS", "HITS", "TIME"};
+        String[] labels = {"ACCURACY", "MAX COMBO", "GRAZES", "CRITS",
+                "KILLS", "BOSS", "HITS", "TIME"};
         String[] values = {
                 w.accuracyPct() + "%",
                 "x" + w.maxCombo,
                 String.valueOf(w.grazes),
+                String.valueOf(w.crits),
                 String.valueOf(w.kills),
+                String.valueOf(w.bossesDefeated),
                 String.valueOf(w.hitsTaken),
                 ((int) w.timeAlive) + "s"
         };
-        float[] cx = {230f, 450f, 670f};
+        float[] cx = {203f, 368f, 533f, 698f};
         for (int i = 0; i < labels.length; i++) {
-            float x = cx[i % 3];
-            float y = i < 3 ? 586f : 654f;
-            paint.setTextSize(21f);
+            float x = cx[i % 4];
+            float y = i < 4 ? 586f : 654f;
+            paint.setTextSize(20f);
             paint.setColor(0xFF8FA3C8);
             c.drawText(labels[i], x, y, paint);
-            paint.setTextSize(32f);
-            paint.setColor(i == 1 ? 0xFFFFD166 : i == 2 ? 0xFFFF8FD1 : 0xFFE8F1FF);
+            paint.setTextSize(31f);
+            paint.setColor(i == 1 ? 0xFFFFD166 : i == 2 ? 0xFFFF8FD1
+                    : i == 3 ? 0xFFFFB03A : 0xFFE8F1FF);
             c.drawText(values[i], x, y + 32f, paint);
         }
         paint.setTextAlign(Paint.Align.LEFT);

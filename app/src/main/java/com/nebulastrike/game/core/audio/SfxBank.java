@@ -51,6 +51,7 @@ public final class SfxBank {
         put(SfxId.RESPAWN, respawn(), 0.78f);
         put(SfxId.MINE, mine(), 0.72f);
         put(SfxId.SHIELD_BLOCK, shieldBlock(), 0.76f);
+        put(SfxId.CRIT, crit(), 0.42f);
     }
 
     public static SfxBank create() {
@@ -823,6 +824,24 @@ public final class SfxBank {
             double thud = sine((60 + 30 * Math.exp(-t * 12)) * t)
                     * Math.exp(-t * 22) * 0.4;
             x[i] = (float) ((zap + body + thud) * env(t, 0.22, 0.0012, 1.2));
+        }
+        return x;
+    }
+
+    /** 暴击点缀音：两束高频泛音 + 极短的金属"叮"，音量刻意压低防止刷屏。 */
+    private static float[] crit() {
+        int n = frames(0.20);
+        float[] x = new float[n];
+        Random r = new Random(307);
+        double ph1 = 0, ph2 = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double k = Math.exp(-t * 16);
+            ph1 += 1980 / SAMPLE_RATE;
+            ph2 += 2970 / SAMPLE_RATE;
+            double bell = (0.6 * sine(ph1) + 0.4 * sine(ph2)) * k * 0.85;
+            double tick = noise(r) * Math.exp(-t * 90) * 0.5;
+            x[i] = (float) ((bell + tick) * env(t, 0.20, 0.0008, 1.0));
         }
         return x;
     }

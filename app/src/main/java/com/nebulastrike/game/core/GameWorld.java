@@ -25,7 +25,9 @@ public class GameWorld {
         /** v1.9：相位冲刺 / 连锁闪电 / 武器融合 / Boss 横冲 / 突袭波 / 治疗脉冲 / 轨道球命中 */
         DASH, CHAIN, FUSION, BOSS_RAM, RUSH, HEAL_PULSE, ORBIT_HIT,
         /** v1.10：新星冲击 / 部署炮台 / 获得圣物 / 重生保护 / 布雷艇投雷 / 盾卫挡弹 */
-        NOVA, TURRET_DEPLOY, RELIC_GAINED, RESPAWN, MINE, SHIELD_BLOCK
+        NOVA, TURRET_DEPLOY, RELIC_GAINED, RESPAWN, MINE, SHIELD_BLOCK,
+        /** v1.11：暴击命中（code = 实际伤害），驱动飘字与金属点缀音 */
+        CRIT
     }
     public static final class GameEvent {
         public final EventType type;
@@ -64,6 +66,25 @@ public class GameWorld {
     /** 玩家部署的炮台（TURRET 道具），最多同时 3 座。 */
     public final Turret[] turrets = new Turret[3];
     public final Star[] stars = new Star[90];
+    /** v1.11 伤害/得分飘字池；满槽时覆盖最旧的一条（与粒子同样的 ring cursor）。 */
+    public final FloatText[] floatTexts = new FloatText[40];
+    private int floatCursor;
+    /** 每帧最多新起几条飘字，防止穿透激光刷屏。 */
+    private int floatBudget;
+    public static final int FLOAT_BUDGET_PER_FRAME = 6;
+
+    /** 飘字语义色（0xRRGGBB，Renderer 直接取用）。 */
+    public static final int FLOAT_DAMAGE = 0xE8F1FF;
+    public static final int FLOAT_CRIT = 0xFFB03A;
+    public static final int FLOAT_SCORE = 0xFFD34A;
+    public static final int FLOAT_BREAK = 0x7DF9FF;
+
+    /** 暴击：命中有小概率加成伤害，过载期间概率更高。 */
+    public static final float CRIT_CHANCE = 0.08f;
+    public static final float CRIT_CHANCE_OVERDRIVE = 0.18f;
+    public static final float CRIT_MULT = 1.7f;
+    /** 本局暴击次数（结算数据卡）。 */
+    public int crits;
 
     /** 输入/升级状态在 UI 线程写入、游戏线程读取，必须 volatile 保证可见性。 */
     public volatile State state = State.PLAYING;
@@ -252,6 +273,7 @@ public class GameWorld {
             stars[i].init(RNG.get().nextFloat() * WIDTH, RNG.get().nextFloat() * HEIGHT,
                     1.5f + layer * 1.3f, speed, layer);
         }
+        for (int i = 0; i < floatTexts.length; i++) floatTexts[i] = new FloatText();
         ship.reset(WIDTH / 2f, HEIGHT - 140f);
     }
 
@@ -373,6 +395,8 @@ public class GameWorld {
             if (b.offscreen(WIDTH, HEIGHT)) b.active = false;
         }
         for (Particle p : particles) if (p.active) p.update(dt);
+        floatBudget = FLOAT_BUDGET_PER_FRAME;   // 每帧重新放行少量飘字
+        for (FloatText f : floatTexts) if (f.active) f.update(dt);
         for (Star s : stars) s.update(dt, HEIGHT);
 
         if (comboTimer > 0f) {
@@ -1822,7 +1846,11 @@ public class GameWorld {
                         registerHit(b);
                         spark(b.x, b.y, 3, 2);
                         if (b.cluster) burstFragments(b.x, b.y);
-                        damageBossPart(p, b.damage);
+                        int dealt = damageOrCrit(b.damage);
+                        if (dealt != b.damage
+                                || dealt >= 3) spawnFloatText(b.x, b.y, dealt,
+                                dealt != b.damage ? FLOAT_CRIT : FLOAT_DAMAGE, dealt != b.damage);
+                        damageBossPart(p, dealt);
                         hitPart = true;
                         break;
                     }
@@ -1835,7 +1863,12 @@ public class GameWorld {
                     else b.active = false;
                     registerHit(b);
                     if (b.cluster) burstFragments(b.x, b.y);
-                    boss.damage(b.damage);
+                    int dealt = damageOrCrit(b.damage);
+                    boss.damage(dealt);
+                    if (dealt != b.damage) {
+                        spawnFloatText(b.x, b.y, dealt, FLOAT_CRIT, true);
+                        events.add(new GameEvent(EventType.CRIT, b.x, b.y, dealt));
+                    }
                     spark(b.x, b.y, 2, 2);
                     if (boss.hp <= 0) break;
                 }
@@ -1866,7 +1899,16 @@ public class GameWorld {
                     if (b.piercing) b.hitCooldown = 0.06f;
                     else b.active = false;
                     registerHit(b);
-                    e.damage(b.damage);
+                    int dealt = damageOrCrit(b.damage);
+                    boolean crit = dealt != b.damage;
+                    e.damage(dealt);
+                    if (crit || dealt >= 3) {
+                        spawnFloatText(b.x, b.y, dealt, crit ? FLOAT_CRIT : FLOAT_DAMAGE, crit);
+                        if (crit) {
+                            spark(b.x, b.y, 6, 0);
+                            events.add(new GameEvent(EventType.CRIT, b.x, b.y, dealt));
+                        }
+                    }
                     spark(b.x, b.y, 3, 0);
                     if (b.cluster) burstFragments(b.x, b.y);
                     if (e.hp <= 0) {
@@ -2050,13 +2092,13 @@ public class GameWorld {
         return Math.min(duration * Ship.MAX_TIMER_MULT, current + duration);
     }
 
-    /** 统一得分入口：双倍分数道具激活时翻倍。 */
-    void addScore(int base) {
-        addScore(base, SCORE_OTHER);
+    /** 统一得分入口：双倍分数道具激活时翻倍。@return 实际计入的分数 */
+    int addScore(int base) {
+        return addScore(base, SCORE_OTHER);
     }
 
-    /** 带来源的得分入口，来源用于结算页"分数构成"图。 */
-    void addScore(int base, int source) {
+    /** 带来源的得分入口，来源用于结算页"分数构成"图。@return 实际计入的分数 */
+    int addScore(int base, int source) {
         int gained = base * (x2Timer > 0f ? 2 : 1);
         // 难度得分倍率：休闲打 75 折、硬核 1.5 倍，标准档保持原值
         float scale = settings.difficulty.scoreScale;
@@ -2064,6 +2106,7 @@ public class GameWorld {
         score += gained;
         int idx = source >= 0 && source < SCORE_SOURCES ? source : SCORE_OTHER;
         scoreBySource[idx] += gained;
+        return gained;
     }
 
     /** Second-finger tap: clears bullets, damages everything, huge shake. */
@@ -2104,6 +2147,9 @@ public class GameWorld {
     /** 测试用：直接击杀指定敌人（走完整计分/掉落路径）。 */
     void killEnemyForTest(Enemy e) { killEnemy(e); }
 
+    /** 测试缝：单独掷一次暴击伤害判定（会推进 RNG 并累计 crits）。 */
+    int damageOrCritForTest(int base) { return damageOrCrit(base); }
+
     private void killEnemy(Enemy e) {
         e.active = false;
         // 分裂/子机会复用同一个空闲槽位（很可能就是本机刚让出的槽），
@@ -2115,7 +2161,11 @@ public class GameWorld {
         comboKills++;
         if (comboKills > maxCombo) maxCombo = comboKills;
         comboTimer = COMBO_WINDOW;
-        addScore(type.score * (elite ? Enemy.ELITE_SCORE_MULT : 1) * comboMultiplier(), SCORE_ENEMY);
+        int gained = addScore(type.score * (elite ? Enemy.ELITE_SCORE_MULT : 1)
+                * comboMultiplier(), SCORE_ENEMY);
+        // 击杀得分飘字：精英与重甲用大号，普通小怪只在分数可观时飘
+        spawnFloatText(ex, ey - type.radius * 0.6f, gained, FLOAT_SCORE,
+                elite || type.score >= 25 || comboMultiplier() >= 3);
         kills++;
         explode(ex, ey, type.colorHint);
         if (elite) {
@@ -2539,6 +2589,7 @@ public class GameWorld {
         hitsTaken = 0;
         grazes = 0;
         grazeCharge = 0f;
+        crits = 0;
         timeAlive = 0f;
         stateTimer = 0f;
         wave = 1;
@@ -2594,6 +2645,8 @@ public class GameWorld {
         for (Enemy e : enemies) e.active = false;
         for (PowerUp p : powerups) p.active = false;
         for (Particle p : particles) p.active = false;
+        for (FloatText f : floatTexts) f.active = false;
+        floatBudget = 0;
     }
 
     private void explode(float x, float y, int color) {
@@ -2679,6 +2732,40 @@ public class GameWorld {
         int n = 0;
         for (Particle p : particles) if (p.active) n++;
         return n;
+    }
+
+    /**
+     * 起一条飘字。低特效开关下直接跳过；每帧条数受 {@link #FLOAT_BUDGET_PER_FRAME}
+     * 限制，池满时覆盖最旧的一条，保证激光连射不会把屏幕刷成数字雨。
+     */
+    private void spawnFloatText(float x, float y, int value, int color, boolean bold) {
+        if (!settings.reducedFx && floatBudget > 0 && value > 0) {
+            floatBudget--;
+            FloatText f = floatTexts[floatCursor];
+            floatCursor = (floatCursor + 1) % floatTexts.length;
+            float drift = (RNG.get().nextFloat() - 0.5f) * 70f;
+            f.init(x, y, value, color, bold, drift);
+        }
+    }
+
+    /** 活着的飘字条数（测试与自适应画质用）。 */
+    public int activeFloatTexts() {
+        int n = 0;
+        for (FloatText f : floatTexts) if (f.active) n++;
+        return n;
+    }
+
+    /**
+     * 结算一次命中的实际伤害：小概率暴击加成（过载期间概率翻倍）。
+     * 暴击会累计 {@link #crits}，Renderer 用返回值是否为原值判断是否暴击色。
+     */
+    private int damageOrCrit(int base) {
+        float chance = ship.overdriveTimer > 0f ? CRIT_CHANCE_OVERDRIVE : CRIT_CHANCE;
+        if (base > 1 && RNG.get().nextFloat() < chance) {
+            crits++;
+            return Math.max(base + 1, Math.round(base * CRIT_MULT));
+        }
+        return base;
     }
 
     /**
