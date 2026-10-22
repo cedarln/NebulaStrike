@@ -55,7 +55,9 @@ public class GameWorld {
         /** v1.17：蜂后产卵（code = 幼机数） */
         BROOD_SPAWN,
         /** v1.17：特化遭遇保底登场（code = EnemyType.ordinal()） */
-        NEW_SHIP_DEBUT
+        NEW_SHIP_DEBUT,
+        /** v1.18：解锁成就（code = {@link Achievement#ordinal()}） */
+        ACHIEVEMENT_UNLOCKED
     }
     public static final class GameEvent {
         public final EventType type;
@@ -357,6 +359,10 @@ public class GameWorld {
     public volatile boolean codexOpen;
     /** 图鉴当前页签：0 = 敌机，1 = Boss。 */
     public volatile int codexTab;
+    /** 成就面板（菜单内，v1.18）。 */
+    public volatile boolean achieveOpen;
+    /** 成就页签：0 = 单局最佳，1 = 生涯累计。 */
+    public volatile int achieveTab;
     private SettingsStore store;
 
     // ---- 应用内升级检测（状态机；网络 IO 由 app 层异步执行，这里只存状态） ----
@@ -433,6 +439,39 @@ public class GameWorld {
      */
     public float debutBanner;
     public EnemyType debutBannerType;
+
+    // ---- v1.18 成就系统 ----
+    /** 解锁一条成就立刻给的分（纯增益奖励：没有任何东西会因为拿成就而变少）。 */
+    public static final int ACHIEVEMENT_SCORE = 300;
+    /** 每种敌机的本局击毁数（生涯成就按击毁对象分类）。 */
+    public final int[] typeKills = new int[EnemyType.values().length];
+    /** 本局完成的武器融合次数。 */
+    public int fusions;
+    /** 本局因解锁成就获得的分数（结算页展示）。 */
+    public int achieveScore;
+    /** 最近一次解锁实际到手的分数（含难度、双倍、异变加成；横幅展示）。 */
+    public int achieveLastGain;
+    /**
+     * 不参与关卡节拍的分数：成就奖励是"庆祝"，不是"表现"。
+     * wave 由总分驱动（每 500 分一档），若把白送的奖励分也算进节拍，
+     * 解锁越多的玩家 Boss 来得越早、普通敌机越稀——新系统反而把对局改得不一样了。
+     * 所以这里记下已发放的奖励额度，节拍判定时扣掉。
+     */
+    public int pacingExemptScore;
+    /**
+     * 演出随机流：与对局随机源完全隔离，专门给"庆祝类"特效取粒子角度。
+     * 种子固定，所以同一台设备上的演出可复现，但又不会挤占对局的随机数序列。
+     */
+    private final Random fxRandom = new Random(0x5A1EEDL);
+    /** 本局解锁的成就条数（结算页展示）。 */
+    public int achievesThisRun;
+    /** 成就解锁横幅（渲染层与音效消费）。 */
+    public float achieveBanner;
+    public Achievement achieveBannerType;
+    /** 判定器：把本局读数写进 Settings 的两本账并播报解锁。 */
+    private final Achievements achievements = new Achievements(this::onAchievementUnlocked);
+    /** 每种统计口径的本局读数，交给判定器（复用同一个数组，不每帧分配）。 */
+    private final int[] runMetrics = new int[Achievement.Metric.COUNT];
 
     // ---- 得分构成（结算图用） ----
     public static final int SCORE_ENEMY = 0;
@@ -638,7 +677,9 @@ public class GameWorld {
         if (state == State.PLAYING && grazeCharge >= 1f && ship.overdriveTimer <= 0f) {
             activateOverdrive();
         }
-        if (score > wave * 500) wave++;
+        // 成就判定排在碰撞之后：本帧的击坠/擦弹/点弹都已经入账，读数是完整的
+        if (state == State.PLAYING) updateAchievements(dt);
+        if (score - pacingExemptScore > wave * 500) wave++;
     }
 
     // ---- boss battle ----
@@ -1464,6 +1505,7 @@ public class GameWorld {
     private void updateGrace(float dt) {
         if (respawnGrace > 0f) respawnGrace = Math.max(0f, respawnGrace - dt);
         if (relicBanner > 0f) relicBanner = Math.max(0f, relicBanner - dt);
+        if (achieveBanner > 0f) achieveBanner = Math.max(0f, achieveBanner - dt);
         if (novaFlash > 0f) novaFlash = Math.max(0f, novaFlash - dt * 2.2f);
         if (breakPulse > 0f) breakPulse = Math.max(0f, breakPulse - dt * 3.2f);
         if (mutatorBanner > 0f) mutatorBanner = Math.max(0f, mutatorBanner - dt);
@@ -2037,6 +2079,78 @@ public class GameWorld {
         }
     }
 
+    // ---- v1.18 成就 ----
+
+    /** 把对局统计摊平成成就读数（顺序对齐 {@link Achievement.Metric}）。 */
+    private void fillRunMetrics() {
+        int[] m = runMetrics;
+        m[Achievement.Metric.KILLS.ordinal()] = kills;
+        m[Achievement.Metric.GRAZE.ordinal()] = grazes;
+        m[Achievement.Metric.PARRY.ordinal()] = parries;
+        m[Achievement.Metric.BREAK.ordinal()] = bulletsShotDown;
+        m[Achievement.Metric.COMBO.ordinal()] = maxCombo;
+        m[Achievement.Metric.TIME.ordinal()] = (int) timeAlive;
+        m[Achievement.Metric.SCORE.ordinal()] = score;
+        // 命中率要有样本量才算数：开局前几发全中不该白送"神射手"
+        m[Achievement.Metric.ACC.ordinal()] = bulletsFired >= 200 ? accuracyPct() : 0;
+        // 金身：挨过一次打就把本局读数归零，之后即使击坠更多也不会误记成"无损"
+        m[Achievement.Metric.CLEAN_KILLS.ordinal()] = hitsTaken == 0 ? kills : 0;
+        m[Achievement.Metric.GRAVITY.ordinal()] = gravityAbsorbed;
+        m[Achievement.Metric.ULT_TIER.ordinal()] = ult.bestTier;
+        m[Achievement.Metric.ULT_CONVERT.ordinal()] = ultConverted;
+        m[Achievement.Metric.ULT_CASTS.ordinal()] = ult.casts;
+        m[Achievement.Metric.BOSSES.ordinal()] = bossesDefeated;
+        m[Achievement.Metric.RUSH.ordinal()] = rushesTriggered;
+        m[Achievement.Metric.SPOT.ordinal()] = miragesSpotted;
+        m[Achievement.Metric.MUTATORS.ordinal()] = mutatorsSeen;
+        m[Achievement.Metric.DASH.ordinal()] = ship.dashesUsed;
+        m[Achievement.Metric.RELIC.ordinal()] = relicsGained;
+        m[Achievement.Metric.FUSION.ordinal()] = fusions;
+        m[Achievement.Metric.MAGNET_KILLS.ordinal()] = typeKills[EnemyType.MAGNETON.ordinal()];
+        m[Achievement.Metric.QUEEN_KILLS.ordinal()] = typeKills[EnemyType.QUEEN.ordinal()];
+    }
+
+    private void updateAchievements(float dt) {
+        fillRunMetrics();
+        achievements.update(settings, runMetrics, dt);
+        // 成就账本和图鉴走同一条落盘通道：只在真的有变化时才写 SharedPreferences
+        if (achievements.consumePendingSave()) codexDirty = true;
+    }
+
+    /**
+     * 立刻入账。坠机、退出到菜单、暂停与开局前都会走这里，
+     * 保证"打了一半就退"的那部分进度也不会丢（增量记账，重复调用无副作用）。
+     */
+    public void commitAchievements() {
+        fillRunMetrics();
+        achievements.commit(settings, runMetrics);
+        if (achievements.consumePendingSave()) codexDirty = true;
+    }
+
+    /** 成就页读数：某条成就当前的判定值（单局取历史最佳，生涯取累计）。 */
+    public int achievementProgress(Achievement a) {
+        return Achievements.valueOf(settings, a);
+    }
+
+    public int achievementsUnlocked() {
+        return Long.bitCount(settings.achieveMask);
+    }
+
+    /** 解锁播报：对局内额外发一笔奖励分，非对局状态（坠机结算）只记录不再改分。 */
+    private void onAchievementUnlocked(Achievement a) {
+        achievesThisRun++;
+        achieveBannerType = a;
+        achieveBanner = 3.0f;
+        events.add(new GameEvent(EventType.ACHIEVEMENT_UNLOCKED, ship.x, ship.y, a.ordinal()));
+        if (state != State.PLAYING) return;
+        int gained = addScore(ACHIEVEMENT_SCORE, SCORE_OTHER);
+        achieveScore += gained;
+        achieveLastGain = gained;
+        pacingExemptScore += gained;
+        sparkFx(ship.x, ship.y - 60f, 14, 4);
+        addShake(0.16f, 6f);
+    }
+
     /**
      * 伪装者现形：脱掉道具外壳，留下 0.6 秒开火预警。
      * 现形距离（210）远大于撞击判定，玩家不会"捡个假道具就被撞死"。
@@ -2327,7 +2441,7 @@ public class GameWorld {
                 handleUiAction(Ui.Action.QUIT_TO_MENU);
                 return true;
             default:
-                if (settingsOpen || cheatOpen || codexOpen) {
+                if (settingsOpen || cheatOpen || codexOpen || achieveOpen) {
                     closePanels();
                     return true;
                 }
@@ -2930,6 +3044,7 @@ public class GameWorld {
             ship.addWeapon(fused);
             weaponCd[fused.ordinal()] = 0f;
             lastFusion = fused;
+            fusions++;
             fusionFlash = Math.max(fusionFlash, 0.9f);
             addShake(0.18f, 6f);
             spark(ship.x, ship.y - 40f, 12, 2);
@@ -3027,6 +3142,7 @@ public class GameWorld {
         spawnFloatText(ex, ey - type.radius * 0.6f, gained, FLOAT_SCORE,
                 elite || type.score >= 25 || comboMultiplier() >= 3);
         kills++;
+        typeKills[type.ordinal()]++;
         if (elite) elitesKilled++;
         ultCharge(elite ? ULT_GAIN_ELITE : ULT_GAIN_KILL, ex, ey);
         if (mutator.isActive()) mutatorKills++;
@@ -3221,16 +3337,19 @@ public class GameWorld {
                 settingsOpen = true;
                 cheatOpen = false;
                 codexOpen = false;
+                achieveOpen = false;
                 break;
             case OPEN_CHEATS:
                 cheatOpen = true;
                 settingsOpen = false;
                 codexOpen = false;
+                achieveOpen = false;
                 break;
             case OPEN_CODEX:
                 codexOpen = true;
                 settingsOpen = false;
                 cheatOpen = false;
+                achieveOpen = false;
                 flushCodex();
                 break;
             case CODEX_BACK:
@@ -3238,6 +3357,21 @@ public class GameWorld {
                 break;
             case CODEX_TAB:
                 codexTab = codexTab == 0 ? 1 : 0;
+                break;
+            case OPEN_ACHIEVEMENTS:
+                achieveOpen = true;
+                settingsOpen = false;
+                cheatOpen = false;
+                codexOpen = false;
+                // 打开成就页前先把账结算干净：页面显示的进度要和真实进度一致
+                commitAchievements();
+                flushCodex();
+                break;
+            case ACHIEVEMENTS_BACK:
+                achieveOpen = false;
+                break;
+            case ACHIEVEMENTS_TAB:
+                achieveTab = achieveTab == 0 ? 1 : 0;
                 break;
             case CHEATS_BACK:
                 cheatOpen = false;
@@ -3318,6 +3452,9 @@ public class GameWorld {
                 restart(mode); // restart keeps the current mode
                 break;
             case QUIT_TO_MENU:
+                // 半局退出也要结算：成就吃的是增量，不结算就等于这一局白玩
+                commitAchievements();
+                flushCodex();
                 closePanels();
                 state = State.MENU;
                 stateTimer = 0f;
@@ -3345,11 +3482,12 @@ public class GameWorld {
         if (store != null) store.save(settings);
     }
 
-    /** 菜单里的设置/LAB/图鉴面板互斥；返回键统一关闭。 */
+    /** 菜单里的设置/LAB/图鉴/成就面板互斥；返回键统一关闭。 */
     public void closePanels() {
         settingsOpen = false;
         cheatOpen = false;
         codexOpen = false;
+        achieveOpen = false;
     }
 
     /** 图鉴进度只在有变化时落盘，避免每帧写 SharedPreferences。 */
@@ -3365,6 +3503,9 @@ public class GameWorld {
             state = State.PAUSED;
             stateTimer = 0f;
             clearShipInput();
+            // 切后台/锁屏：先把这一段入账并落盘，玩家回来时进度不会凭空少一截
+            commitAchievements();
+            flushCodex();
         }
     }
 
@@ -3398,6 +3539,8 @@ public class GameWorld {
                 if (store != null) store.saveBestScore(bestScore);
             }
             scoreRank = insertScore(score, mode);
+            // 坠机也要把最后一程的增量入账（此时已是 GAME_OVER，只记成就不再改分）
+            commitAchievements();
             flushCodex();
             events.add(new GameEvent(EventType.GAME_OVER, ship.x, ship.y));
         } else {
@@ -3465,6 +3608,9 @@ public class GameWorld {
 
     /** Starts a fresh run in the given mode. */
     public void restart(GameMode m) {
+        // 开新局前先把上一局的增量入账：中途退出、坠机后立刻重开都不会白打
+        commitAchievements();
+        achievements.beginRun();
         mode = m;
         score = 0;
         lives = settings.startLives;
@@ -3514,6 +3660,15 @@ public class GameWorld {
         debutBanner = 0f;
         debutBannerType = null;
         for (int i = 0; i < v117EncounterCounts.length; i++) v117EncounterCounts[i] = 0;
+        // v1.18：本局成就读数归零（Settings 里的历史最佳与累计账本不动）
+        for (int i = 0; i < typeKills.length; i++) typeKills[i] = 0;
+        fusions = 0;
+        achieveScore = 0;
+        achieveLastGain = 0;
+        pacingExemptScore = 0;
+        achievesThisRun = 0;
+        achieveBanner = 0f;
+        achieveBannerType = null;
         fusionFlash = 0f;
         lastFusion = null;
         attackSeq = 0;
@@ -3584,10 +3739,25 @@ public class GameWorld {
     private void spark(float x, float y, int n, int color) {
         if (!settings.particles) return;
         n = (int) (n * emissionScale);
+        sparkFrom(x, y, n, color, RNG.get());
+    }
+
+    /**
+     * 庆祝特效专用的发射口：随机数取自独立的 {@link #fxRandom}。
+     * 对局随机流（{@link #RNG}）决定敌机排布、掉落、导弹目标——每解锁一条成就就从里面
+     * 多抽几个数，等于把这一局之后的进程整个改写。成就只该加东西、不该改动既有对局，
+     * 所以粒子角度这类纯演出的取值走另一条流。
+     */
+    private void sparkFx(float x, float y, int n, int color) {
+        if (!settings.particles) return;
+        sparkFrom(x, y, (int) (n * emissionScale), color, fxRandom);
+    }
+
+    private void sparkFrom(float x, float y, int n, int color, Random random) {
         for (int i = 0; i < n; i++) {
             Particle p = freeParticle();
-            float ang = RNG.get().nextFloat() * (float) Math.PI * 2f;
-            float spd = 60f + RNG.get().nextFloat() * 160f;
+            float ang = random.nextFloat() * (float) Math.PI * 2f;
+            float spd = 60f + random.nextFloat() * 160f;
             p.init(x, y, (float) Math.cos(ang) * spd, (float) Math.sin(ang) * spd, 0.22f, 3f, color);
         }
     }

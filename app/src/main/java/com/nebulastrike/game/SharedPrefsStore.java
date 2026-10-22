@@ -35,6 +35,11 @@ public class SharedPrefsStore implements SettingsStore {
         for (int i = 0; i < into.codexBossKills.length; i++) {
             into.codexBossKills[i] = prefs.getInt("codexBossKills" + i, 0);
         }
+        into.achieveMask = prefs.getLong("achieveMask", 0L);
+        for (int i = 0; i < into.achieveBest.length; i++) {
+            into.achieveBest[i] = prefs.getInt("achieveBest" + i, 0);
+            into.achieveTotal[i] = prefs.getInt("achieveTotal" + i, 0);
+        }
         into.sanitize();
     }
 
@@ -80,9 +85,14 @@ public class SharedPrefsStore implements SettingsStore {
                 .putInt("difficulty", (s.difficulty == null
                         ? Difficulty.STANDARD : s.difficulty).ordinal())
                 .putInt("codexSeenEnemies", s.codexSeenEnemies)
-                .putInt("codexMaxTierSlain", s.codexMaxTierSlain);
+                .putInt("codexMaxTierSlain", s.codexMaxTierSlain)
+                .putLong("achieveMask", s.achieveMask);
         for (int i = 0; i < s.codexBossKills.length; i++) {
             e.putInt("codexBossKills" + i, s.codexBossKills[i]);
+        }
+        for (int i = 0; i < s.achieveBest.length; i++) {
+            e.putInt("achieveBest" + i, s.achieveBest[i]);
+            e.putInt("achieveTotal" + i, s.achieveTotal[i]);
         }
         e.apply();
     }

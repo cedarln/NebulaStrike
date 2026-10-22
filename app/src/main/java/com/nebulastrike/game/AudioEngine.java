@@ -321,6 +321,10 @@ public class AudioEngine {
                     play(SfxId.BROOD_CHIRP, 0.55f + Math.min(0.25f, e.code * 0.08f),
                             vary(0.09f), panFor(e.x));
                     break;
+                case ACHIEVEMENT_UNLOCKED:
+                    // 居中不 pans：成就属于整局，不属于屏幕左边还是右边
+                    play(SfxId.ACHIEVEMENT, 0.86f, 1f, 0f);
+                    break;
             }
         }
     }
@@ -482,6 +486,7 @@ public class AudioEngine {
             case MIRAGE_REVEAL: return 90_000_000L;  // 一群伪装者同时现形时别糊成一片
             case EMP_BURST: return 120_000_000L;
             case BROOD_CHIRP: return 150_000_000L;
+            case ACHIEVEMENT: return 500_000_000L;   // 一次结算连解两条时只吹一记号角
             default: return 0L;
         }
     }

@@ -7,6 +7,8 @@ import android.graphics.Paint;
 import android.graphics.RadialGradient;
 import android.graphics.Shader;
 
+import com.nebulastrike.game.core.Achievement;
+import com.nebulastrike.game.core.Achievements;
 import com.nebulastrike.game.core.Boss;
 import com.nebulastrike.game.core.BossLaser;
 import com.nebulastrike.game.core.BossPart;
@@ -21,6 +23,7 @@ import com.nebulastrike.game.core.GravityWell;
 import com.nebulastrike.game.core.Particle;
 import com.nebulastrike.game.core.PowerUp;
 import com.nebulastrike.game.core.Relic;
+import com.nebulastrike.game.core.Settings;
 import com.nebulastrike.game.core.Ship;
 import com.nebulastrike.game.core.Star;
 import com.nebulastrike.game.core.Turret;
@@ -1585,6 +1588,7 @@ public class Renderer {
             case MENU:
                 if (w.cheatOpen) drawCheats(c, w);
                 else if (w.codexOpen) drawCodex(c, w);
+                else if (w.achieveOpen) drawAchievements(c, w);
                 else if (w.settingsOpen) drawSettings(c, w);
                 else drawMenu(c, w);
                 return;
@@ -1897,6 +1901,26 @@ public class Renderer {
             c.drawText("FUSION · " + w.lastFusion.label(), VW / 2f, 420f, paint);
             paint.setFakeBoldText(false);
         }
+        // 成就横幅放在所有横幅之下（620 起）：解锁常和圣物/融合撞在一起，不能叠字
+        if (w.achieveBanner > 0f && w.achieveBannerType != null) {
+            float k = Math.min(1f, w.achieveBanner / 0.4f);
+            float in = Math.min(1f, (3.0f - w.achieveBanner) / 0.3f);
+            float s = 0.7f + 0.3f * in;
+            paint.setTextSize(46f * s);
+            paint.setFakeBoldText(true);
+            paint.setColor(((int) (0xFF * k) << 24) | 0xFFFFD166);
+            c.drawText("成就达成 · " + w.achieveBannerType.label(), VW / 2f, 620f, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextSize(24f * s);
+            paint.setColor(((int) (0xD8 * k) << 24) | 0xFFC8D6F0);
+            c.drawText(w.achieveBannerType.desc()
+                    + "  ·  +" + w.achieveLastGain + " 分", VW / 2f, 654f, paint);
+            paint.setTextSize(20f * s);
+            paint.setColor(((int) (0xB0 * k) << 24) | 0xFF8FA3C8);
+            c.drawText("军衔 " + Achievement.rank(w.achievementsUnlocked())
+                    + "  ·  " + w.achievementsUnlocked() + "/" + Achievement.COUNT,
+                    VW / 2f, 684f, paint);
+        }
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
@@ -2102,13 +2126,16 @@ public class Renderer {
         button(c, Ui.SETTINGS, "SETTINGS", 0xFF182040, 0xFF8FA3C8, false, 30f);
         button(c, Ui.CHEATS, w.settings.cheatsActive() ? "LAB ON" : "LAB",
                 0xFF182040, 0xFFFF8FD1, false, 30f);
-        button(c, Ui.CODEX, "CODEX  " + w.settings.codexCompletion()
-                + "/" + w.settings.codexTotal(), 0xFF182040, 0xFFAFF6FF, false, 30f);
+        button(c, Ui.CODEX, "CODEX " + w.settings.codexCompletion()
+                + "/" + w.settings.codexTotal(), 0xFF182040, 0xFFAFF6FF, false, 26f);
+        button(c, Ui.ACHIEVEMENTS, "成就 " + w.settings.achievementsUnlocked()
+                + "/" + Achievement.COUNT, 0xFF182040, 0xFFFFD166, false, 26f);
 
         paint.setTextSize(28f);
         paint.setColor(0xFFFFD166);
         c.drawText("BEST  " + w.bestScore + "    " + w.settings.difficulty.label()
-                + "难度    v" + w.currentVersion, VW / 2f, 800f, paint);
+                + "难度    " + w.settings.achievementRank() + "    v" + w.currentVersion,
+                VW / 2f, 800f, paint);
 
         drawUpdateButton(c, w);
         drawDualBoard(c, w, VW / 2f - 165f, 830f, 330f, 44f, 22f);
@@ -2128,6 +2155,7 @@ public class Renderer {
                 "道具字母会换、边缘会撕裂的是伪装者 MIRAGE · 现形前打下来额外加分还必掉真道具",
                 "磁暴艇 MAGNETON 会把直射弹掰弯 · 换激光 / 导弹 / 长枪照旧，打爆它还能吞掉一圈敌弹",
                 "集群蜂后 QUEEN 边飞边产幼机，越残血产得越快 · 优先击杀她，一屏幼机当场崩溃",
+                "达成成就当场 +300 分并涨军衔 · 单局取历史最佳、生涯只累加，进度永远不倒退",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
@@ -2348,6 +2376,80 @@ public class Renderer {
         paint.setColor(0x668FA3C8);
         paint.setTextAlign(Paint.Align.CENTER);
         c.drawText("图鉴记录保存在本机 · 与分数榜无关", VW / 2f, 1520f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /** 成就面板（v1.18）：左页单局最佳、右页生涯累计，行内显示判定进度。 */
+    private void drawAchievements(Canvas c, GameWorld w) {
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xE60A1024);
+        c.drawRect(0, 0, VW, VH, paint);
+
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(64f);
+        paint.setFakeBoldText(true);
+        paint.setColor(0xFFFFD166);
+        c.drawText("ACHIEVEMENTS", VW / 2f, 200f, paint);
+        paint.setFakeBoldText(false);
+
+        Settings s = w.settings;
+        int got = s.achievementsUnlocked();
+        paint.setTextSize(24f);
+        paint.setColor(0xFF8FA3C8);
+        c.drawText("已解锁 " + got + " / " + Achievement.COUNT + "  ·  军衔 "
+                + s.achievementRank(), VW / 2f, 250f, paint);
+        float barX = 200f, barW = 500f;
+        paint.setColor(0x33FFFFFF);
+        c.drawRect(barX, 268f, barX + barW, 278f, paint);
+        paint.setColor(0xFFFFD166);
+        c.drawRect(barX, 268f, barX + barW * (got / (float) Achievement.COUNT), 278f, paint);
+
+        boolean runTab = w.achieveTab == 0;
+        tabButton(c, Ui.ACH_TAB_RUN, "单局最佳", runTab);
+        tabButton(c, Ui.ACH_TAB_CUM, "生涯累计", !runTab);
+
+        paint.setTextAlign(Paint.Align.LEFT);
+        int row = 0;
+        for (Achievement a : Achievement.values()) {
+            if ((a.scope == Achievement.Scope.RUN) != runTab) continue;
+            boolean done = a.unlockedIn(s.achieveMask);
+            Ui.Rect r = Ui.achieveRow(row);
+            paint.setStyle(done ? Paint.Style.FILL : Paint.Style.STROKE);
+            paint.setStrokeWidth(2f);
+            paint.setColor(done ? 0xFF1E3A28 : 0x33FFFFFF);
+            c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 10f, 10f, paint);
+            paint.setStyle(Paint.Style.FILL);
+
+            paint.setTextSize(25f);
+            paint.setFakeBoldText(true);
+            paint.setColor(done ? 0xFFE8F1FF : 0xFF5A647F);
+            // 未达成的成就只剧透条件，名字留到解锁那一刻再揭晓，翻页时才有拆盲盒的感觉
+            c.drawText(done ? a.label() : "？？？", 190f, r.y + 25f, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextSize(19f);
+            paint.setColor(done ? 0x99AFF6FF : 0x665A647F);
+            c.drawText(a.desc(), 190f, r.y + 45f, paint);
+
+            paint.setTextSize(23f);
+            paint.setTextAlign(Paint.Align.RIGHT);
+            if (done) {
+                paint.setColor(0xFF6FE38B);
+                c.drawText("已达成", 770f, r.y + 34f, paint);
+            } else {
+                paint.setColor(0xFF8FA3C8);
+                c.drawText(Math.min(Achievements.valueOf(s, a), a.target) + " / " + a.target,
+                        770f, r.y + 34f, paint);
+            }
+            paint.setTextAlign(Paint.Align.LEFT);
+            row++;
+        }
+
+        button(c, Ui.ACHIEVEMENTS_BACK, "BACK", 0xFF182040, 0xFFE8F1FF, false, 30f);
+        paint.setTextSize(22f);
+        paint.setColor(0x668FA3C8);
+        paint.setTextAlign(Paint.Align.CENTER);
+        c.drawText("成就进度只增不减 · 保存在本机", VW / 2f, 1520f, paint);
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
@@ -2810,7 +2912,7 @@ public class Renderer {
                 "CRITS", "BREAK", "PARRY", "MAX STREAK", "DASH",
                 "EATEN", "BURST", "WELLS", "ULT", "REFLECT",
                 "BOSS", "RELICS", "MUTANTS", "HITS", "TIME",
-                "SPOTTED", "BENT", "BROOD"};
+                "SPOTTED", "BENT", "BROOD", "ACHV", "FUSION"};
         String[] values = {
                 w.accuracyPct() + "%",
                 "x" + w.maxCombo,
@@ -2834,9 +2936,11 @@ public class Renderer {
                 ((int) w.timeAlive) + "s",
                 String.valueOf(w.miragesSpotted),
                 String.valueOf(w.bulletsBent),
-                String.valueOf(w.broodSpawned)
+                String.valueOf(w.broodSpawned),
+                String.valueOf(w.achievesThisRun),
+                String.valueOf(w.fusions)
         };
-        // v1.17 数据涨到 23 项：5×5 网格，行距压到 33 才不挤到下面的排行榜
+        // v1.18 数据涨满 25 项：5×5 网格刚好铺满，行距压到 33 才不挤到下面的排行榜
         float[] cx = {186f, 318f, 450f, 582f, 714f};
         float[] rowY = {564f, 597f, 630f, 663f, 696f};
         for (int i = 0; i < labels.length; i++) {
@@ -2849,9 +2953,10 @@ public class Renderer {
             paint.setColor(i == 1 ? 0xFFFFD166 : i == 4 ? 0xFFFF8FD1
                     : i == 5 ? 0xFFFFB03A : i == 6 ? 0xFF7DF9FF
                     : i == 7 ? 0xFFB0FFF6 : i == 10 || i == 12 ? 0xFFC9A0FF
-                    : i == 13 ? 0xFFE08A : i == 14 ? 0xFFB0FFF6
+                    : i == 13 ? 0xFFFFE08A : i == 14 ? 0xFFB0FFF6
                     : i == 17 ? 0xFFB08FFF : i == 20 ? 0xFFE86BB0
-                    : i == 21 ? 0xFF4DA6FF : i == 22 ? 0xFFFFAE3A : 0xFFE8F1FF);
+                    : i == 21 ? 0xFF4DA6FF : i == 22 ? 0xFFFFAE3A
+                    : i == 23 ? 0xFFFFD166 : i == 24 ? 0xFF7DF9FF : 0xFFE8F1FF);
             c.drawText(values[i], x, y + 19f, paint);
         }
         paint.setTextAlign(Paint.Align.LEFT);

@@ -65,6 +65,7 @@ public final class SfxBank {
         put(SfxId.MIRAGE_REVEAL, mirageReveal(), 0.62f);
         put(SfxId.EMP_BURST, empBurst(), 0.74f);
         put(SfxId.BROOD_CHIRP, broodChirp(), 0.48f);
+        put(SfxId.ACHIEVEMENT, achievement(), 0.66f);
     }
 
     public static SfxBank create() {
@@ -1126,6 +1127,35 @@ public final class SfxBank {
                     * Math.max(0.35, 1.0 - t / 0.5));
         }
         echo(x, 0.035, 0.16);
+        return x;
+    }
+
+    /**
+     * 成就解锁：三音上行号角（根-五度-八度）+ 末尾高八度余韵。
+     * 刻意做成"宽音程"而不是 {@code ultReady} 那种密集铃音——两者经常在同几秒内先后响起，
+     * 音色拉开才分得出"攒满大招"和"拿下成就"。
+     */
+    private static float[] achievement() {
+        int n = frames(0.9);
+        float[] x = new float[n];
+        double[] notes = {392.0, 587.33, 783.99};
+        double ph = 0;
+        double phTail = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            int step = (int) Math.min(notes.length - 1, t / 0.13);
+            double local = t - step * 0.13;
+            ph += notes[step] / SAMPLE_RATE;
+            // 号角的方波头 + 一点三次泛音，音头比铃更"扁"
+            double horn = (square(ph, 0.5) * 0.3 + sine(ph) * 0.34
+                    + sine(ph * 3.0) * 0.08) * Math.max(0.0, 1.0 - local / 0.2);
+            // 1.5 拍后挂一记高八度长音，像盖章的余韵
+            double tail = t > 0.39 ? (sine(phTail) * 0.2 + sine(phTail * 2.0) * 0.07)
+                    * Math.exp(-(t - 0.39) * 3.4) : 0.0;
+            if (t > 0.39) phTail += 1567.98 / SAMPLE_RATE;
+            x[i] = (float) ((horn + tail) * env(t, 0.9, 0.004, 1.0));
+        }
+        echo(x, 0.12, 0.24);
         return x;
     }
 

@@ -31,6 +31,27 @@ public class Settings {
     /** 已击毁的最高舰级；-1 = 尚未击毁任何 Boss。 */
     public volatile int codexMaxTierSlain = -1;
 
+    // ---- 成就（v1.18）：跨对局累计，只增不减 ----
+    /** 已解锁成就位图（第 n 位 = {@code Achievement.values()[n]}）。 */
+    public volatile long achieveMask;
+    /** 每种统计口径的历史最佳（单局成就按它判定）。 */
+    public final int[] achieveBest = new int[Achievement.Metric.COUNT];
+    /** 每种统计口径的生涯累计（生涯成就按它判定）。 */
+    public final int[] achieveTotal = new int[Achievement.Metric.COUNT];
+
+    public boolean achievementUnlocked(Achievement a) {
+        return a != null && a.unlockedIn(achieveMask);
+    }
+
+    public int achievementsUnlocked() {
+        return Long.bitCount(achieveMask);
+    }
+
+    /** 按解锁条数换算的军衔称号（菜单与成就页共用）。 */
+    public String achievementRank() {
+        return Achievement.rank(achievementsUnlocked());
+    }
+
     public boolean enemySeen(EnemyType type) {
         return (codexSeenEnemies & (1 << type.ordinal())) != 0;
     }
@@ -106,6 +127,14 @@ public class Settings {
         codexMaxTierSlain = clamp(codexMaxTierSlain, -1, codexBossKills.length - 1);
         for (int i = 0; i < codexBossKills.length; i++) {
             if (codexBossKills[i] < 0) codexBossKills[i] = 0;
+        }
+        // 成就：位图掐掉未定义的位（枚举以后增删也不会读到老档的脏位），账本只认非负数
+        achieveMask &= (1L << Achievement.COUNT) - 1L;
+        for (int i = 0; i < achieveBest.length; i++) {
+            if (achieveBest[i] < 0) achieveBest[i] = 0;
+        }
+        for (int i = 0; i < achieveTotal.length; i++) {
+            if (achieveTotal[i] < 0) achieveTotal[i] = 0;
         }
     }
 

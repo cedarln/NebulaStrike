@@ -69,5 +69,7 @@ public enum SfxId {
     /** v1.17：磁暴艇 EMP 脉冲（低频塌缩 + 电离嘶声） */
     EMP_BURST,
     /** v1.17：蜂后产卵的三声虫鸣颤音 */
-    BROOD_CHIRP
+    BROOD_CHIRP,
+    /** v1.18：成就解锁的三音号角（比攒满铃更宽，末尾挂高八度余韵） */
+    ACHIEVEMENT
 }

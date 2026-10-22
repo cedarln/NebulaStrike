@@ -129,7 +129,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
         }
 
         Ui.Action a = Ui.hit(world.state, world.settingsOpen, world.cheatOpen,
-                world.codexOpen, v[0], v[1]);
+                world.codexOpen, world.achieveOpen, v[0], v[1]);
         if (a != null) {
             world.handleUiAction(a);
             if (a == Ui.Action.CHECK_UPDATE) dispatchUpdateWork();
@@ -266,6 +266,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case DASH: haptics.tick(); break;
                     case ULT_CAST: haptics.bomb(); break;
                     case ULT_READY: haptics.tick(); break;
+                    // 成就用长震：一局里最难得的正面事件，手感要和大招区分开
+                    case ACHIEVEMENT_UNLOCKED: haptics.bomb(); break;
                     case MIRAGE_REVEAL: haptics.tick(); break;
                     // EMP 放出去要"撞一下"，磁暴艇被打爆吞弹只是轻提示
                     case MAG_BURST:

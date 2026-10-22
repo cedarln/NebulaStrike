@@ -26,6 +26,8 @@ public final class Ultimate {
     public int casts;
     /** 本局折算掉的溢出槽（结算与测试用）。 */
     public int overflowSpent;
+    /** 本局释放过的最高档位（v1.18 成就"憋到最满"用它判定；0 = 还没放过）。 */
+    public int bestTier;
     /** 时停剩余秒数（>0 期间敌机/敌弹/Boss 近乎凝滞）。 */
     public float stasisTimer;
 
@@ -69,6 +71,7 @@ public final class Ultimate {
         if (t == 0) return 0;
         charge = 0f;
         casts++;
+        if (t > bestTier) bestTier = t;
         return t;
     }
 
@@ -130,6 +133,7 @@ public final class Ultimate {
     public void reset() {
         charge = 0f;
         casts = 0;
+        bestTier = 0;
         overflowSpent = 0;
         stasisTimer = 0f;
     }

@@ -40,7 +40,8 @@ public class GameFeelTest {
         for (int i = 0; i < 600 && world.kills < 6; i++) world.update(1f / 60f);
         assertEquals(6, world.kills);
         // kills 1-4 x1 (40), kill 5 x2 (20), kill 6 x2 (20)
-        assertEquals(80, world.score);
+        // 成就解锁会在某个判定帧白送一笔庆祝分，它不属于连击倍率，先扣掉再比
+        assertEquals(80, world.score - world.achieveScore);
         assertEquals(6, world.comboKills);
         assertEquals(2, world.comboMultiplier());
     }

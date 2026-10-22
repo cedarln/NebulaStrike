@@ -22,7 +22,9 @@ public final class Ui {
     public static final Rect START_ENDLESS = new Rect(GameWorld.WIDTH / 2f - 220f, 462f, 440f, 76f);
     public static final Rect SETTINGS = new Rect(GameWorld.WIDTH / 2f - 220f, 552f, 210f, 64f);
     public static final Rect CHEATS = new Rect(GameWorld.WIDTH / 2f + 10f, 552f, 210f, 64f);
-    public static final Rect CODEX = new Rect(GameWorld.WIDTH / 2f - 220f, 632f, 440f, 64f);
+    /** CODEX 与成就入口共用一行（v1.18 成就系统上线后菜单不再有三个整行按钮的空间）。 */
+    public static final Rect CODEX = new Rect(GameWorld.WIDTH / 2f - 220f, 632f, 210f, 64f);
+    public static final Rect ACHIEVEMENTS = new Rect(GameWorld.WIDTH / 2f + 10f, 632f, 210f, 64f);
     public static final Rect CHECK_UPDATE = new Rect(GameWorld.WIDTH / 2f - 220f, 712f, 440f, 56f);
 
     // playing: floating joystick is position-free (handled by GameView);
@@ -90,6 +92,18 @@ public final class Ui {
         return new Rect(110f, CODEX_ROW_Y + index * CODEX_ROW_H, 680f, CODEX_ROW_H - 10f);
     }
 
+    // 成就面板（v1.18）：单局 / 生涯两页，行数比图鉴多，行高再压一档才不挡 BACK
+    public static final Rect ACH_TAB_RUN = new Rect(110f, 300f, 330f, 64f);
+    public static final Rect ACH_TAB_CUM = new Rect(460f, 300f, 330f, 64f);
+    public static final Rect ACHIEVEMENTS_BACK = new Rect(GameWorld.WIDTH / 2f - 140f, 1420f, 280f, 64f);
+    public static final float ACH_ROW_Y = 372f;
+    public static final float ACH_ROW_H = 56f;
+
+    /** 成就某一行（0 起，按当前页内的序号）的命中矩形。 */
+    public static Rect achieveRow(int index) {
+        return new Rect(110f, ACH_ROW_Y + index * ACH_ROW_H, 680f, ACH_ROW_H - 8f);
+    }
+
     // pause overlay
     public static final Rect RESUME = new Rect(GameWorld.WIDTH / 2f - 220f, 330f, 440f, 88f);
     public static final Rect RESTART = new Rect(GameWorld.WIDTH / 2f - 220f, 436f, 440f, 72f);
@@ -106,6 +120,7 @@ public final class Ui {
         CHEAT_LIVES_DOWN, CHEAT_LIVES_UP, CHEAT_DROP_DOWN, CHEAT_DROP_UP,
         CHEAT_SPEED_DOWN, CHEAT_SPEED_UP, CHEAT_POWER_DOWN, CHEAT_POWER_UP,
         OPEN_CODEX, CODEX_BACK, CODEX_TAB,
+        OPEN_ACHIEVEMENTS, ACHIEVEMENTS_BACK, ACHIEVEMENTS_TAB,
         SET_DIFF_CASUAL, SET_DIFF_STANDARD, SET_DIFF_HARDCORE
     }
 
@@ -126,12 +141,24 @@ public final class Ui {
 
     public static Action hit(GameWorld.State state, boolean settingsOpen, boolean cheatOpen,
                              boolean codexOpen, float x, float y) {
+        return hit(state, settingsOpen, cheatOpen, codexOpen, false, x, y);
+    }
+
+    public static Action hit(GameWorld.State state, boolean settingsOpen, boolean cheatOpen,
+                             boolean codexOpen, boolean achieveOpen, float x, float y) {
         switch (state) {
             case MENU:
                 if (codexOpen) {
                     if (CODEX_BACK.contains(x, y)) return Action.CODEX_BACK;
                     if (CODEX_TAB_ENEMIES.contains(x, y) || CODEX_TAB_BOSSES.contains(x, y)) {
                         return Action.CODEX_TAB;
+                    }
+                    return null;
+                }
+                if (achieveOpen) {
+                    if (ACHIEVEMENTS_BACK.contains(x, y)) return Action.ACHIEVEMENTS_BACK;
+                    if (ACH_TAB_RUN.contains(x, y) || ACH_TAB_CUM.contains(x, y)) {
+                        return Action.ACHIEVEMENTS_TAB;
                     }
                     return null;
                 }
@@ -166,6 +193,7 @@ public final class Ui {
                 if (SETTINGS.contains(x, y)) return Action.OPEN_SETTINGS;
                 if (CHEATS.contains(x, y)) return Action.OPEN_CHEATS;
                 if (CODEX.contains(x, y)) return Action.OPEN_CODEX;
+                if (ACHIEVEMENTS.contains(x, y)) return Action.OPEN_ACHIEVEMENTS;
                 if (CHECK_UPDATE.contains(x, y)) return Action.CHECK_UPDATE;
                 return null;
             case PAUSED:
