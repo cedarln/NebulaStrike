@@ -52,6 +52,7 @@ public final class SfxBank {
         put(SfxId.MINE, mine(), 0.72f);
         put(SfxId.SHIELD_BLOCK, shieldBlock(), 0.76f);
         put(SfxId.CRIT, crit(), 0.42f);
+        put(SfxId.BULLET_POP, bulletPop(), 0.40f);
     }
 
     public static SfxBank create() {
@@ -842,6 +843,26 @@ public final class SfxBank {
             double bell = (0.6 * sine(ph1) + 0.4 * sine(ph2)) * k * 0.85;
             double tick = noise(r) * Math.exp(-t * 90) * 0.5;
             x[i] = (float) ((bell + tick) * env(t, 0.20, 0.0008, 1.0));
+        }
+        return x;
+    }
+
+    /** 点掉敌弹：极短的带通噪声脆裂 + 一记高频下滑"啪"，比暴击更轻更干。 */
+    private static float[] bulletPop() {
+        int n = frames(0.13);
+        float[] x = new float[n];
+        Random r = new Random(308);
+        double bp = 0, prev = 0, ph = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double src = noise(r);
+            // 一阶低通再取差分：剃掉噪声的中低频，只留脆响的那一下
+            bp += 0.55 * (src - bp);
+            double crack = (bp - prev) * Math.exp(-t * 40) * 1.4;
+            prev = bp;
+            ph += (2400 - 1500 * (t / 0.13)) / SAMPLE_RATE;
+            double snap = (0.65 * sine(ph) + 0.35 * tri(ph)) * Math.exp(-t * 30) * 0.5;
+            x[i] = (float) ((crack + snap) * env(t, 0.13, 0.0006, 1.6));
         }
         return x;
     }

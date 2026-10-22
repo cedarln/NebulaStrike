@@ -26,8 +26,10 @@ public class GameWorld {
         DASH, CHAIN, FUSION, BOSS_RAM, RUSH, HEAL_PULSE, ORBIT_HIT,
         /** v1.10：新星冲击 / 部署炮台 / 获得圣物 / 重生保护 / 布雷艇投雷 / 盾卫挡弹 */
         NOVA, TURRET_DEPLOY, RELIC_GAINED, RESPAWN, MINE, SHIELD_BLOCK,
-        /** v1.11：暴击命中（code = 实际伤害），驱动飘字与金属点缀音 */
-        CRIT
+        /** v1.11：暴击命中（code = 实际伤害） */
+        CRIT,
+        /** v1.12：点爆敌弹（code 1 = 水雷） */
+        BULLET_BREAK
     }
     public static final class GameEvent {
         public final EventType type;
@@ -85,6 +87,20 @@ public class GameWorld {
     public static final float CRIT_MULT = 1.7f;
     /** 本局暴击次数（结算数据卡）。 */
     public int crits;
+    /** 本局被玩家子弹打爆的敌弹数（点弹幕成就与数据卡用）。 */
+    public int bulletsShotDown;
+    /** 刚点掉敌弹的 HUD 脉冲（Renderer 用来放大"截弹"计数）。 */
+    public float breakPulse;
+    /** 打爆一枚敌弹的分数：低到不会鼓励"只点弹不打机"，但连击会放大它。 */
+    public static final int BULLET_BREAK_SCORE = 2;
+    /** 点弹幕的粗筛半径：远超这个距离的直接跳过，避免 168×56 全量配对。 */
+    private static final float BREAK_CULL = 96f;
+    /**
+     * 能点掉敌弹的最低单发伤害。基础机炮伤害 1，不参与拦截——
+     * 否则重弹幕里机炮流会被敌弹全部吃掉，Boss 战输出直接崩盘。
+     * 想点弹就得换导弹 / 集束 / 长枪 / 弹跳这类重弹，"清出一条路"和"攒一发伤害"从此二选一。
+     */
+    public static final int BREAK_MIN_DAMAGE = 2;
 
     /** 输入/升级状态在 UI 线程写入、游戏线程读取，必须 volatile 保证可见性。 */
     public volatile State state = State.PLAYING;
@@ -1151,6 +1167,7 @@ public class GameWorld {
         if (respawnGrace > 0f) respawnGrace = Math.max(0f, respawnGrace - dt);
         if (relicBanner > 0f) relicBanner = Math.max(0f, relicBanner - dt);
         if (novaFlash > 0f) novaFlash = Math.max(0f, novaFlash - dt * 2.2f);
+        if (breakPulse > 0f) breakPulse = Math.max(0f, breakPulse - dt * 3.2f);
         updateRelics(dt);
         updateNano(dt);
         updateTurrets(dt);
@@ -1931,6 +1948,8 @@ public class GameWorld {
                 }
             }
         }
+        // v1.12：重弹可以打爆敌弹（点弹幕），代价是这发子弹不再造成伤害
+        shootDownEnemyBullets();
         // enemy bullets vs ship
         if (!ship.isSafe()) {
             for (EnemyBullet b : enemyBullets) {
@@ -2590,6 +2609,7 @@ public class GameWorld {
         grazes = 0;
         grazeCharge = 0f;
         crits = 0;
+        bulletsShotDown = 0;
         timeAlive = 0f;
         stateTimer = 0f;
         wave = 1;
@@ -2753,6 +2773,38 @@ public class GameWorld {
         int n = 0;
         for (FloatText f : floatTexts) if (f.active) n++;
         return n;
+    }
+
+    /**
+     * 玩家子弹 vs 敌弹：命中即引爆敌弹，穿透光束引爆后继续飞行。
+     * 只有 {@link #BREAK_MIN_DAMAGE} 以上的重弹参与拦截，僚机弹丸也不算；
+     * 代价是这发实弹本轮不再对舰体造成伤害，于是"点弹幕保命"和"集火输出"变成取舍。
+     * 用 96 单位粗筛避免 168×56 的全量配对。
+     */
+    private void shootDownEnemyBullets() {
+        for (EnemyBullet eb : enemyBullets) {
+            if (!eb.active) continue;
+            for (Bullet b : bullets) {
+                if (!b.active || b.hitCooldown > 0f) continue;
+                if (b.damage < BREAK_MIN_DAMAGE || b.drone) continue;
+                float dx = b.x - eb.x;
+                if (dx > BREAK_CULL || dx < -BREAK_CULL) continue;
+                float dy = b.y - eb.y;
+                if (dy > BREAK_CULL || dy < -BREAK_CULL) continue;
+                float rr = b.radius + eb.radius + 1f;
+                if (dx * dx + dy * dy > rr * rr) continue;
+                if (b.piercing) b.hitCooldown = 0.05f;
+                else b.active = false;
+                eb.active = false;
+                bulletsShotDown++;
+                breakPulse = 1f;
+                addScore(BULLET_BREAK_SCORE, SCORE_OTHER);
+                spark(eb.x, eb.y, 3, eb.mine ? 8 : 0);
+                events.add(new GameEvent(EventType.BULLET_BREAK, eb.x, eb.y,
+                        eb.mine ? 1 : 0));
+                break;
+            }
+        }
     }
 
     /**

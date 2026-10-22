@@ -1454,6 +1454,14 @@ public class Renderer {
         } else {
             statusBar(c, "GRAZE", 0xFFFF8FD1, w.grazeCharge, 1200f);
         }
+        // 截弹计数：紧挨充能条右侧，只在有成绩后出现，点掉一发时短暂放大
+        if (w.bulletsShotDown > 0) {
+            float pulse = w.breakPulse;
+            paint.setTextAlign(Paint.Align.LEFT);
+            paint.setTextSize(24f + 8f * pulse);
+            paint.setColor(pulse > 0.05f ? 0xFFFFFFFF : 0xB07DF9FF);
+            c.drawText("截弹 " + w.bulletsShotDown, 240f, 1202f + 3f * pulse, paint);
+        }
 
         // lives as mini ships
         c.save();
@@ -1702,7 +1710,19 @@ public class Renderer {
 
         paint.setTextSize(26f);
         paint.setColor(0x668FA3C8);
-        c.drawText("按住屏幕任意位置滑动即可操控飞船 · 自动开火 · 炸弹键可切左手", VW / 2f, 1185f, paint);
+        // 玩法提示轮播：每 4.5 秒换一条，淡入淡出，用来教新机制而不占按钮位
+        String[] hints = {
+                "按住屏幕任意位置滑动即可操控飞船 · 自动开火 · 炸弹键可切左手",
+                "擦弹攒 OVERDRIVE · 过载期间暴击率翻倍、分数翻倍",
+                "导弹 / 集束 / 长枪这类重弹可以点爆敌弹 · 但这一发就打不出伤害了",
+                "同类道具叠加不替换 · 集齐两把基础武器自动融合出第三把",
+        };
+        float cycle = w.stateTimer % (hints.length * 4.5f);
+        int hintIndex = (int) (cycle / 4.5f);
+        float inHint = cycle - hintIndex * 4.5f;
+        float fade = Math.min(1f, Math.min(inHint, 4.5f - inHint) / 0.45f);
+        paint.setColor(((int) (0xAA * fade) << 24) | 0x8FA3C8);
+        c.drawText(hints[Math.min(hintIndex, hints.length - 1)], VW / 2f, 1185f, paint);
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
@@ -2240,7 +2260,7 @@ public class Renderer {
         }
 
         drawRunStats(c, w);
-        drawLeaderboard(c, w.board(w.mode), w.mode, VW / 2f - 160f, 708f, 320f, 30f, 22f, w.scoreRank);
+        drawLeaderboard(c, w.board(w.mode), w.mode, VW / 2f - 160f, 740f, 320f, 28f, 22f, w.scoreRank);
         drawScoreBreakdown(c, w);
 
         paint.setTextSize(40f);
@@ -2295,41 +2315,44 @@ public class Renderer {
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
-    /** 本局数据卡：命中率 / 连击 / 擦弹 / 暴击 / 击坠 / BOSS / 受伤 / 存活。 */
+    /** 本局数据卡：命中率 / 连击 / 擦弹 / 暴击 / 截弹 / 击坠 / BOSS / 受伤 / 存活。 */
     private void drawRunStats(Canvas c, GameWorld w) {
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(0x99000011);
-        c.drawRoundRect(120f, 548f, 780f, 688f, 18f, 18f, paint);
+        c.drawRoundRect(120f, 548f, 780f, 722f, 18f, 18f, paint);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(2f);
         paint.setColor(0x66FF8FD1);
-        c.drawRoundRect(120f, 548f, 780f, 688f, 18f, 18f, paint);
+        c.drawRoundRect(120f, 548f, 780f, 722f, 18f, 18f, paint);
         paint.setStyle(Paint.Style.FILL);
         paint.setTextAlign(Paint.Align.CENTER);
 
-        String[] labels = {"ACCURACY", "MAX COMBO", "GRAZES", "CRITS",
-                "KILLS", "BOSS", "HITS", "TIME"};
+        String[] labels = {"ACCURACY", "MAX COMBO", "GRAZES",
+                "CRITS", "BREAK", "KILLS",
+                "BOSS", "HITS", "TIME"};
         String[] values = {
                 w.accuracyPct() + "%",
                 "x" + w.maxCombo,
                 String.valueOf(w.grazes),
                 String.valueOf(w.crits),
+                String.valueOf(w.bulletsShotDown),
                 String.valueOf(w.kills),
                 String.valueOf(w.bossesDefeated),
                 String.valueOf(w.hitsTaken),
                 ((int) w.timeAlive) + "s"
         };
-        float[] cx = {203f, 368f, 533f, 698f};
+        float[] cx = {230f, 450f, 670f};
+        float[] rowY = {578f, 630f, 682f};
         for (int i = 0; i < labels.length; i++) {
-            float x = cx[i % 4];
-            float y = i < 4 ? 586f : 654f;
-            paint.setTextSize(20f);
+            float x = cx[i % 3];
+            float y = rowY[i / 3];
+            paint.setTextSize(19f);
             paint.setColor(0xFF8FA3C8);
             c.drawText(labels[i], x, y, paint);
-            paint.setTextSize(31f);
+            paint.setTextSize(30f);
             paint.setColor(i == 1 ? 0xFFFFD166 : i == 2 ? 0xFFFF8FD1
-                    : i == 3 ? 0xFFFFB03A : 0xFFE8F1FF);
-            c.drawText(values[i], x, y + 32f, paint);
+                    : i == 3 ? 0xFFFFB03A : i == 4 ? 0xFF7DF9FF : 0xFFE8F1FF);
+            c.drawText(values[i], x, y + 26f, paint);
         }
         paint.setTextAlign(Paint.Align.LEFT);
     }

@@ -43,5 +43,7 @@ public enum SfxId {
     MINE,
     SHIELD_BLOCK,
     /** v1.11：暴击金属点缀音 */
-    CRIT
+    CRIT,
+    /** v1.12：点掉敌弹的脆裂声（code==1 时为水雷被点爆，音高更低） */
+    BULLET_POP
 }

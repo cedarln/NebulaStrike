@@ -253,6 +253,11 @@ public class AudioEngine {
                     // 暴击只点一下，伤害越高越亮；限流见 minIntervalNs
                     play(SfxId.CRIT, 0.55f, 1f + Math.min(0.35f, e.code * 0.02f), panFor(e.x));
                     break;
+                case BULLET_BREAK:
+                    // code==1 是点爆水雷：更低更闷，提醒玩家这不是普通弹
+                    play(SfxId.BULLET_POP, e.code == 1 ? 0.75f : 0.5f,
+                            e.code == 1 ? 0.72f : vary(0.10f), panFor(e.x));
+                    break;
             }
         }
     }
@@ -396,6 +401,7 @@ public class AudioEngine {
             case MINE: return 140_000_000L;
             case SHIELD_BLOCK: return 70_000_000L;
             case CRIT: return 130_000_000L;   // 暴击频发，130ms 内只点一次
+            case BULLET_POP: return 55_000_000L;   // 点弹幕是连续动作，允许较快连点
             default: return 0L;
         }
     }
