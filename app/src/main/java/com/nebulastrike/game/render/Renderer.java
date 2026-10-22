@@ -1178,6 +1178,19 @@ public class Renderer {
             paint.setStyle(Paint.Style.FILL);
         }
 
+        // 弹反冲击环：冲刺中打飞敌弹的瞬间炸开一圈冷白环，环外扩同时淡出
+        if (w.parryFlash > 0f) {
+            float k = w.parryFlash;
+            float grow = 1f - k;
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(3f + 5f * k);
+            paint.setColor(((int) (0xE0 * k) << 24) | 0xB0FFF6);
+            c.drawCircle(s.x, s.y, Ship.RADIUS * (1.3f + 2.1f * grow), paint);
+            glow.setColor(((int) (0x55 * k) << 24) | 0xB0FFF6);
+            c.drawCircle(s.x, s.y, Ship.RADIUS * (1.2f + 1.4f * grow), glow);
+            paint.setStyle(Paint.Style.FILL);
+        }
+
         // engine flame
         float flicker = 8f + 6f * (float) Math.sin(w.timeAlive * 40f);
         glow.setColor(0x8844CCFF);
@@ -1715,6 +1728,7 @@ public class Renderer {
                 "按住屏幕任意位置滑动即可操控飞船 · 自动开火 · 炸弹键可切左手",
                 "擦弹攒 OVERDRIVE · 过载期间暴击率翻倍、分数翻倍",
                 "导弹 / 集束 / 长枪这类重弹可以点爆敌弹 · 但这一发就打不出伤害了",
+                "冲刺途中贴身撞上敌弹会把它弹反成友军火力 · 连反多得分成倍涨",
                 "同类道具叠加不替换 · 集齐两把基础武器自动融合出第三把",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
@@ -2315,7 +2329,7 @@ public class Renderer {
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
-    /** 本局数据卡：命中率 / 连击 / 擦弹 / 暴击 / 截弹 / 击坠 / BOSS / 受伤 / 存活。 */
+    /** 本局数据卡：命中率 / 连击 / 擦弹 / 暴击 / 截弹 / 弹反 / 冲刺 / 击坠 / BOSS / 精英 / 受伤 / 存活。 */
     private void drawRunStats(Canvas c, GameWorld w) {
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(0x99000011);
@@ -2327,31 +2341,35 @@ public class Renderer {
         paint.setStyle(Paint.Style.FILL);
         paint.setTextAlign(Paint.Align.CENTER);
 
-        String[] labels = {"ACCURACY", "MAX COMBO", "GRAZES",
-                "CRITS", "BREAK", "KILLS",
-                "BOSS", "HITS", "TIME"};
+        String[] labels = {"ACCURACY", "MAX COMBO", "GRAZES", "CRITS",
+                "BREAK", "PARRY", "DASH", "KILLS",
+                "BOSS", "ELITES", "HITS", "TIME"};
         String[] values = {
                 w.accuracyPct() + "%",
                 "x" + w.maxCombo,
                 String.valueOf(w.grazes),
                 String.valueOf(w.crits),
                 String.valueOf(w.bulletsShotDown),
+                String.valueOf(w.parries),
+                String.valueOf(w.ship.dashesUsed),
                 String.valueOf(w.kills),
                 String.valueOf(w.bossesDefeated),
+                String.valueOf(w.elitesKilled),
                 String.valueOf(w.hitsTaken),
                 ((int) w.timeAlive) + "s"
         };
-        float[] cx = {230f, 450f, 670f};
+        float[] cx = {203f, 368f, 533f, 698f};
         float[] rowY = {578f, 630f, 682f};
         for (int i = 0; i < labels.length; i++) {
-            float x = cx[i % 3];
-            float y = rowY[i / 3];
-            paint.setTextSize(19f);
+            float x = cx[i % 4];
+            float y = rowY[i / 4];
+            paint.setTextSize(18f);
             paint.setColor(0xFF8FA3C8);
             c.drawText(labels[i], x, y, paint);
-            paint.setTextSize(30f);
+            paint.setTextSize(29f);
             paint.setColor(i == 1 ? 0xFFFFD166 : i == 2 ? 0xFFFF8FD1
-                    : i == 3 ? 0xFFFFB03A : i == 4 ? 0xFF7DF9FF : 0xFFE8F1FF);
+                    : i == 3 ? 0xFFFFB03A : i == 4 ? 0xFF7DF9FF
+                    : i == 5 ? 0xFFB0FFF6 : 0xFFE8F1FF);
             c.drawText(values[i], x, y + 26f, paint);
         }
         paint.setTextAlign(Paint.Align.LEFT);

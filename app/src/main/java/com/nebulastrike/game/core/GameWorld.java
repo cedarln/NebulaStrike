@@ -29,7 +29,9 @@ public class GameWorld {
         /** v1.11：暴击命中（code = 实际伤害） */
         CRIT,
         /** v1.12：点爆敌弹（code 1 = 水雷） */
-        BULLET_BREAK
+        BULLET_BREAK,
+        /** v1.13：冲刺弹反（code = 本次冲刺内的连击序号，从 1 开始） */
+        PARRY
     }
     public static final class GameEvent {
         public final EventType type;
@@ -80,6 +82,7 @@ public class GameWorld {
     public static final int FLOAT_CRIT = 0xFFB03A;
     public static final int FLOAT_SCORE = 0xFFD34A;
     public static final int FLOAT_BREAK = 0x7DF9FF;
+    public static final int FLOAT_PARRY = 0xB0FFF6;
 
     /** 暴击：命中有小概率加成伤害，过载期间概率更高。 */
     public static final float CRIT_CHANCE = 0.08f;
@@ -101,6 +104,27 @@ public class GameWorld {
      * 想点弹就得换导弹 / 集束 / 长枪 / 弹跳这类重弹，"清出一条路"和"攒一发伤害"从此二选一。
      */
     public static final int BREAK_MIN_DAMAGE = 2;
+
+    /**
+     * 弹反 PARRY（v1.13 迭代 3）：正在相位冲刺时贴身撞上的敌弹会被折返成友军火力。
+     * 冲刺本来只是无敌位移（躲掉=零收益，还拿不到擦弹），弹反把"躲"变成"打"：
+     * 同一次冲刺里连续弹反按连击倍率计分，越贴脸越值钱。
+     */
+    public static final int PARRY_SCORE = 15;
+    /** 折返弹的单发伤害：够格参与点弹幕，于是弹反还能连锁清出一片路。 */
+    public static final int PARRY_DAMAGE = 3;
+    /** 弹反判定在船体之外再放宽这么多单位，给一点点宽容度。 */
+    public static final float PARRY_BAND = 18f;
+    /** 每次弹反补的擦弹槽（过载充能），躲弹幕顺带回血输出循环。 */
+    public static final float PARRY_GRAZE_CHARGE = 0.05f;
+    /** 折反弹的保底弹速：慢敌弹原样反弹会变成飘半屏的"气球"，手感差还占弹池。 */
+    public static final float PARRY_MIN_SPEED = 900f;
+    /** 本局弹反次数与同一次冲刺内的连击数。 */
+    public int parries;
+    public float parryFlash;
+    private int parryStreak;
+    /** 本局击坠的精英机数量（结算数据卡）。 */
+    public int elitesKilled;
 
     /** 输入/升级状态在 UI 线程写入、游戏线程读取，必须 volatile 保证可见性。 */
     public volatile State state = State.PLAYING;
@@ -808,6 +832,7 @@ public class GameWorld {
     /** 相位冲刺：消耗一格能量，朝拖动方向瞬时位移并短暂无敌。 */
     public boolean tryDash() {
         if (state != State.PLAYING || !ship.tryDash()) return false;
+        parryStreak = 0;
         for (int i = 0; i < 8; i++) {
             Particle p = freeParticle();
             float ang = RNG.get().nextFloat() * (float) Math.PI * 2f;
@@ -1168,6 +1193,7 @@ public class GameWorld {
         if (relicBanner > 0f) relicBanner = Math.max(0f, relicBanner - dt);
         if (novaFlash > 0f) novaFlash = Math.max(0f, novaFlash - dt * 2.2f);
         if (breakPulse > 0f) breakPulse = Math.max(0f, breakPulse - dt * 3.2f);
+        if (parryFlash > 0f) parryFlash = Math.max(0f, parryFlash - dt * 4f);
         updateRelics(dt);
         updateNano(dt);
         updateTurrets(dt);
@@ -1948,6 +1974,8 @@ public class GameWorld {
                 }
             }
         }
+        // v1.13：冲刺中的贴身敌弹会被弹反成友军火力（冲刺本就无敌，躲掉零收益，这里把"躲"变成"打"）
+        if (ship.dashTimer > 0f) parryEnemyBullets();
         // v1.12：重弹可以打爆敌弹（点弹幕），代价是这发子弹不再造成伤害
         shootDownEnemyBullets();
         // enemy bullets vs ship
@@ -2186,6 +2214,7 @@ public class GameWorld {
         spawnFloatText(ex, ey - type.radius * 0.6f, gained, FLOAT_SCORE,
                 elite || type.score >= 25 || comboMultiplier() >= 3);
         kills++;
+        if (elite) elitesKilled++;
         explode(ex, ey, type.colorHint);
         if (elite) {
             spark(ex, ey, 10, 4);
@@ -2610,6 +2639,10 @@ public class GameWorld {
         grazeCharge = 0f;
         crits = 0;
         bulletsShotDown = 0;
+        parries = 0;
+        parryStreak = 0;
+        parryFlash = 0f;
+        elitesKilled = 0;
         timeAlive = 0f;
         stateTimer = 0f;
         wave = 1;
@@ -2804,6 +2837,56 @@ public class GameWorld {
                         eb.mine ? 1 : 0));
                 break;
             }
+        }
+    }
+
+    /**
+     * 冲刺弹反：把贴身的敌弹折返成一发友军子弹。
+     * 同一次冲刺里连续弹反按 streak 倍率计分，事件 code 带 streak 供音效升调；
+     * 弹反同时补一点擦弹槽，让"莽进弹幕"成为一条正向回路。
+     */
+    private void parryEnemyBullets() {
+        for (EnemyBullet b : enemyBullets) {
+            if (!b.active) continue;
+            float rr = Ship.RADIUS + b.radius + PARRY_BAND;
+            if (distToSegment(b.x, b.y,
+                    ship.prevX, ship.prevY, ship.x, ship.y) > rr) continue;
+            b.active = false;
+            parryStreak++;
+            parries++;
+            parryFlash = 1f;
+            int gained = addScore(PARRY_SCORE * parryStreak, SCORE_OTHER);
+            spawnParryBullet(b);
+            if (ship.overdriveTimer <= 0f) {
+                grazeCharge = Math.min(1f, grazeCharge + PARRY_GRAZE_CHARGE);
+            }
+            spark(b.x, b.y, 5, 6);
+            spawnFloatText(b.x, b.y, gained, FLOAT_PARRY, parryStreak >= 2);
+            events.add(new GameEvent(EventType.PARRY, b.x, b.y, parryStreak));
+        }
+    }
+
+    /**
+     * 生成弹反后的友军子弹：沿敌弹原方向折返，并保证至少朝屏幕上方飞，
+     * 否则横着飞的敌弹反弹回来会立刻飞出屏幕，玩家拿不到任何收益。
+     */
+    private void spawnParryBullet(EnemyBullet src) {
+        for (Bullet b : bullets) {
+            if (b.active) continue;
+            float vx = -src.vx * 1.2f;
+            float vy = -src.vy * 1.2f;
+            if (vy > -300f) vy = -900f;
+            // 敌弹本身很慢，原样折返会变成一颗飘半天才出屏的"气球"，
+            // 既没有射击手感又会堆积弹池，所以保底拉到正常弹速。
+            float sp = (float) Math.sqrt(vx * vx + vy * vy);
+            if (sp < PARRY_MIN_SPEED && sp > 1e-4f) {
+                float k = PARRY_MIN_SPEED / sp;
+                vx *= k;
+                vy *= k;
+            }
+            b.init(src.x, src.y, vx, vy, PARRY_DAMAGE, false);
+            bulletsFired++;   // 计入射出的弹，命中率不会被白送的弹拉爆
+            return;
         }
     }
 

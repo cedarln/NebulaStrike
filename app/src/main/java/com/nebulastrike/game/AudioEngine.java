@@ -258,6 +258,11 @@ public class AudioEngine {
                     play(SfxId.BULLET_POP, e.code == 1 ? 0.75f : 0.5f,
                             e.code == 1 ? 0.72f : vary(0.10f), panFor(e.x));
                     break;
+                case PARRY:
+                    // code = 本次冲刺内的连击序号；连得越高音越亮，一次冲刺里要听得见层次
+                    play(SfxId.PARRY, 0.65f + Math.min(0.3f, e.code * 0.06f),
+                            1f + Math.min(0.6f, (e.code - 1) * 0.12f), panFor(e.x));
+                    break;
             }
         }
     }
@@ -402,6 +407,7 @@ public class AudioEngine {
             case SHIELD_BLOCK: return 70_000_000L;
             case CRIT: return 130_000_000L;   // 暴击频发，130ms 内只点一次
             case BULLET_POP: return 55_000_000L;   // 点弹幕是连续动作，允许较快连点
+            case PARRY: return 45_000_000L;        // 一次冲刺可能连弹好几发，留出层次
             default: return 0L;
         }
     }

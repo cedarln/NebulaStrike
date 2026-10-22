@@ -53,6 +53,7 @@ public final class SfxBank {
         put(SfxId.SHIELD_BLOCK, shieldBlock(), 0.76f);
         put(SfxId.CRIT, crit(), 0.42f);
         put(SfxId.BULLET_POP, bulletPop(), 0.40f);
+        put(SfxId.PARRY, parry(), 0.52f);
     }
 
     public static SfxBank create() {
@@ -864,6 +865,27 @@ public final class SfxBank {
             double snap = (0.65 * sine(ph) + 0.35 * tri(ph)) * Math.exp(-t * 30) * 0.5;
             x[i] = (float) ((crack + snap) * env(t, 0.13, 0.0006, 1.6));
         }
+        return x;
+    }
+
+    /** 弹反：上扬金属"铛"——失谐双锯齿 + 高频 bells，尾音带一点回声显得"打飞了"。 */
+    private static float[] parry() {
+        int n = frames(0.30);
+        float[] x = new float[n];
+        Random r = new Random(309);
+        double ph1 = 0, ph2 = 0, ph3 = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double sweep = 1.0 + 0.9 * Math.min(1.0, t / 0.06);
+            ph1 += 660 * sweep / SAMPLE_RATE;
+            ph2 += 990 * sweep / SAMPLE_RATE;
+            ph3 += 2640 / SAMPLE_RATE;
+            double clash = (0.45 * saw(ph1) + 0.35 * saw(ph2)) * Math.exp(-t * 15);
+            double bell = sine(ph3) * Math.exp(-t * 26) * 0.5;
+            double pick = noise(r) * Math.exp(-t * 120) * 0.35;
+            x[i] = (float) ((clash + bell + pick) * env(t, 0.30, 0.001, 1.1));
+        }
+        echo(x, 0.055, 0.22);
         return x;
     }
 

@@ -45,5 +45,7 @@ public enum SfxId {
     /** v1.11：暴击金属点缀音 */
     CRIT,
     /** v1.12：点掉敌弹的脆裂声（code==1 时为水雷被点爆，音高更低） */
-    BULLET_POP
+    BULLET_POP,
+    /** v1.13：冲刺弹反的"铛"金属上扬音（连击越高音越高） */
+    PARRY
 }
