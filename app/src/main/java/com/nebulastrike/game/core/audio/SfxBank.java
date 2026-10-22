@@ -54,6 +54,8 @@ public final class SfxBank {
         put(SfxId.CRIT, crit(), 0.42f);
         put(SfxId.BULLET_POP, bulletPop(), 0.40f);
         put(SfxId.PARRY, parry(), 0.52f);
+        put(SfxId.MUTATOR, mutatorRiser(), 0.60f);
+        put(SfxId.MUTATOR_CLEAR, mutatorClear(), 0.50f);
     }
 
     public static SfxBank create() {
@@ -889,8 +891,44 @@ public final class SfxBank {
         return x;
     }
 
-    // ---- synthesis helpers ----
+    /** 异变波开始：两记错拍上扫锯齿 + 噪声渐强，"世界要变调"的警报感。 */
+    private static float[] mutatorRiser() {
+        int n = frames(0.62);
+        float[] x = new float[n];
+        Random r = new Random(310);
+        double ph1 = 0, ph2 = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double k = Math.min(1.0, t / 0.5);
+            ph1 += (180 + 420 * k) / SAMPLE_RATE;
+            ph2 += (271 + 640 * k) / SAMPLE_RATE;
+            double body = (0.4 * saw(ph1) + 0.3 * saw(ph2)) * (0.25 + 0.75 * k);
+            double hiss = noise(r) * 0.22 * k;
+            x[i] = (float) ((body + hiss) * env(t, 0.62, 0.02, 0.9));
+        }
+        echo(x, 0.09, 0.28);
+        return x;
+    }
 
+    /** 异变平息奖励：三音上行铃 + 一点噪声闪光，收尾给正反馈。 */
+    private static float[] mutatorClear() {
+        int n = frames(0.46);
+        float[] x = new float[n];
+        double ph = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double freq = t < 0.11 ? 660 : t < 0.22 ? 880 : 1320;
+            double local = t - (t < 0.11 ? 0 : t < 0.22 ? 0.11 : 0.22);
+            ph += freq / SAMPLE_RATE;
+            double bell = sine(ph) * Math.exp(-local * 17) * 0.6;
+            double spark = sine(ph * 3) * Math.exp(-local * 40) * 0.18;
+            x[i] = (float) ((bell + spark) * env(t, 0.46, 0.001, 1.0));
+        }
+        echo(x, 0.07, 0.3);
+        return x;
+    }
+
+    // ---- synthesis helpers ----
     private static int frames(double seconds) {
         return Math.max(1, (int) (seconds * SAMPLE_RATE));
     }

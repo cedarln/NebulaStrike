@@ -1348,6 +1348,29 @@ public class Renderer {
         paint.setColor(w.mode == GameMode.ENDLESS ? 0xFFB08FFF : 0xFF8FA3C8);
         c.drawText((w.mode == GameMode.ENDLESS ? "ENDLESS " : "WAVE ") + w.wave, VW / 2f - 70f, 60f, paint);
 
+        // 异变波芯片：名字 + 剩余时间条，最后 3 秒闪烁提示"窗口快关了，抓紧刷"
+        if (w.mutator.isActive()) {
+            float frac = Math.max(0f, Math.min(1f, w.mutatorTimer / GameWorld.MUTATOR_DURATION));
+            float blink = w.mutatorTimer < 3f
+                    ? 0.55f + 0.45f * Math.abs((float) Math.sin(w.timeAlive * 7f)) : 1f;
+            int rgb = w.mutator.colorRgb;
+            // 顶部一条异变色边：不读文字也能感觉到"这一段不是平时"
+            paint.setColor(((int) (0x90 * blink) << 24) | rgb);
+            c.drawRect(0f, 0f, VW, 5f, paint);
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(26f);
+            paint.setFakeBoldText(true);
+            paint.setColor(((int) (0xEE * blink) << 24) | rgb);
+            c.drawText("异变 · " + w.mutator.label, VW / 2f + 100f, 150f, paint);
+            paint.setFakeBoldText(false);
+            paint.setColor((0x66 << 24) | 0x00121A2E);
+            c.drawRoundRect(VW / 2f - 20f, 162f, VW / 2f + 220f, 170f, 4f, 4f, paint);
+            paint.setColor(((int) (0xD8 * blink) << 24) | rgb);
+            c.drawRoundRect(VW / 2f - 20f, 162f,
+                    VW / 2f - 20f + 240f * frac, 170f, 4f, 4f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+
         // LAB 参数生效的标记（避免改过参数却忘记）
         if (w.settings.cheatsActive()) {
             paint.setTextSize(22f);
@@ -1529,6 +1552,20 @@ public class Renderer {
     /** 中央提示：突袭奖励波 / 武器融合解锁，两者都用短促的缩放动画。 */
     private void drawBanners(Canvas c, GameWorld w) {
         paint.setTextAlign(Paint.Align.CENTER);
+        if (w.mutatorBanner > 0f && w.mutator.isActive()) {
+            float k = Math.min(1f, w.mutatorBanner / 0.4f);
+            float in = Math.min(1f, (3.2f - w.mutatorBanner) / 0.35f);
+            float s = 0.72f + 0.28f * in;
+            int rgb = w.mutator.colorRgb;
+            paint.setTextSize(58f * s);
+            paint.setFakeBoldText(true);
+            paint.setColor(((int) (0xFF * k) << 24) | rgb);
+            c.drawText("异变 · " + w.mutator.label, VW / 2f, 216f, paint);
+            paint.setTextSize(25f * s);
+            paint.setColor(((int) (0xD8 * k) << 24) | 0x00E8F1FF);
+            c.drawText(w.mutator.blurb, VW / 2f, 256f, paint);
+            paint.setFakeBoldText(false);
+        }
         if (w.rushBanner > 0f) {
             float k = Math.min(1f, w.rushBanner / 0.35f);
             float in = Math.min(1f, (2.4f - w.rushBanner) / 0.25f);
@@ -1729,6 +1766,7 @@ public class Renderer {
                 "擦弹攒 OVERDRIVE · 过载期间暴击率翻倍、分数翻倍",
                 "导弹 / 集束 / 长枪这类重弹可以点爆敌弹 · 但这一发就打不出伤害了",
                 "冲刺途中贴身撞上敌弹会把它弹反成友军火力 · 连反多得分成倍涨",
+                "打到 45 秒起会随机出现异变波 · 规则变狠但这段时间得分加成最高 1.6 倍",
                 "同类道具叠加不替换 · 集齐两把基础武器自动融合出第三把",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
@@ -2329,7 +2367,10 @@ public class Renderer {
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
-    /** 本局数据卡：命中率 / 连击 / 擦弹 / 暴击 / 截弹 / 弹反 / 冲刺 / 击坠 / BOSS / 精英 / 受伤 / 存活。 */
+    /**
+     * 本局数据卡（5 列 × 3 行）：命中率 / 连击 / 擦弹 / 暴击 / 截弹、
+     * 弹反 / 最高连反 / 冲刺 / 击坠 / 精英、BOSS / 圣物 / 异变 / 受伤 / 存活。
+     */
     private void drawRunStats(Canvas c, GameWorld w) {
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(0x99000011);
@@ -2341,9 +2382,9 @@ public class Renderer {
         paint.setStyle(Paint.Style.FILL);
         paint.setTextAlign(Paint.Align.CENTER);
 
-        String[] labels = {"ACCURACY", "MAX COMBO", "GRAZES", "CRITS",
-                "BREAK", "PARRY", "DASH", "KILLS",
-                "BOSS", "ELITES", "HITS", "TIME"};
+        String[] labels = {"ACCURACY", "MAX COMBO", "GRAZES", "CRITS", "BREAK",
+                "PARRY", "MAX STREAK", "DASH", "KILLS", "ELITES",
+                "BOSS", "RELICS", "MUTANTS", "HITS", "TIME"};
         String[] values = {
                 w.accuracyPct() + "%",
                 "x" + w.maxCombo,
@@ -2351,26 +2392,29 @@ public class Renderer {
                 String.valueOf(w.crits),
                 String.valueOf(w.bulletsShotDown),
                 String.valueOf(w.parries),
+                "x" + w.maxParryStreak,
                 String.valueOf(w.ship.dashesUsed),
                 String.valueOf(w.kills),
-                String.valueOf(w.bossesDefeated),
                 String.valueOf(w.elitesKilled),
+                String.valueOf(w.bossesDefeated),
+                String.valueOf(w.relicsGained),
+                String.valueOf(w.mutatorsSeen),
                 String.valueOf(w.hitsTaken),
                 ((int) w.timeAlive) + "s"
         };
-        float[] cx = {203f, 368f, 533f, 698f};
+        float[] cx = {186f, 318f, 450f, 582f, 714f};
         float[] rowY = {578f, 630f, 682f};
         for (int i = 0; i < labels.length; i++) {
-            float x = cx[i % 4];
-            float y = rowY[i / 4];
-            paint.setTextSize(18f);
+            float x = cx[i % 5];
+            float y = rowY[i / 5];
+            paint.setTextSize(16f);
             paint.setColor(0xFF8FA3C8);
             c.drawText(labels[i], x, y, paint);
-            paint.setTextSize(29f);
+            paint.setTextSize(26f);
             paint.setColor(i == 1 ? 0xFFFFD166 : i == 2 ? 0xFFFF8FD1
                     : i == 3 ? 0xFFFFB03A : i == 4 ? 0xFF7DF9FF
-                    : i == 5 ? 0xFFB0FFF6 : 0xFFE8F1FF);
-            c.drawText(values[i], x, y + 26f, paint);
+                    : i == 5 ? 0xFFB0FFF6 : i == 12 ? 0xFFB08FFF : 0xFFE8F1FF);
+            c.drawText(values[i], x, y + 25f, paint);
         }
         paint.setTextAlign(Paint.Align.LEFT);
     }

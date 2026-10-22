@@ -263,6 +263,15 @@ public class AudioEngine {
                     play(SfxId.PARRY, 0.65f + Math.min(0.3f, e.code * 0.06f),
                             1f + Math.min(0.6f, (e.code - 1) * 0.12f), panFor(e.x));
                     break;
+                case MUTATOR_START:
+                    // 异变波开场警报：居中、响亮，玩家必须知道规则已经变了
+                    play(SfxId.MUTATOR, 0.85f, 1f, 0f);
+                    break;
+                case MUTATOR_CLEAR:
+                    // code = 奖励分数：给得越多铃越亮
+                    play(SfxId.MUTATOR_CLEAR, 0.7f,
+                            1f + Math.min(0.35f, e.code / 1200f), 0f);
+                    break;
             }
         }
     }
@@ -408,6 +417,8 @@ public class AudioEngine {
             case CRIT: return 130_000_000L;   // 暴击频发，130ms 内只点一次
             case BULLET_POP: return 55_000_000L;   // 点弹幕是连续动作，允许较快连点
             case PARRY: return 45_000_000L;        // 一次冲刺可能连弹好几发，留出层次
+            case MUTATOR: return 0L;               // 三十几秒一次，永不抑制
+            case MUTATOR_CLEAR: return 0L;         // 同上
             default: return 0L;
         }
     }

@@ -31,7 +31,11 @@ public class GameWorld {
         /** v1.12：点爆敌弹（code 1 = 水雷） */
         BULLET_BREAK,
         /** v1.13：冲刺弹反（code = 本次冲刺内的连击序号，从 1 开始） */
-        PARRY
+        PARRY,
+        /** v1.14：异变波开始（code = {@link Mutator#ordinal()}） */
+        MUTATOR_START,
+        /** v1.14：异变波平息（code = 奖励分数） */
+        MUTATOR_CLEAR
     }
     public static final class GameEvent {
         public final EventType type;
@@ -83,6 +87,8 @@ public class GameWorld {
     public static final int FLOAT_SCORE = 0xFFD34A;
     public static final int FLOAT_BREAK = 0x7DF9FF;
     public static final int FLOAT_PARRY = 0xB0FFF6;
+    /** 异变平息奖励飘字（Renderer 直接取用）。 */
+    public static final int FLOAT_MUTATOR = 0xFFD166;
 
     /** 暴击：命中有小概率加成伤害，过载期间概率更高。 */
     public static final float CRIT_CHANCE = 0.08f;
@@ -123,8 +129,38 @@ public class GameWorld {
     public int parries;
     public float parryFlash;
     private int parryStreak;
+    /** 单次冲刺里最高的连反数（结算数据卡）。 */
+    public int maxParryStreak;
     /** 本局击坠的精英机数量（结算数据卡）。 */
     public int elitesKilled;
+
+    // ---- v1.14：随机异变波（迭代 4）----
+    /** 当前异变；NONE 表示正常时空。 */
+    public Mutator mutator = Mutator.NONE;
+    /** 异变剩余秒数（0 时下一次投骰冷却用 {@link #mutatorNextAt}）。 */
+    public float mutatorTimer;
+    /** 下一次异变投骰的时刻（timeAlive 秒）。 */
+    public float mutatorNextAt = MUTATOR_FIRST_AT;
+    /** 异变横幅余量（HUD 用，与 relicBanner 同族）。 */
+    public float mutatorBanner;
+    /** 本局经历过的异变波次数。 */
+    public int mutatorsSeen;
+    /** 本局在异变窗口里拿到的额外分数（结算与测试用）。 */
+    public int mutatorBonus;
+    /** 当前窗口内击坠数：窗口结束时按它给"异变平息"奖励。 */
+    private int mutatorKills;
+    /** 异变波开关：需要确定性的模式（每日挑战 / Boss Rush）可以关掉。 */
+    public boolean mutatorsEnabled = true;
+
+    /** 首个异变在 45 秒后出现：开局教学段保持纯净，玩家先学会基本循环再遇变量。 */
+    public static final float MUTATOR_FIRST_AT = 45f;
+    /** 单个窗口时长。 */
+    public static final float MUTATOR_DURATION = 16f;
+    /** 两次异变之间的间隔（窗口结束后重新计时），保证三分之二时间是正常节奏。 */
+    public static final float MUTATOR_GAP = 34f;
+    /** 扛过一个窗口的收尾奖励：基础分 + 窗口内每次击坠的加分。 */
+    public static final int MUTATOR_CLEAR_BONUS = 150;
+    public static final int MUTATOR_CLEAR_KILL_BONUS = 4;
 
     /** 输入/升级状态在 UI 线程写入、游戏线程读取，必须 volatile 保证可见性。 */
     public volatile State state = State.PLAYING;
@@ -374,6 +410,7 @@ public class GameWorld {
         }
         if (slowTimer > 0f) slowTimer = Math.max(0f, slowTimer - dt);
         float timeScale = slowTimer > 0f ? SLOW_TIME_SCALE : 1f;
+        updateMutators(dt);
         updateDifficulty();
         updateSpawning(dt);
         updateRushWave(dt);
@@ -1082,6 +1119,7 @@ public class GameWorld {
             if (e == null) return;
             e.init(EnemyType.HUNTER,
                     boss.x + (i - (n - 1) / 2f) * 130f, boss.y + 60f, enemySpeedScale);
+            applyMutatorToEnemy(e);
             spawnedCount++;
         }
     }
@@ -1104,7 +1142,8 @@ public class GameWorld {
     private void tryEnemyFire(Enemy e, float dt) {
         if (e.fireCd <= 0f) return;
         if (e.y < 60f || e.y > HEIGHT * 0.72f) return; // only fire while on-screen, not too close
-        e.fireCd -= dt;
+        // 异变"铁雨"：冷却时间流逝更快，同样的开火表会变成双倍弹幕密度
+        e.fireCd -= dt * (mutator.isActive() ? mutator.fireScale : 1f);
         if (e.fireCd > 0f) return;
         switch (e.type) {
             case TANK: // slow triple spread straight down
@@ -1179,6 +1218,73 @@ public class GameWorld {
             formationPeriod = 1.15f - 0.35f * t;
         }
         enemySpeedScale *= settings.enemySpeedPct / 100f * settings.difficulty.speedScale;
+        // 异变波：出怪节奏与敌机速度都是纯倍率，窗口一结束立刻回到正常值
+        if (mutator.isActive()) {
+            if (mutator.spawnScale != 1f) {
+                spawnInterval = Math.max(0.12f, spawnInterval / mutator.spawnScale);
+            }
+            if (mutator.speedScale != 1f) enemySpeedScale *= mutator.speedScale;
+        }
+    }
+
+    /**
+     * 异变波排程：到点就掷一种异变开启窗口，窗口结束再排下一次。
+     * Boss 战里不掷"铁雨"——两层弹幕密度叠在一起，屏幕就变成猜谜了。
+     */
+    private void updateMutators(float dt) {
+        if (mutator.isActive()) {
+            mutatorTimer -= dt;
+            if (mutatorTimer <= 0f) clearMutator(true);
+            return;
+        }
+        if (!mutatorsEnabled || !spawningEnabled) return;
+        if (timeAlive < mutatorNextAt) return;
+        Mutator[] all = Mutator.values();
+        Mutator picked = all[1 + RNG.get().nextInt(Mutator.COUNT)];
+        if (bossActive && picked == Mutator.IRON_RAIN) picked = Mutator.SWARM;
+        startMutator(picked);
+    }
+
+    /** 测试缝：立刻开启指定异变窗口（不受投骰时刻与 Boss 状态限制）。 */
+    public void forceMutator(Mutator m) {
+        startMutator(m == null ? Mutator.NONE : m);
+    }
+
+    private void startMutator(Mutator m) {
+        if (!m.isActive()) {
+            clearMutator(false);
+            return;
+        }
+        mutator = m;
+        mutatorTimer = MUTATOR_DURATION;
+        mutatorBanner = 3.2f;
+        mutatorKills = 0;
+        mutatorsSeen++;
+        events.add(new GameEvent(EventType.MUTATOR_START, ship.x, 300f, m.ordinal()));
+    }
+
+    /** 窗口结束：按本窗口击坠数发一笔"异变平息"奖励，再排下一次投骰。 */
+    private void clearMutator(boolean reward) {
+        Mutator done = mutator;
+        mutator = Mutator.NONE;
+        mutatorTimer = 0f;
+        mutatorNextAt = timeAlive + MUTATOR_GAP;
+        if (!reward || !done.isActive()) return;
+        int gained = addScore(MUTATOR_CLEAR_BONUS + mutatorKills * MUTATOR_CLEAR_KILL_BONUS,
+                SCORE_OTHER);
+        mutatorBonus += gained;
+        mutatorKills = 0;
+        spawnFloatText(ship.x, ship.y - 150f, gained, FLOAT_MUTATOR, true);
+        spark(ship.x, ship.y - 60f, 12, 3);
+        addShake(0.18f, 6f);
+        events.add(new GameEvent(EventType.MUTATOR_CLEAR, ship.x, ship.y - 150f, gained));
+    }
+
+    /** 异变对新登场敌机的属性修正：只动血量，速度已经走 {@link #updateDifficulty}。 */
+    private void applyMutatorToEnemy(Enemy e) {
+        if (!mutator.isActive() || mutator.hpScale == 1f) return;
+        e.hp = Math.max(0.5f, e.hp * mutator.hpScale);
+        e.maxHp = e.hp;
     }
 
     float spawnInterval = 1.1f;
@@ -1193,6 +1299,7 @@ public class GameWorld {
         if (relicBanner > 0f) relicBanner = Math.max(0f, relicBanner - dt);
         if (novaFlash > 0f) novaFlash = Math.max(0f, novaFlash - dt * 2.2f);
         if (breakPulse > 0f) breakPulse = Math.max(0f, breakPulse - dt * 3.2f);
+        if (mutatorBanner > 0f) mutatorBanner = Math.max(0f, mutatorBanner - dt);
         if (parryFlash > 0f) parryFlash = Math.max(0f, parryFlash - dt * 4f);
         updateRelics(dt);
         updateNano(dt);
@@ -1343,6 +1450,7 @@ public class GameWorld {
             Enemy d = freeEnemy();
             if (d == null) break;
             d.init(EnemyType.DRONE, e.x + (i == 0 ? -54f : 54f), e.y + 34f, enemySpeedScale);
+            applyMutatorToEnemy(d);
             d.splitDepth = 1;   // 子机不再触发分裂逻辑
             spawnedCount++;
             recordEnemyInCodex(EnemyType.DRONE);
@@ -1573,6 +1681,7 @@ public class GameWorld {
             if (e == null) return;
             int slot = (i + 1) / 2 * (i % 2 == 0 ? 1 : -1); // 0,1,-1,2,-2
             e.init(EnemyType.DRONE, cx + slot * 110f, -60f - Math.abs(slot) * 90f, enemySpeedScale);
+            applyMutatorToEnemy(e);
             spawnedCount++;
         }
         events.add(new GameEvent(EventType.FORMATION, cx, 0f));
@@ -1587,6 +1696,7 @@ public class GameWorld {
         float margin = type.radius + 30f;
         float x = margin + RNG.get().nextFloat() * (WIDTH - margin * 2);
         e.init(type, x, -type.radius - 10f, enemySpeedScale);
+        applyMutatorToEnemy(e);
         maybeElite(e, type);
     }
 
@@ -2002,7 +2112,9 @@ public class GameWorld {
                 b.grazed = true;
                 grazes++;
                 if (ship.overdriveTimer <= 0f) {
-                    grazeCharge = Math.min(1f, grazeCharge + GRAZE_CHARGE_PER_BULLET);
+                    grazeCharge = Math.min(1f, grazeCharge
+                            + GRAZE_CHARGE_PER_BULLET
+                            * (mutator.isActive() ? mutator.grazeScale : 1f));
                 }
                 if (hasRelic(Relic.GRAZE_LEECH)) {
                     // 虹吸矩阵：擦弹同时给冲刺充能，鼓励贴弹走位
@@ -2150,6 +2262,10 @@ public class GameWorld {
         // 难度得分倍率：休闲打 75 折、硬核 1.5 倍，标准档保持原值
         float scale = settings.difficulty.scoreScale;
         if (scale != 1f) gained = Math.round(gained * scale);
+        // 异变窗口：所有入账分数都加权，风险与回报同时兑现
+        if (mutator.isActive() && mutator.scoreScale != 1f) {
+            gained = Math.round(gained * mutator.scoreScale);
+        }
         score += gained;
         int idx = source >= 0 && source < SCORE_SOURCES ? source : SCORE_OTHER;
         scoreBySource[idx] += gained;
@@ -2215,6 +2331,7 @@ public class GameWorld {
                 elite || type.score >= 25 || comboMultiplier() >= 3);
         kills++;
         if (elite) elitesKilled++;
+        if (mutator.isActive()) mutatorKills++;
         explode(ex, ey, type.colorHint);
         if (elite) {
             spark(ex, ey, 10, 4);
@@ -2275,7 +2392,8 @@ public class GameWorld {
                 : type == EnemyType.HUNTER ? 0.12f
                 : type == EnemyType.SUICIDER ? 0.04f : 0.05f;
         chance = Math.min(1f, chance * settings.dropRatePct / 100f
-                    * settings.difficulty.dropScale);
+                    * settings.difficulty.dropScale
+                    * (mutator.isActive() ? mutator.dropScale : 1f));
         if (!elite && RNG.get().nextFloat() >= chance) return; // 精英必掉
         spawnPowerUp(dropKind(RNG.get().nextFloat()), x, y);
     }
@@ -2643,6 +2761,14 @@ public class GameWorld {
         parryStreak = 0;
         parryFlash = 0f;
         elitesKilled = 0;
+        mutator = Mutator.NONE;
+        mutatorTimer = 0f;
+        mutatorNextAt = MUTATOR_FIRST_AT;
+        mutatorBanner = 0f;
+        mutatorsSeen = 0;
+        mutatorBonus = 0;
+        mutatorKills = 0;
+        maxParryStreak = 0;
         timeAlive = 0f;
         stateTimer = 0f;
         wave = 1;
@@ -2854,6 +2980,7 @@ public class GameWorld {
             b.active = false;
             parryStreak++;
             parries++;
+            if (parryStreak > maxParryStreak) maxParryStreak = parryStreak;
             parryFlash = 1f;
             int gained = addScore(PARRY_SCORE * parryStreak, SCORE_OTHER);
             spawnParryBullet(b);
@@ -2896,7 +3023,9 @@ public class GameWorld {
      */
     private int damageOrCrit(int base) {
         float chance = ship.overdriveTimer > 0f ? CRIT_CHANCE_OVERDRIVE : CRIT_CHANCE;
-        if (base > 1 && RNG.get().nextFloat() < chance) {
+        // 异变"暴击临界"：把已经存在的暴击判定放大，不新增判定
+        if (mutator.isActive() && mutator.critScale != 1f) chance *= mutator.critScale;
+        if (base > 1 && RNG.get().nextFloat() < Math.min(0.9f, chance)) {
             crits++;
             return Math.max(base + 1, Math.round(base * CRIT_MULT));
         }

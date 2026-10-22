@@ -47,5 +47,9 @@ public enum SfxId {
     /** v1.12：点掉敌弹的脆裂声（code==1 时为水雷被点爆，音高更低） */
     BULLET_POP,
     /** v1.13：冲刺弹反的"铛"金属上扬音（连击越高音越高） */
-    PARRY
+    PARRY,
+    /** v1.14：异变波开始的错拍上扫警报 */
+    MUTATOR,
+    /** v1.14：异变平息奖励的三音上行铃 */
+    MUTATOR_CLEAR
 }
