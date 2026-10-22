@@ -229,6 +229,10 @@ public class AudioEngine {
                 case RUSH:
                     play(SfxId.ALARM, 0.55f, 1.25f, 0f);
                     break;
+                case NEW_SHIP_DEBUT:
+                    // 比 Boss 警报低一档：新舰型登场是提醒，不是威胁
+                    play(SfxId.ALARM, 0.70f, 0.9f, 0f);
+                    break;
                 case NOVA:
                     play(SfxId.NOVA, 0.98f, vary(0.05f), 0f);
                     break;
@@ -299,6 +303,23 @@ public class AudioEngine {
                         play(SfxId.ULT_LANCE, 0.4f + Math.min(0.4f, e.code * 0.02f),
                                 vary(0.08f), panFor(e.x));
                     }
+                    break;
+                case MIRAGE_REVEAL:
+                    play(SfxId.MIRAGE_REVEAL, 0.82f, vary(0.07f), panFor(e.x));
+                    break;
+                case MAG_BURST:
+                    // code > 0 = 放出 EMP 环；code < 0 = 磁暴艇被击毁、磁场坍缩吞弹
+                    if (e.code > 0) {
+                        play(SfxId.EMP_BURST, 0.6f + Math.min(0.3f, e.code * 0.04f),
+                                vary(0.06f), panFor(e.x));
+                    } else if (e.code < 0) {
+                        play(SfxId.GRAVITY_ABSORB, 0.6f, 0.8f, panFor(e.x));
+                        play(SfxId.SHIELD_BREAK, 0.4f, vary(0.05f), panFor(e.x));
+                    }
+                    break;
+                case BROOD_SPAWN:
+                    play(SfxId.BROOD_CHIRP, 0.55f + Math.min(0.25f, e.code * 0.08f),
+                            vary(0.09f), panFor(e.x));
                     break;
             }
         }
@@ -458,6 +479,9 @@ public class AudioEngine {
             case ULT_READY: return 0L;              // 攒满才响一次，不需要限流
             case ULT_CAST: return 0L;               // 大招本身是稀有事件
             case ULT_LANCE: return 0L;
+            case MIRAGE_REVEAL: return 90_000_000L;  // 一群伪装者同时现形时别糊成一片
+            case EMP_BURST: return 120_000_000L;
+            case BROOD_CHIRP: return 150_000_000L;
             default: return 0L;
         }
     }

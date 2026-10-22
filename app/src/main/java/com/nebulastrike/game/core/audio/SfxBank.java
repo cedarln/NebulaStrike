@@ -62,6 +62,9 @@ public final class SfxBank {
         put(SfxId.ULT_READY, ultReady(), 0.46f);
         put(SfxId.ULT_CAST, ultCast(), 0.92f);
         put(SfxId.ULT_LANCE, ultLance(), 0.56f);
+        put(SfxId.MIRAGE_REVEAL, mirageReveal(), 0.62f);
+        put(SfxId.EMP_BURST, empBurst(), 0.74f);
+        put(SfxId.BROOD_CHIRP, broodChirp(), 0.48f);
     }
 
     public static SfxBank create() {
@@ -1058,6 +1061,71 @@ public final class SfxBank {
                     * Math.max(0.2, 1.0 - t / 0.8));
         }
         echo(x, 0.045, 0.2);
+        return x;
+    }
+
+    /**
+     * 伪装者现形：一记向下跌落的方波"露馅"音 + 一小段撕裂噪声。
+     * 音头刻意做脏，和干净的道具拾取音形成鲜明对比。
+     */
+    private static float[] mirageReveal() {
+        int n = frames(0.36);
+        float[] x = new float[n];
+        Random r = new Random(613);
+        double ph = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double f = 620 - 340 * Math.min(1.0, t / 0.16);
+            ph += f / SAMPLE_RATE;
+            double body = square(ph, 0.5) * 0.42 * Math.exp(-t * 7.0);
+            double glitch = noise(r) * 0.30 * Math.max(0.0, 1.0 - t / 0.1)
+                    * (r.nextDouble() < 0.35 ? 1.0 : 0.2);
+            x[i] = (float) ((body + glitch) * env(t, 0.36, 0.002, 1.0));
+        }
+        echo(x, 0.04, 0.18);
+        return x;
+    }
+
+    /** 磁暴艇 EMP 脉冲：低频塌缩上扫 + 电离嘶声，提示"直射弹这一轮会被掰弯"。 */
+    private static float[] empBurst() {
+        int n = frames(0.52);
+        float[] x = new float[n];
+        Random r = new Random(727);
+        double ph1 = 0, ph2 = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double k = Math.min(1.0, t / 0.3);
+            ph1 += (150 - 90 * k) / SAMPLE_RATE;
+            ph2 += (430 - 260 * k) / SAMPLE_RATE;
+            double thud = sine(ph1) * 0.55 * Math.exp(-t * 5.0);
+            double hum = (saw(ph2) * 0.22 + sine(ph2 * 2.0) * 0.12) * Math.exp(-t * 3.4);
+            double spark = noise(r) * 0.26 * Math.exp(-t * 9.0);
+            x[i] = (float) ((thud + hum + spark) * env(t, 0.52, 0.003, 1.2));
+        }
+        echo(x, 0.085, 0.26);
+        return x;
+    }
+
+    /** 蜂后产卵：三声带颤音的虫鸣式短音，音量不高但要"粘耳朵"，提醒清杂兵。 */
+    private static float[] broodChirp() {
+        int n = frames(0.42);
+        float[] x = new float[n];
+        Random r = new Random(841);
+        double ph = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            int idx = (int) (t / 0.085);
+            double local = t - idx * 0.085;
+            double wobble = 1.0 + 0.22 * Math.sin(t * 90.0);
+            double f = (330 + idx * 70) * wobble;
+            ph += f / SAMPLE_RATE;
+            double chirp = (sine(ph) * 0.34 + saw(ph * 0.5) * 0.12)
+                    * Math.max(0.0, 1.0 - local / 0.085);
+            double air = noise(r) * 0.08 * Math.max(0.0, 1.0 - local / 0.05);
+            x[i] = (float) ((chirp + air) * env(t, 0.42, 0.002, 0.5)
+                    * Math.max(0.35, 1.0 - t / 0.5));
+        }
+        echo(x, 0.035, 0.16);
         return x;
     }
 

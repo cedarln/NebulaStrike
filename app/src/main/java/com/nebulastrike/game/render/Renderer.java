@@ -803,7 +803,147 @@ public class Renderer {
                     }
                     break;
                 }
+                case MIRAGE: {
+                    if (e.isCloaked()) {
+                        drawMirageDisguise(c, e);
+                        break;
+                    }
+                    // 现形：玫瑰菱形 + 竖瞳，和真道具的旋转六边形彻底分开
+                    diamond(c, e.x, e.y, r, base);
+                    paint.setColor(0xFF12081C);
+                    c.drawCircle(e.x, e.y, r * 0.44f, paint);
+                    paint.setColor(0xFFFFE08A);
+                    float pupil = 0.32f + 0.22f * (float) Math.sin(w.timeAlive * 5f + e.age);
+                    c.drawRect(e.x - r * 0.1f, e.y - r * pupil,
+                               e.x + r * 0.1f, e.y + r * pupil, paint);
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeWidth(2f);
+                    paint.setColor(0x66E86BB0);
+                    c.drawCircle(e.x, e.y, r * 1.15f, paint);
+                    paint.setStyle(Paint.Style.FILL);
+                    break;
+                }
+                case MAGNETON: {
+                    // 磁场范围：六段缓慢旋转的虚线弧，玩家一眼看懂"直射弹进这里会弯"
+                    float fr = Enemy.MAGNET_RADIUS;
+                    float spin = w.timeAlive * 26f % 360f;
+                    paint.setStyle(Paint.Style.STROKE);
+                    arcRect.set(e.x - fr, e.y - fr, e.x + fr, e.y + fr);
+                    for (int i = 0; i < 6; i++) {
+                        float breathe = 0.5f + 0.5f * (float) Math.sin(w.timeAlive * 2.2f + i);
+                        paint.setColor(((int) (0x12 + 0x14 * breathe) << 24) | 0x004DA6FF);
+                        c.drawArc(arcRect, spin + i * 60f, 32f, false, paint);
+                    }
+                    // 舰体：粗短船身 + 左右两根磁极桩
+                    paint.setStyle(Paint.Style.FILL);
+                    paint.setColor(base);
+                    shapePath.rewind();
+                    shapePath.moveTo(e.x, e.y - r * 0.8f);
+                    shapePath.lineTo(e.x + r * 1.1f, e.y - r * 0.1f);
+                    shapePath.lineTo(e.x + r * 0.6f, e.y + r * 0.85f);
+                    shapePath.lineTo(e.x - r * 0.6f, e.y + r * 0.85f);
+                    shapePath.lineTo(e.x - r * 1.1f, e.y - r * 0.1f);
+                    shapePath.close();
+                    c.drawPath(shapePath, paint);
+                    paint.setColor(0xFF0A1424);
+                    c.drawRect(e.x - r * 0.85f, e.y + r * 0.05f,
+                               e.x + r * 0.85f, e.y + r * 0.3f, paint);
+                    // 磁极：一红一蓝，蓄满 EMP 时同时亮起
+                    float charge = e.empCd > 0f ? 1f - e.empCd / 3.6f : 1f;
+                    charge = Math.min(1f, Math.max(0f, charge));
+                    for (int side = -1; side <= 1; side += 2) {
+                        float px = e.x + side * r * 0.95f;
+                        paint.setColor(((int) (0x60 + 0xA0 * charge) << 24)
+                                | (side < 0 ? 0x004DA6FF : 0x00FF7089));
+                        c.drawCircle(px, e.y - r * 0.35f, r * (0.16f + 0.12f * charge), paint);
+                    }
+                    if (e.empFx > 0f) {
+                        // 脉冲刚放出去：一圈外扩的电磁冲击环
+                        float k = 1f - e.empFx;
+                        paint.setStyle(Paint.Style.STROKE);
+                        paint.setStrokeWidth(3f * e.empFx + 1f);
+                        paint.setColor(((int) (0xAA * e.empFx) << 24) | 0x00AFF6FF);
+                        c.drawCircle(e.x, e.y, 40f + fr * k, paint);
+                        paint.setStyle(Paint.Style.FILL);
+                    }
+                    break;
+                }
+                case QUEEN: {
+                    // 蜂后：三尖冠 + 鼓起的腹部，卵囊搏动频率随产卵倒计时加快
+                    float pulse = 0.5f + 0.5f * (float) Math.sin(w.timeAlive * (3f + 6f / Math.max(0.6f, e.broodCd)));
+                    glow.setColor(((int) (0x28 + 0x30 * pulse) << 24) | 0x00FFAE3A);
+                    c.drawCircle(e.x, e.y + r * 0.3f, r * (1.15f + 0.12f * pulse), glow);
+                    paint.setColor(base);
+                    shapePath.rewind();
+                    shapePath.moveTo(e.x, e.y - r * 1.15f);
+                    shapePath.lineTo(e.x + r * 0.55f, e.y - r * 0.55f);
+                    shapePath.lineTo(e.x + r * 1.05f, e.y - r * 0.7f);
+                    shapePath.lineTo(e.x + r * 0.7f, e.y - r * 0.15f);
+                    shapePath.lineTo(e.x - r * 0.7f, e.y - r * 0.15f);
+                    shapePath.lineTo(e.x - r * 1.05f, e.y - r * 0.7f);
+                    shapePath.lineTo(e.x - r * 0.55f, e.y - r * 0.55f);
+                    shapePath.close();
+                    c.drawPath(shapePath, paint);
+                    // 腹部卵囊：受伤越重、离下一次产卵越近，卵就越鼓
+                    float hurt = 1f - e.hp / Math.max(1f, e.maxHp);
+                    paint.setColor(((int) (0xD0) << 24) | 0x00FFD08A);
+                    for (int i = -1; i <= 1; i++) {
+                        float sx = e.x + i * r * 0.5f;
+                        float rad = r * (0.22f + 0.1f * pulse) * (1f + 0.35f * hurt);
+                        c.drawCircle(sx, e.y + r * 0.45f, rad, paint);
+                    }
+                    paint.setColor(0xFF2A1608);
+                    c.drawRect(e.x - r * 0.9f, e.y - r * 0.08f, e.x + r * 0.9f, e.y + r * 0.08f, paint);
+                    paint.setColor(0xFFFFE08A);
+                    c.drawCircle(e.x, e.y - r * 0.62f, r * 0.16f, paint);
+                    break;
+                }
             }
+        }
+    }
+
+    /**
+     * 伪装者的道具外壳：照抄真道具的旋转六边形 + 光环，但留三处可学习的破绽——
+     * 字母每隔一会儿换一次（真道具从不改字）、呼吸节奏比真道具快一档、
+     * 偶尔撕裂出一层玫瑰色描边。看仔细的玩家能在现形前就把它点掉。
+     */
+    private void drawMirageDisguise(Canvas c, Enemy e) {
+        float r = e.type.radius;
+        int[] labelColors = {0xFFFFB03A, 0xFF7DF9FF, 0xFFFFD166, 0xFF7CFF6B, 0xFFC9A0FF};
+        String[] labels = {"P", "W", "M", "S", "GV"};
+        int pick = ((int) (e.age * 0.9f)) % labels.length;
+        int color = labelColors[pick];
+        float pulse = 1f + 0.16f * (float) Math.sin(e.age * 9f);
+        float blink = 0.55f + 0.45f * (0.5f + 0.5f * (float) Math.sin(e.age * 21f));
+        glow.setColor(((int) (0x30 * blink) << 24) | (color & 0xFFFFFF));
+        c.drawCircle(e.x, e.y, r * 1.2f * pulse, glow);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2.5f);
+        paint.setColor(((int) (blink >= 0.8f ? 0xB0 : 0x60) << 24) | (color & 0xFFFFFF));
+        c.drawCircle(e.x, e.y, r * 1.05f * pulse, paint);
+        c.save();
+        c.rotate(e.age * 52f, e.x, e.y);
+        paint.setStyle(Paint.Style.FILL);
+        hexagon(c, e.x, e.y, r * 0.78f * pulse, ((int) (0xD4 * blink) << 24) | (color & 0xFFFFFF));
+        c.restore();
+        // 破绽一：字会换
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xFF0A0C18);
+        paint.setTextSize(labels[pick].length() > 1 ? 15f : 20f);
+        paint.setFakeBoldText(true);
+        paint.setTextAlign(Paint.Align.CENTER);
+        c.drawText(labels[pick], e.x, e.y + 7f, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextAlign(Paint.Align.LEFT);
+        // 破绽二：撕裂时露出本体色描边；破绽三：边缘偶尔毛刺一根
+        float tear = (e.age * 3.1f) % 1f;
+        if (tear > 0.88f) {
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2f);
+            hexagon(c, e.x, e.y, r * 0.9f, 0x80E86BB0);
+            paint.setColor(0x80E86BB0);
+            c.drawLine(e.x - r * 1.3f, e.y, e.x + r * 1.3f, e.y + 2f, paint);
+            paint.setStyle(Paint.Style.FILL);
         }
     }
 
@@ -1714,6 +1854,25 @@ public class Renderer {
             c.drawText("护航编队 + 奖励补给", VW / 2f, 342f, paint);
             paint.setFakeBoldText(false);
         }
+        // v1.17：新舰型首次登场介绍（只在存档里第一次遇到时弹，读一次就够）
+        if (w.debutBanner > 0f && w.debutBannerType != null) {
+            float k = Math.min(1f, w.debutBanner / 0.4f);
+            float in = Math.min(1f, (2.6f - w.debutBanner) / 0.25f);
+            float s = 0.72f + 0.28f * in;
+            // 突袭波横幅也在时把它挤到下一档高度（420 那档留给 FUSION，不能叠字）
+            float y = w.rushBanner > 0f ? 470f : 300f;
+            paint.setTextSize(54f * s);
+            paint.setFakeBoldText(true);
+            paint.setColor(((int) (0xFF * k) << 24) | 0xFF9BE8FF);
+            c.drawText("新敌舰 " + enemyName(w.debutBannerType), VW / 2f, y, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextSize(24f * s);
+            paint.setColor(((int) (0xE0 * k) << 24) | 0xFFC8D6F0);
+            c.drawText(enemyDesc(w.debutBannerType), VW / 2f, y + 34f, paint);
+            paint.setTextSize(21f * s);
+            paint.setColor(((int) (0xC0 * k) << 24) | 0xFF8FA3C8);
+            c.drawText("图鉴已收录", VW / 2f, y + 66f, paint);
+        }
         if (w.relicBanner > 0f && w.lastRelic != null) {
             float k = Math.min(1f, w.relicBanner / 0.4f);
             float in = Math.min(1f, (3.4f - w.relicBanner) / 0.3f);
@@ -1966,6 +2125,9 @@ public class Renderer {
                 "GV 重力井会把附近的敌弹吸进去 · 吸满 12 发朝上方喷还成自己的子弹",
                 "ULT 终极槽靠击坠 / 擦弹 / 弹反 / 吞弹积累 · 攒满按右下角大招键，全屏点名",
                 "同类道具叠加不替换 · 集齐两把基础武器自动融合出第三把",
+                "道具字母会换、边缘会撕裂的是伪装者 MIRAGE · 现形前打下来额外加分还必掉真道具",
+                "磁暴艇 MAGNETON 会把直射弹掰弯 · 换激光 / 导弹 / 长枪照旧，打爆它还能吞掉一圈敌弹",
+                "集群蜂后 QUEEN 边飞边产幼机，越残血产得越快 · 优先击杀她，一屏幼机当场崩溃",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
@@ -2150,7 +2312,7 @@ public class Renderer {
                 boolean known = w.settings.enemySeen(t);
                 codexRowFrame(c, i, known);
                 float y = Ui.CODEX_ROW_Y + i * Ui.CODEX_ROW_H;
-                codexEnemyIcon(c, t, 175f, y + 40f, known);
+                codexEnemyIcon(c, t, 175f, y + 31f, known);
                 if (known) {
                     codexText(c, 250f, y, enemyName(t),
                             "HP " + t.hp + "  ·  " + t.score + " 分  ·  半径 " + Math.round(t.radius),
@@ -2166,7 +2328,7 @@ public class Renderer {
                 boolean known = kills > 0;
                 codexRowFrame(c, tier, known);
                 float y = Ui.CODEX_ROW_Y + tier * Ui.CODEX_ROW_H;
-                codexBossIcon(c, tier, 175f, y + 40f, known);
+                codexBossIcon(c, tier, 175f, y + 31f, known);
                 codexText(c, 250f, y, known ? Boss.titleFor(tier) : "？？？",
                         known ? bossStats(tier) : "击败后解锁",
                         known ? bossDesc(tier) : "尚未战胜这艘舰体",
@@ -2222,21 +2384,21 @@ public class Renderer {
     /** 图鉴行文案：名称 + 数值 + 说明三行（行高 86，说明压到 76 基线）。 */
     private void codexText(Canvas c, float x, float rowY, String name,
                            String stats, String desc, int nameColor) {
-        paint.setTextSize(29f);
+        paint.setTextSize(27f);
         paint.setFakeBoldText(true);
         paint.setColor(nameColor);
-        c.drawText(name, x, rowY + 30f, paint);
+        c.drawText(name, x, rowY + 24f, paint);
         paint.setFakeBoldText(false);
-        paint.setTextSize(20f);
+        paint.setTextSize(19f);
         paint.setColor(0xFF8FA3C8);
-        c.drawText(stats, x, rowY + 54f, paint);
+        c.drawText(stats, x, rowY + 43f, paint);
         paint.setColor(0xFFC8D6F0);
-        c.drawText(desc, x, rowY + 76f, paint);
+        c.drawText(desc, x, rowY + 62f, paint);
     }
 
     /** 缩略敌机图标：复用战场轮廓，未发现的只留灰色描边。 */
     private void codexEnemyIcon(Canvas c, EnemyType t, float x, float y, boolean known) {
-        float r = Math.min(34f, t.radius);
+        float r = Math.min(26f, t.radius);
         int base = known ? palette(t.colorHint, 235) : 0x406B7A99;
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(base);
@@ -2313,6 +2475,45 @@ public class Renderer {
                 c.drawCircle(x, y, r * 1.1f, paint);
                 paint.setStyle(Paint.Style.FILL);
                 break;
+            case MIRAGE:
+                // 图鉴里直接画本体：菱形 + 竖瞳，提醒玩家"它平时不是这个样子"
+                diamond(c, x, y, r, base);
+                paint.setColor(known ? 0xFF12081C : 0x406B7A99);
+                c.drawCircle(x, y, r * 0.42f, paint);
+                paint.setColor(known ? 0xFFFFE08A : 0x406B7A99);
+                c.drawRect(x - r * 0.1f, y - r * 0.3f, x + r * 0.1f, y + r * 0.3f, paint);
+                break;
+            case MAGNETON: {
+                shapePath.rewind();
+                shapePath.moveTo(x, y - r * 0.8f);
+                shapePath.lineTo(x + r * 1.05f, y - r * 0.1f);
+                shapePath.lineTo(x + r * 0.6f, y + r * 0.8f);
+                shapePath.lineTo(x - r * 0.6f, y + r * 0.8f);
+                shapePath.lineTo(x - r * 1.05f, y - r * 0.1f);
+                shapePath.close();
+                c.drawPath(shapePath, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2f);
+                paint.setColor(known ? 0x554DA6FF : 0x336B7A99);
+                c.drawCircle(x, y, r * 1.25f, paint);
+                paint.setStyle(Paint.Style.FILL);
+                break;
+            }
+            case QUEEN: {
+                shapePath.rewind();
+                shapePath.moveTo(x, y - r * 1.05f);
+                shapePath.lineTo(x + r * 0.95f, y - r * 0.45f);
+                shapePath.lineTo(x + r * 0.6f, y + r * 0.75f);
+                shapePath.lineTo(x - r * 0.6f, y + r * 0.75f);
+                shapePath.lineTo(x - r * 0.95f, y - r * 0.45f);
+                shapePath.close();
+                c.drawPath(shapePath, paint);
+                paint.setColor(known ? 0xFFFFD08A : 0x406B7A99);
+                for (int i = -1; i <= 1; i++) {
+                    c.drawCircle(x + i * r * 0.45f, y + r * 0.45f, r * 0.2f, paint);
+                }
+                break;
+            }
             default:
                 break;
         }
@@ -2369,6 +2570,9 @@ public class Renderer {
             case MINER: return "布雷艇 MINER";
             case CARRIER: return "母舰 CARRIER";
             case SHIELDER: return "盾卫 SHIELDER";
+            case MIRAGE: return "伪装者 MIRAGE";
+            case MAGNETON: return "磁暴艇 MAGNETON";
+            case QUEEN: return "集群蜂后 QUEEN";
             default: return t.name();
         }
     }
@@ -2386,6 +2590,9 @@ public class Renderer {
             case MINER: return "沿途布下水雷，击毁后水雷全清";
             case CARRIER: return "持续投放小僚机，本体掉率高";
             case SHIELDER: return "正面能量盾挡弹，需绕射或弹跳弹";
+            case MIRAGE: return "披着道具外壳，字母会换即假；现形前击毁有赏";
+            case MAGNETON: return "磁场弯折直射弹，换激光/追踪/长枪，击毁吞敌弹";
+            case QUEEN: return "边飞边产幼机，越残血产得越快，击杀她幼机全崩";
             default: return "未知机型";
         }
     }
@@ -2602,7 +2809,8 @@ public class Renderer {
         String[] labels = {"ACCURACY", "MAX COMBO", "KILLS", "ELITES", "GRAZES",
                 "CRITS", "BREAK", "PARRY", "MAX STREAK", "DASH",
                 "EATEN", "BURST", "WELLS", "ULT", "REFLECT",
-                "BOSS", "RELICS", "MUTANTS", "HITS", "TIME"};
+                "BOSS", "RELICS", "MUTANTS", "HITS", "TIME",
+                "SPOTTED", "BENT", "BROOD"};
         String[] values = {
                 w.accuracyPct() + "%",
                 "x" + w.maxCombo,
@@ -2623,23 +2831,28 @@ public class Renderer {
                 String.valueOf(w.relicsGained),
                 String.valueOf(w.mutatorsSeen),
                 String.valueOf(w.hitsTaken),
-                ((int) w.timeAlive) + "s"
+                ((int) w.timeAlive) + "s",
+                String.valueOf(w.miragesSpotted),
+                String.valueOf(w.bulletsBent),
+                String.valueOf(w.broodSpawned)
         };
+        // v1.17 数据涨到 23 项：5×5 网格，行距压到 33 才不挤到下面的排行榜
         float[] cx = {186f, 318f, 450f, 582f, 714f};
-        float[] rowY = {570f, 612f, 654f, 696f};
+        float[] rowY = {564f, 597f, 630f, 663f, 696f};
         for (int i = 0; i < labels.length; i++) {
             float x = cx[i % 5];
             float y = rowY[i / 5];
-            paint.setTextSize(14f);
+            paint.setTextSize(13f);
             paint.setColor(0xFF8FA3C8);
             c.drawText(labels[i], x, y, paint);
-            paint.setTextSize(23f);
+            paint.setTextSize(20f);
             paint.setColor(i == 1 ? 0xFFFFD166 : i == 4 ? 0xFFFF8FD1
                     : i == 5 ? 0xFFFFB03A : i == 6 ? 0xFF7DF9FF
                     : i == 7 ? 0xFFB0FFF6 : i == 10 || i == 12 ? 0xFFC9A0FF
                     : i == 13 ? 0xFFE08A : i == 14 ? 0xFFB0FFF6
-                    : i == 17 ? 0xFFB08FFF : 0xFFE8F1FF);
-            c.drawText(values[i], x, y + 23f, paint);
+                    : i == 17 ? 0xFFB08FFF : i == 20 ? 0xFFE86BB0
+                    : i == 21 ? 0xFF4DA6FF : i == 22 ? 0xFFFFAE3A : 0xFFE8F1FF);
+            c.drawText(values[i], x, y + 19f, paint);
         }
         paint.setTextAlign(Paint.Align.LEFT);
     }
@@ -2877,6 +3090,9 @@ public class Renderer {
             case 8: rgb = 0x6BFFC8; break;
             case 9: rgb = 0xFF4D6A; break;
             case 10: rgb = 0xC0CCE8; break;
+            case 11: rgb = 0xE86BB0; break;   // 伪装者：幻影玫瑰
+            case 12: rgb = 0x4DA6FF; break;   // 磁暴艇：风暴蓝
+            case 13: rgb = 0xFFAE3A; break;   // 蜂后：孕育琥珀
             default: rgb = 0x5CE1FF; break;
         }
         return (alpha << 24) | rgb;

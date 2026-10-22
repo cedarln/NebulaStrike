@@ -82,6 +82,34 @@ public class EndlessModeTest {
         assertEquals(5, world.nextBossWave);   // campaign steps by 4
     }
 
+    /**
+     * v1.17 修复：高分下 wave 会被分数快速推高，只按 wave 节拍会让 Boss 一场接一场，
+     * 后期天空永远停在 Boss 战里（普通刷新、突袭波和新舰型都拿不到位置）。
+     * 现在打完一场必须留出 BOSS_MIN_GAP 的喘息。
+     */
+    @Test
+    public void endlessBossesLeaveABreatherBetweenFights() {
+        world.handleUiAction(Ui.Action.START_ENDLESS);
+        world.spawningEnabled = false;
+        world.lives = 9999;                     // 喘息期里 Boss 残弹仍可能蹭到飞船
+        world.nextBossWave = 1;
+        runFor(0.2f);
+        assertTrue("应已进入 Boss 战", world.bossActive);
+
+        world.boss.hp = 0f;                      // 一击毙命，隔离"战斗时长"这个变量
+        runFor(0.2f);
+        assertFalse(world.boss.active);
+        assertFalse(world.bossActive);
+        assertTrue("打完就该上喘息计时", world.bossGapTimer > 0f);
+
+        world.wave += 50;                        // 分数额度全部预支，模拟高分玩家
+        runFor(GameWorld.BOSS_MIN_GAP - 2f);
+        assertFalse("喘息期内不该再来一场 Boss", world.bossActive);
+
+        runFor(3f);
+        assertTrue("喘息过后 Boss 应回归", world.bossActive);
+    }
+
     @Test
     public void endlessRunScoresOnlyTheEndlessBoard() {
         world.handleUiAction(Ui.Action.START_ENDLESS);

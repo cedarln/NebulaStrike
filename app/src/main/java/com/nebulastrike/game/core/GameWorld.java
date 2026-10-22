@@ -47,7 +47,15 @@ public class GameWorld {
         /** v1.16：释放终极技（code = 档位 1/2/3） */
         ULT_CAST,
         /** v1.16：终极技光矛齐射（code = 实际放出的矛数） */
-        ULT_LANCE
+        ULT_LANCE,
+        /** v1.17：伪装者现形（玩家识破或超时暴露） */
+        MIRAGE_REVEAL,
+        /** v1.17：磁暴艇 EMP 环形脉冲（code = 弹数） */
+        MAG_BURST,
+        /** v1.17：蜂后产卵（code = 幼机数） */
+        BROOD_SPAWN,
+        /** v1.17：特化遭遇保底登场（code = EnemyType.ordinal()） */
+        NEW_SHIP_DEBUT
     }
     public static final class GameEvent {
         public final EventType type;
@@ -218,6 +226,36 @@ public class GameWorld {
     public static final float ULT_GAIN_BOSS_PART = 8f;
     public static final float ULT_GAIN_BOSS = 30f;
 
+    // ---- v1.17：伪装者 / 磁暴艇 / 蜂后（迭代 7）----
+    /** 磁暴艇 EMP 脉冲的弹数与弹速（慢环，靠"穿环"而不是"躲不完"）。 */
+    public static final int MAG_BULLET_COUNT = 8;
+    public static final float MAG_BULLET_SPEED = 250f;
+    public static final float MAG_BULLET_RADIUS = 12f;
+    /** 磁暴艇被击毁时坍缩场清敌弹的半径——打死它等于白捡一次小新星。 */
+    public static final float MAG_COLLAPSE_RADIUS = 260f;
+    /** 伪装者现形后的环形警告弹数与弹速。 */
+    public static final int MIRAGE_BURST_COUNT = 6;
+    public static final float MIRAGE_BURST_SPEED = 300f;
+    /** 识破伪装（现形前击毁）的额外分数：奖励"看得仔细"而不是"手快"。 */
+    public static final int MIRAGE_SPOT_BONUS = 25;
+    /** 蜂后单次产卵的幼机数上限（受伤后从 2 涨到 3，节奏更紧）。 */
+    public static final int QUEEN_BROOD_MIN = 2;
+    public static final int QUEEN_BROOD_MAX = 3;
+    /** 本局现形过的伪装者数量（结算数据卡与图鉴统计）。 */
+    public int miragesRevealed;
+    /** 本局识破（现形前击毁）的伪装者数量。 */
+    public int miragesSpotted;
+    /** 本局磁暴脉冲次数。 */
+    public int magnetBursts;
+    /** 本局蜂后产下的幼机总数。 */
+    public int broodSpawned;
+    /** 本局被磁场偏折过的玩家子弹数（用于测试与后续统计）。 */
+    public int bulletsBent;
+    /** 磁场源坐标缓存：每帧收集一次，弹道偏折线性扫这几项，零分配。 */
+    private final float[] magnetXs = new float[4];
+    private final float[] magnetYs = new float[4];
+    private int magnetCount;
+
     /** 首个异变在 45 秒后出现：开局教学段保持纯净，玩家先学会基本循环再遇变量。 */
     public static final float MUTATOR_FIRST_AT = 45f;
     /** 单个窗口时长。 */
@@ -337,6 +375,13 @@ public class GameWorld {
     public final BossLaser[] bossLasers = new BossLaser[4];
     public int bossesDefeated;
     int nextBossWave = 4;
+    /**
+     * 两场 Boss 之间的最短喘息（秒）。wave 完全由分数驱动，后期分数涨得飞快，
+     * 只按 wave 节拍会让 Boss 一场接一场、普通刷新几乎没有位置。
+     */
+    static final float BOSS_MIN_GAP = 12f;
+    /** Boss 刚打完时的冷却倒计时（包级可见，测试可直接清零来强制触发下一场）。 */
+    float bossGapTimer;
     /** boss dead-flash timer for the renderer */
     public float bossFlash;
     /** 每种特殊武器独立的开火冷却，实现真正的同时叠加。 */
@@ -367,6 +412,27 @@ public class GameWorld {
     public boolean rushActive;
     public float rushBanner;
     public int rushesTriggered;
+
+    // ---- v1.17 特化遭遇保底 ----
+    /**
+     * 常规刷新要先抢空敌机池，中后期三种新舰型经常一局只露面一两次，
+     * 玩法再好也等于没做。这里按解锁窗口保底投放：到点就确保场上至少有一艘。
+     */
+    static final EnemyType[] V117_TYPES = {
+            EnemyType.MIRAGE, EnemyType.MAGNETON, EnemyType.QUEEN};
+    /** 与 V117_TYPES 对应的解锁 sim-time 窗口，和 pickEnemyType 里的出场时间一致。 */
+    static final float[] V117_WINDOWS = {115f, 150f, 180f};
+    /** 保底遭遇倒计时（做成包级字段，测试可以直接拨快）。 */
+    float v117EncounterTimer = 8f;
+    /** 每种新舰型的保底遭遇次数，用于轮换——优先补最少出现的那一型。 */
+    final int[] v117EncounterCounts = new int[V117_TYPES.length];
+    public int v117Encounters;
+    /**
+     * 首次遭遇新舰型时的介绍横幅。每种舰只在存档里第一次登场时弹一次，
+     * 之后就交给图鉴——否则每次都弹同一句提示，玩家只会把它当噪声忽略掉。
+     */
+    public float debutBanner;
+    public EnemyType debutBannerType;
 
     // ---- 得分构成（结算图用） ----
     public static final int SCORE_ENEMY = 0;
@@ -482,6 +548,9 @@ public class GameWorld {
         float timeScale = (slowTimer > 0f ? SLOW_TIME_SCALE : 1f) * ult.timeScale();
         updateMutators(dt);
         updateDifficulty();
+        // 保底投放排在常规刷新之前：池子只空出一个位置时，谁先跑谁拿到，
+        // 否则新舰型会被普通刷新永久挤掉（实测后期池子常年是满的）
+        updateV117Encounters(dt);
         updateSpawning(dt);
         updateRushWave(dt);
         updateGrace(dt);
@@ -510,9 +579,11 @@ public class GameWorld {
         updateWingman(dt);
         updateShipFx(dt);
 
+        collectMagnetFields();
         for (Bullet b : bullets) {
             if (!b.active) continue;
             if (b.homing) steerMissile(b, dt);
+            bendPlayerBullet(b, dt);
             b.update(dt);
             if (b.bounces > 0 && ricochet(b)) continue;
             if (b.y < -b.radius || b.y > HEIGHT + 60f
@@ -533,6 +604,7 @@ public class GameWorld {
             }
             tryEnemyFire(e, dt * timeScale);
         }
+        updateV117Behaviours(dt * timeScale);
         updateOrbitSpheres(dt);
         updateHealers(dt);
         updateArcs(dt);
@@ -574,9 +646,14 @@ public class GameWorld {
     private void updateBoss(float dt) {
         if (!boss.active) {
             for (BossLaser l : bossLasers) l.active = false;
+            if (bossGapTimer > 0f) bossGapTimer = Math.max(0f, bossGapTimer - dt);
             // trigger at wave milestones when the screen is calm-ish
-            if (wave >= nextBossWave) {
-                nextBossWave += mode == GameMode.ENDLESS ? 3 : 4;
+            if (wave >= nextBossWave && bossGapTimer <= 0f) {
+                // 从"当前节拍"跳档，而不是在旧档位上加固定步长：wave 由分数驱动，
+                // 高分玩家一场 Boss 拖几十秒就能攒够下一场的额度，只加步长会让下一场
+                // 在上一场尸体凉透前立刻接上（实测后期 endless 会退化成无间断 Boss 链，
+                // 普通刷新、突袭波和新舰型全被挤掉）。BOSS_MIN_GAP 再兜一层，留出喘息。
+                nextBossWave = wave + (mode == GameMode.ENDLESS ? 3 : 4);
                 boss.init(bossesDefeated);
                 bossActive = true;
                 events.add(new GameEvent(EventType.BOSS_SPAWNED, boss.x, boss.y));
@@ -608,6 +685,8 @@ public class GameWorld {
         if (boss.hp <= 0) {
             boss.active = false;
             bossActive = false;
+            // 打完立刻上表：下一场至少等这段喘息，别让高分把 Boss 战连成一片
+            bossGapTimer = mode == GameMode.ENDLESS ? BOSS_MIN_GAP : BOSS_MIN_GAP * 1.5f;
             bossesDefeated++;
             ultCharge(ULT_GAIN_BOSS, boss.x, boss.y);
             for (BossLaser l : bossLasers) l.active = false;
@@ -1119,6 +1198,7 @@ public class GameWorld {
             rushBanner = Math.max(0f, rushBanner - dt);
             if (rushBanner <= 0f) rushActive = false;
         }
+        if (debutBanner > 0f) debutBanner = Math.max(0f, debutBanner - dt);
     }
 
     /** hit-stop：只在比当前剩余更长时接管，避免小事件截断大事件。 */
@@ -1260,6 +1340,21 @@ public class GameWorld {
                 }
                 e.fireCd = 2.0f + RNG.get().nextFloat() * 0.8f;
                 break;
+            case MIRAGE: {
+                // 伪装者现形后的警告环：六发低速均分一圈，靠走位穿出去。
+                // tryEnemyFire 的上下界守卫保证它不会在贴脸时开火——
+                // "捡到假道具"不该直接等于"被撞死"。
+                for (int i = 0; i < MIRAGE_BURST_COUNT; i++) {
+                    EnemyBullet mb = freeEnemyBullet();
+                    if (mb == null) break;
+                    float ang = (float) (Math.PI * 2 * i / MIRAGE_BURST_COUNT + Math.PI / 6f);
+                    mb.initRadius(e.x, e.y, (float) Math.cos(ang) * MIRAGE_BURST_SPEED,
+                            (float) Math.sin(ang) * MIRAGE_BURST_SPEED, 9f);
+                }
+                spark(e.x, e.y, 6, 11);
+                e.fireCd = 3.4f + RNG.get().nextFloat() * 1.4f;
+                break;
+            }
             default:
                 e.fireCd = -1f;
         }
@@ -1804,6 +1899,242 @@ public class GameWorld {
         events.add(new GameEvent(EventType.FORMATION, e.x, e.y));
     }
 
+    // ---- v1.17：伪装者 / 磁暴艇 / 蜂后的战场行为 ----
+
+    /** 磁场源每帧收集一次：同屏只有两三艘，弹道偏折直接线性扫描就够，零分配。 */
+    private void collectMagnetFields() {
+        magnetCount = 0;
+        for (Enemy e : enemies) {
+            if (!e.active || !e.projectsMagnetField()) continue;
+            if (magnetCount == magnetXs.length) break;
+            magnetXs[magnetCount] = e.x;
+            magnetYs[magnetCount] = e.y;
+            magnetCount++;
+        }
+    }
+
+    /**
+     * 磁暴艇的弹道弯曲：把直射弹沿"远离舰体"的方向推，越靠近核心推得越狠。
+     *
+     * <p>追踪弹、穿透光束、融合长枪与终极光矛完全不参与——磁场该是"逼你换武器"的
+     * 谜题，不该是"这局打不动"的墙。弹跳弹照旧被推，它的反弹本来就是绕后的解法。
+     */
+    private void bendPlayerBullet(Bullet b, float dt) {
+        if (magnetCount == 0) return;
+        if (b.homing || b.piercing || b.ult || b.drone) return;
+        for (int i = 0; i < magnetCount; i++) {
+            float dx = b.x - magnetXs[i], dy = b.y - magnetYs[i];
+            float d2 = dx * dx + dy * dy;
+            if (d2 > Enemy.MAGNET_RADIUS * Enemy.MAGNET_RADIUS || d2 < 1e-3f) continue;
+            float d = (float) Math.sqrt(d2);
+            float k = 1f - d / Enemy.MAGNET_RADIUS;
+            float a = Enemy.MAGNET_BEND * k * dt / d;
+            b.vx += dx * a;
+            // 纵向只给一半：让弹"绕着走"而不是被按回地面
+            b.vy += dy * a * 0.5f;
+            if (!b.bent) { b.bent = true; bulletsBent++; }
+        }
+    }
+
+    /** 伪装者现形、磁暴艇脉冲、蜂后产卵——都靠各自倒计时推进，这里统一结算。 */
+    private void updateV117Behaviours(float dt) {
+        for (int i = 0; i < enemies.length; i++) {
+            Enemy e = enemies[i];
+            if (!e.active) continue;
+            if (e.type == EnemyType.MIRAGE) {
+                if (!e.isCloaked()) continue;
+                float dx = ship.x - e.x, dy = ship.y - e.y;
+                if ((float) Math.sqrt(dx * dx + dy * dy) < Enemy.MIRAGE_TRIGGER
+                        || e.age >= Enemy.MIRAGE_MAX_CLOAK) {
+                    revealMirage(e);
+                }
+                continue;
+            }
+            if (e.type == EnemyType.MAGNETON) {
+                if (e.empCd <= 0f && e.y > 120f && e.y < HEIGHT * 0.8f) fireMagnetBurst(e);
+                continue;
+            }
+            if (e.type == EnemyType.QUEEN && e.broodCd <= 0f) {
+                int born = queenLayBrood(i, e);
+                e.broodCd = e.broodInterval();
+                if (born > 0) {
+                    broodSpawned += born;
+                    events.add(new GameEvent(EventType.BROOD_SPAWN, e.x, e.y, born));
+                }
+            }
+        }
+    }
+
+    /**
+     * v1.17 特化遭遇保底：到点检查三种新舰型谁还没上场，补一艘进来。
+     * 只补"场上没有的那一型"，所以不会出现两艘蜂后互相铺幼机的场面。
+     * 包级可见：测试直接拨这个计时器，绕开常规刷新的随机干扰。
+     */
+    void updateV117Encounters(float dt) {
+        if (!spawningEnabled || bossActive) return;
+        v117EncounterTimer -= dt;
+        if (v117EncounterTimer > 0f) return;
+        float t = mode == GameMode.ENDLESS ? timeAlive * 1.6f : timeAlive;
+        EnemyType pick = null;
+        int fewest = Integer.MAX_VALUE;
+        for (int i = 0; i < V117_TYPES.length; i++) {
+            if (t < V117_WINDOWS[i]) continue;
+            if (typeAlive(V117_TYPES[i])) continue;
+            if (v117EncounterCounts[i] < fewest) {
+                fewest = v117EncounterCounts[i];
+                pick = V117_TYPES[i];
+            }
+        }
+        // 三型都已上场：这不是"投放失败"，但也没必要再等一整个周期，1.5 秒后复查
+        if (pick == null) {
+            v117EncounterTimer = 1.5f;
+            return;
+        }
+        Enemy e = freeEnemy();
+        // 敌机池被普通刷新占满时不能把保底推后一整轮——下一帧就再试，
+        // 否则"新舰型露面"这件事会被池子挤没（实测长跑里就是这么丢的）
+        if (e == null) {
+            v117EncounterTimer = 0.25f;
+            return;
+        }
+        // 计时只在"没有 Boss 的空档"里走（和突袭波同一套规矩），后期一局里这种空档
+        // 只占一成时间，所以周期本身必须短——6 秒空档就该有一艘新舰露面
+        v117EncounterTimer = mode == GameMode.ENDLESS ? 6f : 8f;
+        boolean fresh = !settings.enemySeen(pick);
+        recordEnemyInCodex(pick);
+        float margin = pick.radius + 40f;
+        float x = margin + RNG.get().nextFloat() * (WIDTH - margin * 2f);
+        e.init(pick, x, -pick.radius - 10f, enemySpeedScale);
+        applyMutatorToEnemy(e);
+        spawnedCount++;
+        v117Encounters++;
+        for (int i = 0; i < V117_TYPES.length; i++) {
+            if (V117_TYPES[i] == pick) v117EncounterCounts[i]++;
+        }
+        spark(x, 40f, 8, paletteOf(pick));
+        // 伪装者的登场故意不播报：一旦有声音提示，玩家就能靠听识破伪装，玩法当场失效
+        if (pick != EnemyType.MIRAGE) {
+            events.add(new GameEvent(EventType.NEW_SHIP_DEBUT, x, 0f, pick.ordinal()));
+            if (fresh) {
+                debutBanner = 2.6f;
+                debutBannerType = pick;
+            }
+        }
+    }
+
+    private boolean typeAlive(EnemyType type) {
+        for (Enemy e : enemies) if (e.active && e.type == type) return true;
+        return false;
+    }
+
+    /** 舰型对应的调色板索引（特效着色用）。 */
+    private static int paletteOf(EnemyType type) {
+        switch (type) {
+            case MIRAGE: return 11;
+            case MAGNETON: return 12;
+            case QUEEN: return 13;
+            default: return 4;
+        }
+    }
+
+    /**
+     * 伪装者现形：脱掉道具外壳，留下 0.6 秒开火预警。
+     * 现形距离（210）远大于撞击判定，玩家不会"捡个假道具就被撞死"。
+     */
+    private void revealMirage(Enemy e) {
+        e.reveal();
+        miragesRevealed++;
+        spark(e.x, e.y, 9, 6);
+        addShake(0.07f, 4f);
+        events.add(new GameEvent(EventType.MIRAGE_REVEAL, e.x, e.y));
+    }
+
+    /** 磁暴艇的 EMP 慢环：八发低速弹均分一圈，考验"穿环"走位而不是反应速度。 */
+    private void fireMagnetBurst(Enemy e) {
+        e.empCd = 3.0f + RNG.get().nextFloat() * 1.0f;
+        e.empFx = 1f;
+        magnetBursts++;
+        int fired = 0;
+        float phase = RNG.get().nextFloat() * 0.4f;
+        for (int i = 0; i < MAG_BULLET_COUNT; i++) {
+            EnemyBullet b = freeEnemyBullet();
+            if (b == null) break;
+            float ang = (float) (Math.PI * 2 * (i + phase) / MAG_BULLET_COUNT);
+            b.initRadius(e.x, e.y, (float) Math.cos(ang) * MAG_BULLET_SPEED,
+                    (float) Math.sin(ang) * MAG_BULLET_SPEED, MAG_BULLET_RADIUS);
+            fired++;
+        }
+        spark(e.x, e.y, 6, 12);
+        events.add(new GameEvent(EventType.MAG_BURST, e.x, e.y, fired));
+    }
+
+    /**
+     * 蜂后产卵：幼机在她身侧生成，归属记她的池下标，击毁她时一并崩溃。
+     * 血量越低产得越快（{@link Enemy#broodInterval()}），拖久了对玩家更亏。
+     */
+    private int queenLayBrood(int queenIndex, Enemy queen) {
+        int want = queen.hp < queen.maxHp * 0.5f ? QUEEN_BROOD_MAX : QUEEN_BROOD_MIN;
+        EnemyType[] kit = {EnemyType.DRONE, EnemyType.DRONE, EnemyType.HUNTER,
+                EnemyType.SUICIDER};
+        int born = 0;
+        for (int i = 0; i < enemies.length && born < want; i++) {
+            if (enemies[i].active) continue;
+            EnemyType t = kit[RNG.get().nextInt(kit.length)];
+            Enemy child = enemies[i];
+            child.init(t, clampX(queen.x + (born * 2 - 1) * 60f
+                            + (RNG.get().nextFloat() - 0.5f) * 40f, t.radius),
+                    queen.y + 40f + RNG.get().nextFloat() * 30f, enemySpeedScale);
+            applyMutatorToEnemy(child);
+            child.broodOf = queenIndex;
+            child.splitDepth = 1;      // 幼机不再触发分裂逻辑
+            spawnedCount++;
+            recordEnemyInCodex(t);
+            born++;
+        }
+        if (born > 0) spark(queen.x, queen.y + 30f, 5, 11);
+        return born;
+    }
+
+    /** 击毁蜂后：她的幼机一并崩溃，玩家不必再收拾一屏幕残党。 */
+    private void collapseQueenBrood(int queenIndex) {
+        // 默认归属是 -1，绝不能拿它当有效下标，否则会把全场敌机一起清掉
+        if (queenIndex < 0) return;
+        for (Enemy e : enemies) {
+            if (!e.active || e.broodOf != queenIndex) continue;
+            e.broodOf = -1;
+            killEnemy(e);
+        }
+    }
+
+    /** 磁暴艇死亡=磁场坍缩：把周边的敌弹一起吞掉，给玩家一个正反馈。 */
+    private void collapseMagnetField(Enemy e) {
+        int eaten = 0;
+        for (EnemyBullet b : enemyBullets) {
+            if (!b.active) continue;
+            float dx = b.x - e.x, dy = b.y - e.y;
+            if (dx * dx + dy * dy > MAG_COLLAPSE_RADIUS * MAG_COLLAPSE_RADIUS) continue;
+            b.active = false;
+            spark(b.x, b.y, 2, 12);
+            eaten++;
+        }
+        if (eaten > 0) {
+            spawnFloatText(e.x, e.y - 30f, eaten * GRAVITY_ABSORB_SCORE, FLOAT_BREAK, false);
+            events.add(new GameEvent(EventType.MAG_BURST, e.x, e.y, -eaten));
+        }
+    }
+
+    private float clampX(float x, float pad) {
+        return x < pad ? pad : (x > WIDTH - pad ? WIDTH - pad : x);
+    }
+
+    /** 敌机在池中的下标（蜂后的幼机按它归属）；找不到返回 -1。 */
+    private int indexOf(Enemy e) {
+        for (int i = 0; i < enemies.length; i++) {
+            if (enemies[i] == e) return i;
+        }
+        return -1;
+    }
+
     /** 弹跳弹撞墙反弹：镜像速度并贴回壁内，返回 true 表示本帧不因出界被回收。 */
     private boolean ricochet(Bullet b) {
         if (b.x <= 14f && b.vx < 0f) {
@@ -2088,14 +2419,20 @@ public class GameWorld {
         float wMiner = t > 95f ? Math.min(0.14f, 0.07f + (t - 95f) / 1400f) : 0f;
         float wShield = t > 110f ? Math.min(0.13f, 0.06f + (t - 110f) / 1500f) : 0f;
         float wCarrier = t > 135f ? Math.min(0.10f, 0.05f + (t - 135f) / 1600f) : 0f;
+        // v1.17：伪装者 120s 出场（低频但常驻，靠"眼力"取胜）；磁暴艇 150s；
+        // 蜂后 180s 且权重封顶 5%——她是优先目标，不该满屏都是
+        float wMirage = t > 115f ? Math.min(0.055f, 0.025f + (t - 115f) / 2600f) : 0f;
+        float wMagnet = t > 150f ? Math.min(0.10f, 0.05f + (t - 150f) / 1700f) : 0f;
+        float wQueen = t > 180f ? 0.05f : 0f;
         // 保留至少 15% 无人机当"炮灰"：非无人机权重整体归一
         float sum = wTank + wHunter + wWeaver + wSui + wSplit + wHeal + wSnipe
-                + wMiner + wShield + wCarrier;
+                + wMiner + wShield + wCarrier + wMirage + wMagnet + wQueen;
         if (sum > 0.85f) {
             float k = 0.85f / sum;
             wTank *= k; wHunter *= k; wWeaver *= k;
             wSui *= k; wSplit *= k; wHeal *= k; wSnipe *= k;
             wMiner *= k; wShield *= k; wCarrier *= k;
+            wMirage *= k; wMagnet *= k; wQueen *= k;
         }
         float c = 0f;
         if (r < (c += wTank)) return EnemyType.TANK;
@@ -2108,6 +2445,9 @@ public class GameWorld {
         if (r < (c += wMiner)) return EnemyType.MINER;
         if (r < (c += wShield)) return EnemyType.SHIELDER;
         if (r < (c += wCarrier)) return EnemyType.CARRIER;
+        if (r < (c += wMirage)) return EnemyType.MIRAGE;
+        if (r < (c += wMagnet)) return EnemyType.MAGNETON;
+        if (r < (c += wQueen)) return EnemyType.QUEEN;
         return EnemyType.DRONE;
     }
 
@@ -2676,6 +3016,8 @@ public class GameWorld {
         final float ex = e.x, ey = e.y;
         final int depth = e.splitDepth;
         final boolean elite = e.elite;
+        final boolean cloaked = e.isCloaked();
+        final int broodOwner = e.broodOf;
         comboKills++;
         if (comboKills > maxCombo) maxCombo = comboKills;
         comboTimer = COMBO_WINDOW;
@@ -2729,6 +3071,24 @@ public class GameWorld {
                 }
             }
         }
+        if (type == EnemyType.MIRAGE && cloaked) {
+            // 识破：在它还披着道具外壳时就打下来，奖励"看得仔细"
+            miragesSpotted++;
+            int spotted = addScore(MIRAGE_SPOT_BONUS, SCORE_OTHER);
+            spawnFloatText(ex, ey - type.radius, spotted, FLOAT_SCORE, true);
+            ultCharge(ULT_GAIN_ELITE * 0.6f, ex, ey);
+            spark(ex, ey, 10, 11);
+            events.add(new GameEvent(EventType.MIRAGE_REVEAL, ex, ey));
+            // 必掉一枚真道具：识破不该只是加分，得当场把赚头还给玩家
+            spawnPowerUp(dropKind(RNG.get().nextFloat()), ex, ey);
+        }
+        if (type == EnemyType.MAGNETON) collapseMagnetField(e);
+        if (type == EnemyType.QUEEN) {
+            collapseQueenBrood(indexOf(e));
+            addShake(0.3f, 12f);
+            addHitStop(0.055f);
+        }
+        if (broodOwner >= 0) e.broodOf = -1;   // 幼机槽位即将复用，先摘掉归属
         maybeDropPowerUp(type, ex, ey, elite);
         events.add(new GameEvent(EventType.ENEMY_KILLED, ex, ey, type.ordinal()));
         if (comboKills % 5 == 0 && comboKills <= 20) {
@@ -2745,6 +3105,9 @@ public class GameWorld {
                 : type == EnemyType.CARRIER ? 0.55f
                 : type == EnemyType.SHIELDER ? 0.30f
                 : type == EnemyType.MINER ? 0.24f
+                : type == EnemyType.MAGNETON ? 0.40f
+                : type == EnemyType.QUEEN ? 0.75f
+                : type == EnemyType.MIRAGE ? 0.20f
                 : type == EnemyType.HUNTER ? 0.12f
                 : type == EnemyType.SUICIDER ? 0.04f : 0.05f;
         chance = Math.min(1f, chance * settings.dropRatePct / 100f
@@ -3145,6 +3508,12 @@ public class GameWorld {
         rushActive = false;
         rushBanner = 0f;
         rushesTriggered = 0;
+        // v1.17：特化遭遇保底倒计时与轮换计数归零
+        v117EncounterTimer = m == GameMode.ENDLESS ? 6f : 9f;
+        v117Encounters = 0;
+        debutBanner = 0f;
+        debutBannerType = null;
+        for (int i = 0; i < v117EncounterCounts.length; i++) v117EncounterCounts[i] = 0;
         fusionFlash = 0f;
         lastFusion = null;
         attackSeq = 0;
@@ -3168,6 +3537,12 @@ public class GameWorld {
         ultConverted = 0;
         ult.reset();
         ultFlash = 0f;
+        miragesRevealed = 0;
+        miragesSpotted = 0;
+        magnetBursts = 0;
+        broodSpawned = 0;
+        bulletsBent = 0;
+        magnetCount = 0;
         for (int i = 0; i < SCORE_SOURCES; i++) scoreBySource[i] = 0;
         for (int i = 0; i < MAX_ARCS; i++) arcAge[i] = 0f;
         for (int i = 0; i < orbitCd.length; i++) orbitCd[i] = 0f;

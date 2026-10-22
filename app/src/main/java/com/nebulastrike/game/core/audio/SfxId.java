@@ -63,5 +63,11 @@ public enum SfxId {
     /** v1.16：释放终极技（低频塌缩 + 破空爆音） */
     ULT_CAST,
     /** v1.16：光矛齐射的破空连响（档位越高越密） */
-    ULT_LANCE
+    ULT_LANCE,
+    /** v1.17：伪装者脱壳现形的"露馅"音（音头做脏，区别于干净的拾取音） */
+    MIRAGE_REVEAL,
+    /** v1.17：磁暴艇 EMP 脉冲（低频塌缩 + 电离嘶声） */
+    EMP_BURST,
+    /** v1.17：蜂后产卵的三声虫鸣颤音 */
+    BROOD_CHIRP
 }

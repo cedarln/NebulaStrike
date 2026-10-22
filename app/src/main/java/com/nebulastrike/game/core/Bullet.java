@@ -28,6 +28,8 @@ public class Bullet {
     public int bounces;
     /** v1.16：终极技光矛——寻敌、贯穿、伤害随档位成长，渲染层单独画成金色长枪。 */
     public boolean ult;
+    /** v1.17：本发弹是否已被磁暴艇偏折过（结算卡"偏弹"按发计，不按帧计）。 */
+    public boolean bent;
 
     public void init(float x, float y, float vy) {
         init(x, y, 0f, vy, 1, false);
@@ -50,6 +52,7 @@ public class Bullet {
         this.fragment = false;
         this.bounces = 0;
         this.ult = false;
+        this.bent = false;
         this.landed = false;
     }
 

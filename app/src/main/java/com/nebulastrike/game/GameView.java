@@ -11,6 +11,7 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.widget.Toast;
 
+import com.nebulastrike.game.core.EnemyType;
 import com.nebulastrike.game.core.GameWorld;
 import com.nebulastrike.game.core.Ui;
 import com.nebulastrike.game.core.WeaponType;
@@ -265,6 +266,17 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case DASH: haptics.tick(); break;
                     case ULT_CAST: haptics.bomb(); break;
                     case ULT_READY: haptics.tick(); break;
+                    case MIRAGE_REVEAL: haptics.tick(); break;
+                    // EMP 放出去要"撞一下"，磁暴艇被打爆吞弹只是轻提示
+                    case MAG_BURST:
+                        if (e.code > 0) haptics.impact(); else haptics.tick();
+                        break;
+                    case BROOD_SPAWN: haptics.tick(); break;
+                    // 保底登场的震动按舰型分量：磁暴艇"撞一下"，蜂后"沉一下"
+                    case NEW_SHIP_DEBUT:
+                        if (e.code == EnemyType.MAGNETON.ordinal()) haptics.impact();
+                        else if (e.code == EnemyType.QUEEN.ordinal()) haptics.bomb();
+                        break;
                 }
             }
             if (world.shotsFired != lastShotsSeen) {

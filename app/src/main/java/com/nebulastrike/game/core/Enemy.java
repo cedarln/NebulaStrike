@@ -35,6 +35,16 @@ public class Enemy {
     /** 盾卫正面护盾耐久：>0 时挡下所有非穿透弹（激光与弹跳弹照样能穿）。 */
     public float shieldHp;
     public static final float SHIELDER_SHIELD = 6f;
+    /** 伪装者剩余伪装强度：1 = 完全伪装成道具，0 = 已现形。 */
+    public float cloak;
+    /** 磁暴艇下一次 EMP 环形脉冲的倒计时。 */
+    public float empCd;
+    /** EMP 脉冲余量（1 = 刚释放），渲染层据此画扩散环。 */
+    public float empFx;
+    /** 蜂后下一次产卵的倒计时（产卵间隔随血量下降而缩短）。 */
+    public float broodCd;
+    /** 幼机归属：蜂后在敌机池中的下标；-1 表示与蜂后无关。 */
+    public int broodOf = -1;
     /** 精英词缀：厚血、高分、必掉道具，渲染层加一圈光环。 */
     public boolean elite;
     /** 精英倍率（生命、分值）。 */
@@ -48,6 +58,30 @@ public class Enemy {
     public static final float SNIPER_HOVER_Y = 300f;
     /** 母舰巡航高度：到位后先悬停放机，再俯冲离场。 */
     public static final float CARRIER_CRUISE_Y = 420f;
+
+    // ---- v1.17 三种新敌机的几何参数 ----
+    /** 磁暴艇磁场半径：圈内玩家的直射弹会被横向推开。 */
+    public static final float MAGNET_RADIUS = 320f;
+    /** 磁偏加速度（虚拟单位/秒²），足够把机炮线推开但推不动重弹与光束。 */
+    public static final float MAGNET_BEND = 980f;
+    /** 磁暴艇巡航高度：停在弹道上而不是压到脸上。 */
+    public static final float MAGNET_HOVER_Y = 520f;
+    /** 伪装者现形距离：飞船进入这个半径立刻现形（远大于撞击半径，不会被偷死）。 */
+    public static final float MIRAGE_TRIGGER = 210f;
+    /**
+     * 伪装者最长伪装时间：到点自动现形，不会永远藏在弹道里。
+     * 2.0 秒是实测值：中后期玩家的火力通常在 1.6~3.0 秒内就把它点掉（算识破给奖励），
+     * 活过这个窗口的就该在屏幕中段当面变身，让"道具是假的"这件事被看见。
+     */
+    public static final float MIRAGE_MAX_CLOAK = 2.0f;
+    /** 磁暴艇中场驻留时长：到点必须俯冲离场，否则滞空舰会塞满敌机池、把刷新卡死。 */
+    public static final float MAGNETON_HOVER = 11f;
+    /** 蜂后驻留时长：她要在这段时间里产够卵，然后带着剩下的幼机离开。 */
+    public static final float QUEEN_HOVER = 15f;
+    /** 蜂后巡航高度与回避半径：玩家贴脸她就往上游走。 */
+    public static final float QUEEN_HOVER_Y = 290f;
+    public static final float QUEEN_MIN_Y = 150f;
+    public static final float QUEEN_AVOID_RADIUS = 320f;
 
     public void init(EnemyType type, float x, float y, float speedScale) {
         this.type = type;
@@ -63,11 +97,20 @@ public class Enemy {
         this.speedScale = speedScale;
         this.healCd = 1.1f;
         this.healFx = 0f;
-        this.hoverCd = type == EnemyType.SNIPER ? 8.5f : type == EnemyType.CARRIER ? 12f : 0f;
+        this.hoverCd = type == EnemyType.SNIPER ? 8.5f
+                : type == EnemyType.CARRIER ? 12f
+                : type == EnemyType.MAGNETON ? MAGNETON_HOVER
+                : type == EnemyType.QUEEN ? QUEEN_HOVER : 0f;
         this.splitDepth = 0;
         this.mineCd = type == EnemyType.MINER ? 1.2f : 0f;
         this.droneCd = type == EnemyType.CARRIER ? 1.6f : 0f;
         this.shieldHp = type == EnemyType.SHIELDER ? SHIELDER_SHIELD : 0f;
+        this.cloak = type == EnemyType.MIRAGE ? 1f : 0f;
+        // 首发放快（实测这类舰在中后期活不过 3 秒），之后按 3~4 秒周期脉冲
+        this.empCd = type == EnemyType.MAGNETON ? 1.5f : 0f;
+        this.empFx = 0f;
+        this.broodCd = type == EnemyType.QUEEN ? 1.4f : 0f;
+        this.broodOf = -1;
         this.elite = false;
         this.diveSpeed = type.baseSpeed * speedScale;
         switch (type) {
@@ -76,6 +119,8 @@ public class Enemy {
             case SPLITTER: fireCd = 2.0f + GameWorld.RNG.get().nextFloat() * 0.8f; break;
             case SNIPER: fireCd = 1.5f + GameWorld.RNG.get().nextFloat() * 0.5f; break;
             case SHIELDER: fireCd = 2.4f + GameWorld.RNG.get().nextFloat() * 0.8f; break;
+            case MAGNETON: fireCd = 2.6f + GameWorld.RNG.get().nextFloat() * 0.9f; break;
+            case MIRAGE: fireCd = -1f; break;   // 现形后才开始开火
             default: fireCd = -1f; // does not fire
         }
     }
@@ -198,17 +243,100 @@ public class Enemy {
                 break;
             }
             case SHIELDER:
-                // 盾卫：正面朝下缓慢压上，偶尔射一发扇形弹逼玩家走位
+                // 盾卫：正面朝下缓慢压上，偶尔射一发扇形弹逼玩家绕后
                 y += speed() * dt;
                 x = originX + (float) Math.sin(age * 0.7f) * 40f;
                 x = clamp(x, type.radius, worldW - type.radius);
                 break;
+            case MIRAGE: {
+                // 伪装态漂得慢、摆得小，看起来就像一枚道具；现形后才露出速度
+                boolean hidden = cloak > 0f;
+                y += speed() * (hidden ? 0.62f : 1.35f) * dt;
+                x = originX + (float) Math.sin(age * (hidden ? 1.0f : 2.6f))
+                        * (hidden ? 24f : 92f);
+                x = clamp(x, type.radius, worldW - type.radius);
+                break;
+            }
+            case MAGNETON: {
+                // 磁暴艇压到中场就停住横向巡游，磁场始终生效（弹道弯曲在 GameWorld 结算）
+                if (y < MAGNET_HOVER_Y && hoverCd > 0f) {
+                    y += speed() * dt;
+                } else if (hoverCd > 0f) {
+                    hoverCd -= dt;
+                    x += dir * 62f * dt;
+                    if (x < type.radius + 20f || x > worldW - type.radius - 20f) {
+                        dir = -dir;
+                        x = clamp(x, type.radius + 20f, worldW - type.radius - 20f);
+                    }
+                } else {
+                    // 驻留到期：俯冲离场，把敌机池的坑位让出来
+                    y += speed() * 1.5f * dt;
+                }
+                if (empCd > 0f) empCd = Math.max(0f, empCd - dt);
+                if (empFx > 0f) empFx = Math.max(0f, empFx - dt / 0.9f);
+                break;
+            }
+            case QUEEN: {
+                // 产卵倒计时全程走动：降到巡航高度的路上也在憋卵，
+                // 否则一波蜂后可能整场只产一次，"优先击杀"就失去意义
+                if (broodCd > 0f) broodCd = Math.max(0f, broodCd - dt);
+                // 蜂后：降到巡航高度后朝飞船的横向慢慢压过来，玩家贴脸就往上游走
+                if (hoverCd <= 0f) {
+                    // 产卵窗口结束：不再赖在中场，直落离场
+                    y += speed() * 1.35f * dt;
+                    x = originX + (float) Math.sin(age * 0.6f) * 60f;
+                    break;
+                }
+                if (y < QUEEN_HOVER_Y) {
+                    y += speed() * dt;
+                    x = originX + (float) Math.sin(age * 0.6f) * 60f;
+                    break;
+                }
+                hoverCd -= dt;
+                if (!Float.isNaN(shipX)) {
+                    float dx = shipX - x;
+                    float step = Math.abs(dx) < 24f ? 0f : (dx > 0f ? 105f : -105f);
+                    x += step * dt;
+                    float dy = shipY - y;
+                    if (!Float.isNaN(dy) && (float) Math.sqrt(dx * dx + dy * dy)
+                            < QUEEN_AVOID_RADIUS) {
+                        y = Math.max(QUEEN_MIN_Y, y - speed() * 0.8f * dt);
+                    } else {
+                        y += (y > QUEEN_HOVER_Y + 40f ? -1f : 1f) * speed() * 0.22f * dt;
+                    }
+                }
+                x = clamp(x, type.radius + 10f, worldW - type.radius - 10f);
+                break;
+            }
         }
     }
 
     /** 狙击塔正在充能（渲染层据此画预警线）。 */
     public boolean isCharging() {
         return type == EnemyType.SNIPER && fireCd > 0f && fireCd < 0.7f;
+    }
+
+    /** 伪装者是否还藏在道具外形里。 */
+    public boolean isCloaked() {
+        return type == EnemyType.MIRAGE && cloak > 0f;
+    }
+
+    /** 现形：丢掉道具外形并开始准备开火（留 0.6 秒预警，不当场爆脸）。 */
+    public void reveal() {
+        if (type != EnemyType.MIRAGE || cloak <= 0f) return;
+        cloak = 0f;
+        fireCd = 0.6f;
+    }
+
+    /** 磁暴艇是否在场投射磁场。 */
+    public boolean projectsMagnetField() {
+        return type == EnemyType.MAGNETON;
+    }
+
+    /** 蜂后的产卵间隔：血量越低越急，逼玩家优先集火而不是拖着打。 */
+    public float broodInterval() {
+        float hurt = 1f - Math.max(0f, hp) / Math.max(1f, maxHp);
+        return 2.6f - 1.2f * hurt;
     }
 
     public void heal(float amount) {

@@ -533,6 +533,8 @@ public class V110DifficultyRelicAndContentTest {
 
     /** 走一遍 Boss 战：wave 里程碑登场 -> 一击必杀 -> 结算掉落与圣物。 */
     private void killBoss(GameWorld w) {
+        // v1.17：两场 Boss 之间有最短喘息，这里只测结算，把喘息清掉
+        w.bossGapTimer = 0f;
         w.update(1f / 60f);
         assertTrue("Boss 应已登场", w.boss.active);
         w.boss.hp = 0f;
