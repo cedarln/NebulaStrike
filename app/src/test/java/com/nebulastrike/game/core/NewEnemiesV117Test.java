@@ -505,6 +505,8 @@ public class NewEnemiesV117Test {
         w.settings.setDifficulty(Difficulty.STANDARD);
         w.lives = 999_999;
         w.ship.makeInvulnerable();
+        // 这一跑只验证 v1.17 敌舰行为：关掉悬赏，免得额外血量与保底道具改变刷新节拍
+        w.bountyEnabled = false;
         w.timeAlive = 150f;
         for (int i = 0; i < 60 * 90; i++) {
             float t = i / 60f;

@@ -77,6 +77,9 @@ public final class SfxBank {
         put(SfxId.ALTAR_SPAWN, altarSpawn(), 0.62f);
         put(SfxId.ALTAR_ABSORB, altarAbsorb(), 0.30f);
         put(SfxId.ALTAR_BLESS, altarBless(), 0.88f);
+        put(SfxId.BOUNTY_START, bountyStart(), 0.72f);
+        put(SfxId.BOUNTY_CLAIM, bountyClaim(), 0.86f);
+        put(SfxId.BOUNTY_FAIL, bountyFail(), 0.42f);
     }
 
     public static SfxBank create() {
@@ -1065,6 +1068,77 @@ public final class SfxBank {
             x[i] = (float) ((tone + sub + shimmer) * env(t, 0.9, 0.01, 0.9));
         }
         echo(x, 0.11, 0.4);
+        return x;
+    }
+
+    /** 赏金发布：两音上行的铜管号角 + 一记定音鼓，像"通缉令贴上墙"。 */
+    private static float[] bountyStart() {
+        int n = frames(0.56);
+        float[] x = new float[n];
+        Random r = new Random(1301);
+        double phLo = 0, phHi = 0, phSub = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            phSub += 82 / SAMPLE_RATE;
+            double thump = sine(phSub) * Math.exp(-t * 14) * 0.30;
+            double horn = 0;
+            if (t < 0.16) {
+                phLo += 392.0 / SAMPLE_RATE;
+                horn += (0.26 * tri(phLo) + 0.12 * sine(phLo))
+                        * env(t, 0.16, 0.01, 1.1);
+            } else {
+                phHi += 587.33 / SAMPLE_RATE;
+                double local = t - 0.16;
+                horn += (0.26 * tri(phHi) + 0.12 * sine(phHi))
+                        * Math.exp(-local * 3.2);
+            }
+            double grit = noise(r) * 0.045 * Math.exp(-t * 7);
+            x[i] = (float) ((thump + horn + grit) * env(t, 0.56, 0.005, 1.4));
+        }
+        echo(x, 0.09, 0.28);
+        return x;
+    }
+
+    /** 赏金兑现：三连金币铃 + 细碎闪粉，短促、明亮、不拖尾。 */
+    private static float[] bountyClaim() {
+        int n = frames(0.55);
+        float[] x = new float[n];
+        Random r = new Random(1319);
+        double[] f = {1046.5, 1318.5, 1568.0};
+        double[] ph = new double[f.length];
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double tone = 0;
+            for (int k = 0; k < f.length; k++) {
+                double start = k * 0.055;
+                if (t < start) continue;
+                double local = t - start;
+                ph[k] += f[k] / SAMPLE_RATE;
+                tone += (0.24 * sine(ph[k]) + 0.10 * sine(ph[k] * 2.0))
+                        * Math.exp(-local * (9.0 - k * 1.6))
+                        / (1.0 + k * 0.18);
+            }
+            double sparkle = noise(r) * Math.exp(-t * 16) * 0.10;
+            x[i] = (float) ((tone + sparkle) * env(t, 0.55, 0.002, 1.2));
+        }
+        echo(x, 0.07, 0.22);
+        return x;
+    }
+
+    /** 赏金脱逃：两音下行、音量压低——只是通报，不带责怪。 */
+    private static float[] bountyFail() {
+        int n = frames(0.42);
+        float[] x = new float[n];
+        double ph = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double f = t < 0.18 ? 220.0 : 164.8;
+            ph += f / SAMPLE_RATE;
+            double tone = (0.22 * sine(ph) + 0.10 * tri(ph))
+                    * Math.exp(-(t % 0.18) * 5.5);
+            x[i] = (float) (tone * env(t, 0.42, 0.01, 1.3));
+        }
+        echo(x, 0.08, 0.18);
         return x;
     }
 

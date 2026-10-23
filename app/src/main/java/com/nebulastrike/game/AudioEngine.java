@@ -374,6 +374,19 @@ public class AudioEngine {
                     // 赐福是一次完整的正面结算：给足音量与居中定位
                     play(SfxId.ALTAR_BLESS, 0.95f, 1f, 0f);
                     break;
+                case BOUNTY_START:
+                    // 悬赏发布：号角跟着目标的位置走，先听见"哪边有活"
+                    play(SfxId.BOUNTY_START, 0.78f, vary(0.02f), panFor(e.x));
+                    break;
+                case BOUNTY_CLAIMED:
+                    // code = 连杀数：连得越久音色越亮，兑现感层层加码
+                    play(SfxId.BOUNTY_CLAIM, 0.92f,
+                            1f + Math.min(0.28f, e.code * 0.045f), 0f);
+                    break;
+                case BOUNTY_FAILED:
+                    // 脱逃只报个信，压低音量，不制造"失败音"式的惩罚感
+                    play(SfxId.BOUNTY_FAIL, 0.45f, 1f, 0f);
+                    break;
             }
         }
     }
@@ -547,6 +560,9 @@ public class AudioEngine {
             case ALTAR_SPAWN: return 0L;             // 几十秒才来一座
             case ALTAR_ABSORB: return 50_000_000L;   // 连吞时要听得出颗粒，但不能糊
             case ALTAR_BLESS: return 0L;             // 一座祭坛只爆发一次
+            case BOUNTY_START: return 0L;            // 几十秒才发一张
+            case BOUNTY_CLAIM: return 0L;            // 一单只兑现一次
+            case BOUNTY_FAIL: return 0L;             // 同上
             case ACHIEVEMENT: return 500_000_000L;   // 一次结算连解两条时只吹一记号角
             default: return 0L;
         }

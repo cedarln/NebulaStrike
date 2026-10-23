@@ -285,6 +285,9 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case ALTAR_SPAWN: haptics.tick(); break;
                     // 赐福爆发是一整段正反馈的收口：和大招同档
                     case ALTAR_BLESSED: haptics.bomb(); break;
+                    // 悬赏发布轻点一下；兑现给一记重震，脱逃不震（避免惩罚感）
+                    case BOUNTY_START: haptics.tick(); break;
+                    case BOUNTY_CLAIMED: haptics.bomb(); break;
                     case MIRAGE_REVEAL: haptics.tick(); break;
                     // EMP 放出去要"撞一下"，磁暴艇被打爆吞弹只是轻提示
                     case MAG_BURST:

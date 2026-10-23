@@ -1133,6 +1133,50 @@ public class Renderer {
                     break;
                 }
             }
+            if (e.bounty) drawBountyMark(c, w, e);
+        }
+    }
+
+    /** 赏金目标：头顶旋转菱形 + 倒计时环，全场只此一个，扫一眼就能找到。 */
+    private void drawBountyMark(Canvas c, GameWorld w, Enemy e) {
+        float pulse = 0.5f + 0.5f * (float) Math.sin(w.timeAlive * 7f);
+        float my = e.y - e.type.radius - 28f - 4f * pulse;
+        glow.setColor(((int) (0x50 + 0x40 * pulse) << 24) | 0x00FFD166);
+        c.drawCircle(e.x, my, 19f + 3f * pulse, glow);
+        // 菱形本体：旋转的"价签"
+        c.save();
+        c.rotate(w.timeAlive * 90f, e.x, my);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xFFFFD166);
+        shapePath.rewind();
+        shapePath.moveTo(e.x, my - 11f);
+        shapePath.lineTo(e.x + 8.5f, my);
+        shapePath.lineTo(e.x, my + 11f);
+        shapePath.lineTo(e.x - 8.5f, my);
+        shapePath.close();
+        c.drawPath(shapePath, paint);
+        paint.setColor(0xFF3A2A08);
+        c.drawCircle(e.x, my, 3.4f, paint);
+        c.restore();
+        // 倒计时环：快到期时只留最后一个短弧，制造"要跑了"的紧迫感
+        float frac = Math.max(0f, Math.min(1f, w.bountyTimer / GameWorld.BOUNTY_TIME));
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3f);
+        paint.setColor(0x55FFD166);
+        arcRect.set(e.x - 17f, my - 17f, e.x + 17f, my + 17f);
+        c.drawArc(arcRect, 0f, 360f, false, paint);
+        paint.setColor(frac < 0.25f && ((int) (w.timeAlive * 8f)) % 2 == 0
+                ? 0xFFFF7A5C : 0xFFFFE9A8);
+        c.drawArc(arcRect, -90f, 360f * frac, false, paint);
+        paint.setStyle(Paint.Style.FILL);
+        if (w.bountyStreak > 0) {
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(20f);
+            paint.setFakeBoldText(true);
+            paint.setColor(0xCCFFD166);
+            c.drawText("×" + (w.bountyStreak + 1), e.x, my - 24f, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextAlign(Paint.Align.LEFT);
         }
     }
 
@@ -2108,6 +2152,22 @@ public class Renderer {
             paint.setTextAlign(Paint.Align.LEFT);
         }
 
+        // 赏金悬赏：顶部中央的倒计时，快到期时闪烁提醒"这一单要飞了"
+        if (w.bountyTarget != null && w.bountyTarget.active) {
+            float frac = Math.max(0f, Math.min(1f, w.bountyTimer / GameWorld.BOUNTY_TIME));
+            float blink = frac < 0.25f
+                    ? 0.55f + 0.45f * Math.abs((float) Math.sin(w.timeAlive * 8f)) : 1f;
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(26f);
+            paint.setFakeBoldText(true);
+            paint.setColor(((int) (0xFF * blink) << 24) | 0xFFFFD166);
+            String chain = w.bountyStreak > 0 ? "  ·  连 ×" + (w.bountyStreak + 1) : "";
+            c.drawText("◆ 悬赏 " + Math.max(1, (int) Math.ceil(w.bountyTimer)) + "s" + chain,
+                    VW / 2f, 30f, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+
         // combo counter
         if (w.comboKills > 1) {
             int mult = w.comboMultiplier();
@@ -2374,6 +2434,38 @@ public class Renderer {
             paint.setColor(((int) (0xCC * k) << 24) | 0x00FFE08A);
             c.drawText("护航编队 + 奖励补给", VW / 2f, 342f, paint);
             paint.setFakeBoldText(false);
+        }
+        // 赏金横幅：发布 / 兑现 / 脱逃共用一个槽位（y 380），三种结果各有自己的颜色
+        if (w.bountyBanner > 0f && w.bountyBannerKind != 0) {
+            float k = Math.min(1f, w.bountyBanner / 0.4f);
+            float in = Math.min(1f, (2.2f - w.bountyBanner) / 0.25f);
+            float s = 0.72f + 0.28f * in;
+            boolean fail = w.bountyBannerKind == 3;
+            int rgb = fail ? 0xFF8FA3C8 : 0xFFFFD166;
+            String title;
+            if (w.bountyBannerKind == 1) {
+                title = "赏金目标 · " + (w.bountyBannerType != null
+                        ? enemyName(w.bountyBannerType) : "未知舰");
+            } else if (w.bountyBannerKind == 2) {
+                title = "赏金到手 +" + w.bountyLastGain;
+            } else {
+                title = "赏金目标脱逃";
+            }
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(48f * s);
+            paint.setFakeBoldText(true);
+            paint.setColor(((int) (0xFF * k) << 24) | (rgb & 0x00FFFFFF));
+            c.drawText(title, VW / 2f, 380f, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextSize(23f * s);
+            paint.setColor(((int) (0xD8 * k) << 24) | 0x00E8F1FF);
+            String sub = fail
+                    ? "只断连杀，不扣分 · 下一单稍后"
+                    : w.bountyStreak > 0
+                            ? "连杀 ×" + w.bountyStreak + " · 赏金与目标强度同步上涨"
+                            : "限时击毁 · 奖励分数与保底道具";
+            c.drawText(sub, VW / 2f, 412f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
         }
         // v1.17：新舰型首次登场介绍（只在存档里第一次遇到时弹，读一次就够）
         if (w.debutBanner > 0f && w.debutBannerType != null) {

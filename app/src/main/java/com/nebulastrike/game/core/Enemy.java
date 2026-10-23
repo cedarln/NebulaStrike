@@ -72,6 +72,8 @@ public class Enemy {
     public int broodOf = -1;
     /** 精英词缀：厚血、高分、必掉道具，渲染层加一圈光环。 */
     public boolean elite;
+    /** v1.27 赏金目标：由 GameWorld 现场指定，限时击毁可拿赏金与连杀。 */
+    public boolean bounty;
     /** 精英倍率（生命、分值）。 */
     public static final float ELITE_HP_MULT = 2.6f;
     public static final int ELITE_SCORE_MULT = 3;
@@ -183,6 +185,7 @@ public class Enemy {
         this.phaseOut = false;
         this.phaseReentry = 0f;
         this.elite = false;
+        this.bounty = false;
         this.diveSpeed = type.baseSpeed * speedScale;
         switch (type) {
             case TANK: fireCd = 1.4f + GameWorld.RNG.get().nextFloat() * 0.6f; break;

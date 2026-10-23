@@ -93,5 +93,11 @@ public enum SfxId {
     /** v1.26：祭坛吞掉一颗敌弹的短促"啵"（充能越高音越高） */
     ALTAR_ABSORB,
     /** v1.26：祭坛赐福爆发的四音上行圣咏 */
-    ALTAR_BLESS
+    ALTAR_BLESS,
+    /** v1.27：赏金目标发布的号角（两音上行 + 定音鼓） */
+    BOUNTY_START,
+    /** v1.27：赏金兑现的金币铃（连杀越高音越亮） */
+    BOUNTY_CLAIM,
+    /** v1.27：赏金目标脱逃的低沉收尾（不刺耳，只报个信） */
+    BOUNTY_FAIL
 }

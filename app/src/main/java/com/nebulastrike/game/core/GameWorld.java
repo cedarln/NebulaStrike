@@ -79,7 +79,13 @@ public class GameWorld {
         /** v1.26：祭坛吞掉一颗敌弹（code = 当前充能值） */
         ALTAR_ABSORB,
         /** v1.26：祭坛爆发赐福（code = {@link Altar.Blessing#ordinal()}） */
-        ALTAR_BLESSED
+        ALTAR_BLESSED,
+        /** v1.27：赏金目标发布（code = {@link EnemyType#ordinal()}） */
+        BOUNTY_START,
+        /** v1.27：赏金兑现（code = 当前连杀数） */
+        BOUNTY_CLAIMED,
+        /** v1.27：赏金目标脱逃 / 超时 */
+        BOUNTY_FAILED
     }
     public static final class GameEvent {
         public final EventType type;
@@ -142,6 +148,43 @@ public class GameWorld {
      * 改动一个局内事件不该重排整局的关卡节拍。
      */
     private long altarSeed = 0x2545F4914F6CDD1DL;
+
+    // ---- v1.27：赏金猎杀 BOUNTY ----
+    /** 第一张悬赏出现的时刻（秒）：等猎手级敌机开始登场，又不至于撞上第一场 Boss。 */
+    public static final float BOUNTY_FIRST_AT = 22f;
+    /** 两张悬赏之间的最短间隔与随机量。 */
+    public static final float BOUNTY_MIN_GAP = 40f;
+    public static final float BOUNTY_GAP_JITTER = 16f;
+    /** 每张悬赏的限时。超时不扣分，只断连杀。 */
+    public static final float BOUNTY_TIME = 16f;
+    /** 连杀加成上限：连到第 6 单后奖励封顶，避免后期赏金吞掉常规得分。 */
+    public static final int BOUNTY_MAX_STREAK = 6;
+    /**
+     * 沙盒开关：确定性长跑测试若不想被"悬赏加血 + 保底道具"改变武器与刷新节拍，
+     * 可以关掉它；与 {@link #spawningEnabled} / {@link #mutatorsEnabled} 同一类测试缝。
+     */
+    public boolean bountyEnabled = true;
+    /** 当前被标记的赏金目标（null = 没有悬赏在路上）。 */
+    public Enemy bountyTarget;
+    public float bountyTimer;
+    /** 下一张悬赏最早可发布的时刻。 */
+    public float bountyNextAt = BOUNTY_FIRST_AT;
+    public int bountyStreak;
+    public int bountyBestStreak;
+    public int bountiesClaimed;
+    public int bountiesFailed;
+    /** 最近一笔赏金实得分数（横幅展示）。 */
+    public int bountyLastGain;
+    /** 悬赏横幅剩余秒数；kind 1 发布 2 兑现 3 脱逃。 */
+    public float bountyBanner;
+    public int bountyBannerKind;
+    /** 发布横幅要念出来的敌机名（兑现/脱逃时为 null）。 */
+    public EnemyType bountyBannerType;
+    /**
+     * 赏金自己的随机源：候选敌人是全局随机选的会打乱后续刷新序列，
+     * 与祭坛同理，一张悬赏不该重排整局的敌机节拍。
+     */
+    private long bountySeed = 0x9E3779B97F4A7C15L;
 
     public final Star[] stars = new Star[90];
     /** v1.11 伤害/得分飘字池；满槽时覆盖最旧的一条（与粒子同样的 ring cursor）。 */
@@ -1697,6 +1740,7 @@ public class GameWorld {
         updateTurrets(dt);
         updateGravityWells(dt);
         updateAltar(dt);
+        updateBounty(dt);
         updateMinersAndCarriers();
     }
 
@@ -1893,6 +1937,130 @@ public class GameWorld {
         altarSeed = altarSeed * 6364136223846793005L + 1442695040888963407L;
         return (int) ((altarSeed >>> 33) & 0x7fffffff);
     }
+
+    // ---- v1.27：赏金猎杀 BOUNTY ----
+
+    /**
+     * 赏金计时：不刷新新敌机，只把场上已经存在的"值得打"的敌机圈成目标。
+     * 这样既不挤占敌机池，也不会多抽一次主随机数、把整局的敌机序列整体错位。
+     */
+    private void updateBounty(float dt) {
+        if (bountyBanner > 0f) bountyBanner = Math.max(0f, bountyBanner - dt);
+        if (!bountyEnabled) return;
+        if (bossRush()) return;   // 连战局只有 Boss，没有可悬赏的小怪
+        if (bountyTarget != null) {
+            if (!bountyTarget.bounty) {          // 槽位被新敌机复用：这一单跟丢了
+                failBounty();
+                return;
+            }
+            if (!bountyTarget.active) {
+                // 被炮台撞毁不经过 killEnemy；只要残骸还在场内，就算完成
+                if (bountyTarget.y < HEIGHT * 0.9f) {
+                    claimBounty(bountyTarget.x, bountyTarget.y, bountyTarget.type);
+                } else {
+                    failBounty();
+                }
+                return;
+            }
+            bountyTimer -= dt;
+            if (bountyTimer <= 0f) failBounty();
+            return;
+        }
+        if (bossActive || timeAlive < bountyNextAt) return;
+        issueBounty();
+    }
+
+    /** 从现役敌机里挑一个目标：炮灰不配悬赏，伪装/相位中的也点不到。 */
+    private void issueBounty() {
+        Enemy pick = null;
+        int seen = 0;
+        for (Enemy e : enemies) {
+            if (!e.active || e.bounty) continue;
+            if (e.type == EnemyType.DRONE || e.type == EnemyType.WEAVER
+                    || e.type == EnemyType.SUICIDER) continue;
+            if (e.isCloaked() || e.isPhased()) continue;
+            // 只挑还在上半场的：贴到底线的目标常常一两秒就飞出屏幕，等于发了个死单
+            if (e.y < -20f || e.y > HEIGHT * 0.5f) continue;
+            // 蓄水池抽样：一次遍历等概率取一个，不用先数再取
+            seen++;
+            if (nextBountyRoll() % seen == 0) pick = e;
+        }
+        if (pick == null) {
+            bountyNextAt = timeAlive + 3f;   // 场上暂时没有合适目标，过几秒再试
+            return;
+        }
+        pick.bounty = true;
+        // 悬赏目标更硬，但连杀越高赏金也越高：风险与收益同步上涨
+        float mult = 1.7f + 0.15f * Math.min(BOUNTY_MAX_STREAK, bountyStreak);
+        pick.hp = pick.maxHp = Math.round(pick.maxHp * mult);
+        bountyTarget = pick;
+        bountyTimer = BOUNTY_TIME;
+        bountyBanner = 2.2f;
+        bountyBannerKind = 1;
+        bountyBannerType = pick.type;
+        addShake(0.10f, 4f);
+        spark(pick.x, pick.y, 8, 13);
+        events.add(new GameEvent(EventType.BOUNTY_START, pick.x, pick.y, pick.type.ordinal()));
+    }
+
+    /** 赏金兑现：连杀、保底道具与节拍豁免都在这里结算。 */
+    private void claimBounty(float x, float y, EnemyType type) {
+        if (bountyTarget != null) bountyTarget.bounty = false;
+        bountyTarget = null;
+        bountyStreak++;
+        if (bountyStreak > bountyBestStreak) bountyBestStreak = bountyStreak;
+        bountiesClaimed++;
+        int bonus = 250 + 150 * Math.min(BOUNTY_MAX_STREAK, bountyStreak) + 60 * wave;
+        int gained = addScore(bonus, SCORE_OTHER);
+        // 悬赏是表现奖励：与成就同理不计入关卡节拍，否则连杀越多 Boss 来得越早
+        pacingExemptScore += gained;
+        bountyLastGain = gained;
+        spawnFloatText(x, y - type.radius - 26f, gained, FLOAT_SCORE, true);
+        // 保底道具：单数给武器、双数给火力，保证每张悬赏都真的让玩家变强
+        PowerUp.Kind kind;
+        if (bountyStreak % 2 == 0) {
+            kind = PowerUp.Kind.POWER;
+        } else {
+            int r = nextBountyRoll() % 3;
+            kind = r == 0 ? PowerUp.Kind.SPREAD
+                    : r == 1 ? PowerUp.Kind.LASER : PowerUp.Kind.MISSILE;
+        }
+        spawnPowerUp(kind, x, y);
+        ultCharge(ULT_GAIN_ELITE * 0.8f, x, y);
+        bountyBanner = 2.2f;
+        bountyBannerKind = 2;
+        bountyBannerType = null;
+        bountyNextAt = timeAlive + BOUNTY_MIN_GAP + nextBountyRoll() % (int) BOUNTY_GAP_JITTER;
+        addShake(0.24f, 10f);
+        addHitStop(0.05f);
+        spark(x, y, 16, 13);
+        events.add(new GameEvent(EventType.BOUNTY_CLAIMED, x, y, bountyStreak));
+    }
+
+    /** 脱逃：只断连杀，不扣分也不扣命——漏掉一张悬赏不该让人变弱。 */
+    private void failBounty() {
+        if (bountyTarget != null) bountyTarget.bounty = false;
+        bountyTarget = null;
+        bountyStreak = 0;
+        bountiesFailed++;
+        bountyBanner = 1.6f;
+        bountyBannerKind = 3;
+        bountyBannerType = null;
+        bountyNextAt = timeAlive + BOUNTY_MIN_GAP + nextBountyRoll() % (int) BOUNTY_GAP_JITTER;
+        events.add(new GameEvent(EventType.BOUNTY_FAILED, ship.x, ship.y));
+    }
+
+    /** 赏金专用 LCG：与对局主随机源隔离，悬赏序列可复现且不影响刷新节拍。 */
+    private int nextBountyRoll() {
+        bountySeed = bountySeed * 6364136223846793005L + 1442695040888963407L;
+        return (int) ((bountySeed >>> 33) & 0x7fffffff);
+    }
+
+    /** 测试缝：直接发布一张悬赏（跳过时间条件，仍走完整的候选过滤）。 */
+    void issueBountyForTest() { issueBounty(); }
+
+    /** 测试缝：单独推进一帧赏金状态机。 */
+    void updateBountyForTest(float dt) { updateBounty(dt); }
 
     /**
      * 引导吸弹：光环内的敌弹被拽向核心，进核心即被吞掉。
@@ -3587,6 +3755,7 @@ public class GameWorld {
         final float ex = e.x, ey = e.y;
         final int depth = e.splitDepth;
         final boolean elite = e.elite;
+        final boolean bounty = e.bounty;
         final boolean cloaked = e.isCloaked();
         final int broodOwner = e.broodOf;
         comboKills++;
@@ -3662,6 +3831,7 @@ public class GameWorld {
         }
         if (broodOwner >= 0) e.broodOf = -1;   // 幼机槽位即将复用，先摘掉归属
         maybeDropPowerUp(type, ex, ey, elite);
+        if (bounty) claimBounty(ex, ey, type);
         events.add(new GameEvent(EventType.ENEMY_KILLED, ex, ey, type.ordinal()));
         if (comboKills % 5 == 0 && comboKills <= 20) {
             events.add(new GameEvent(EventType.COMBO, ex, ey, comboKills));
@@ -4195,6 +4365,20 @@ public class GameWorld {
         altarsBlessed = 0;
         altarFlash = 0f;
         altarCleared = 0;
+        // v1.27：赏金状态归零
+        if (bountyTarget != null) bountyTarget.bounty = false;
+        bountyTarget = null;
+        bountyTimer = 0f;
+        bountyNextAt = BOUNTY_FIRST_AT;
+        bountySeed = 0x9E3779B97F4A7C15L;
+        bountyStreak = 0;
+        bountyBestStreak = 0;
+        bountiesClaimed = 0;
+        bountiesFailed = 0;
+        bountyLastGain = 0;
+        bountyBanner = 0f;
+        bountyBannerKind = 0;
+        bountyBannerType = null;
         ultConverted = 0;
         ult.reset();
         ultFlash = 0f;
