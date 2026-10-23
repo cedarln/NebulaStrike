@@ -277,6 +277,10 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case REFLECT: haptics.impact(); break;
                     // 电弧连锁：轻点一下，别和连锁闪电道具的重震混淆
                     case ARC_CHAIN: haptics.tick(); break;
+                    // 弹幕网展开：整屏压下来的感觉，给一次中等震动
+                    case BOSS_NET: haptics.impact(); break;
+                    // 棱镜召唤：比横冲轻，像"多了两个东西在绕圈"
+                    case BOSS_PRISM: haptics.tick(); break;
                     case MIRAGE_REVEAL: haptics.tick(); break;
                     // EMP 放出去要"撞一下"，磁暴艇被打爆吞弹只是轻提示
                     case MAG_BURST:

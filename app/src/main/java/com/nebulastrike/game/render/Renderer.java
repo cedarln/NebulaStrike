@@ -501,6 +501,10 @@ public class Renderer {
                 drawMine(c, b, w.timeAlive);
                 continue;
             }
+            if (b.net) {
+                drawNetNode(c, b, w.timeAlive);
+                continue;
+            }
             // fading trail
             glow.setColor(0x55FF7A4D);
             c.drawCircle(b.x - b.vx * 0.02f, b.y - b.vy * 0.02f, b.radius * 0.8f, glow);
@@ -510,6 +514,27 @@ public class Renderer {
             paint.setColor(0xFFFFE08A);
             c.drawCircle(b.x, b.y, b.radius * 0.45f, paint);
         }
+    }
+
+    /** 弹幕网节点：青白色方框 + 十字芯，像一张正在合拢的电网。 */
+    private void drawNetNode(Canvas c, com.nebulastrike.game.core.EnemyBullet b, float time) {
+        float r = b.radius;
+        float pulse = 0.5f + 0.5f * (float) Math.sin(time * 5f + b.x * 0.01f);
+        glow.setColor(0x55AFF6FF);
+        c.drawCircle(b.x, b.y, r * 1.9f, glow);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2.5f);
+        paint.setColor(0xFF9BE8FF);
+        c.drawRect(b.x - r, b.y - r, b.x + r, b.y + r, paint);
+        paint.setStrokeWidth(1.5f);
+        paint.setColor(((int) (0x80 + 0x60 * pulse) << 24) | 0x00E8FFFF);
+        c.drawLine(b.x - r, b.y, b.x + r, b.y, paint);
+        c.drawLine(b.x, b.y - r, b.x, b.y + r, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xFF0E2233);
+        c.drawCircle(b.x, b.y, r * 0.45f, paint);
+        paint.setColor(0xFFD8FBFF);
+        c.drawCircle(b.x, b.y, r * 0.22f, paint);
     }
 
     /** 水雷：静止的带刺球，外圈危险环缓慢呼吸，核心忽明忽暗。 */
@@ -1335,7 +1360,8 @@ public class Renderer {
         paint.setTextAlign(Paint.Align.CENTER);
         String status = (b.staggerTimer > 0f ? "   DISARMED" : "")
                 + (b.shielded() ? "   ARMORED" : "")
-                + (b.isRamming() ? "   RAMMING" : "");
+                + (b.isRamming() ? "   RAMMING" : "")
+                + (b.prismsAlive() > 0 ? "   PRISM" : "");
         c.drawText(b.title() + "  MK-" + (b.level + 1) + "   PHASE " + b.phase + "/3" + status,
                 VW / 2f, by + 50f, paint);
 
@@ -1368,6 +1394,13 @@ public class Renderer {
                     shapePath.lineTo(px - 6f, pipY + 5f);
                     shapePath.close();
                     c.drawPath(shapePath, paint);
+                    break;
+                case PRISM:
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeWidth(2.5f);
+                    c.drawLine(px - 5f, pipY - 5f, px + 5f, pipY + 5f, paint);
+                    c.drawLine(px + 5f, pipY - 5f, px - 5f, pipY + 5f, paint);
+                    paint.setStyle(Paint.Style.FILL);
                     break;
                 default:
                     c.drawCircle(px, pipY, 5.5f, paint);
@@ -1439,6 +1472,9 @@ public class Renderer {
                 case POD:
                     bossMinionPod(c, px, py, p, color, w.timeAlive);
                     break;
+                case PRISM:
+                    bossPrism(c, px, py, p, color, w.timeAlive);
+                    break;
                 default: {
                     if (p.kind == BossPart.Kind.LASER) {
                         glow.setColor(0x557DF9FF);
@@ -1479,13 +1515,14 @@ public class Renderer {
         paint.setStyle(Paint.Style.FILL);
     }
 
-    /** 部件配色：机炮琥珀、激光青、护盾器淡蓝、分裂舱橙红；受击时闪白。 */
+    /** 部件配色：机炮琥珀、激光青、护盾器淡蓝、分裂舱橙红、棱镜紫；受击时闪白。 */
     private static int partColor(BossPart p) {
         if (p.flash > 0f) return 0xFFFFFFFF;
         switch (p.kind) {
             case LASER: return 0xFF7DF9FF;
             case SHIELD: return 0xFF9DE8FF;
             case POD: return 0xFFFF8A4D;
+            case PRISM: return 0xFFC77DFF;
             default: return 0xFFFFB84D;
         }
     }
@@ -1551,6 +1588,43 @@ public class Renderer {
         paint.setStrokeWidth(2f);
         paint.setColor(0xAAFFE08A);
         c.drawCircle(px, py, p.radius * 0.72f, paint);
+        paint.setStyle(Paint.Style.FILL);
+    }
+
+    /** 棱镜：缓慢自转的紫晶，四向尖刺对应十字光束，核心随充能呼吸。 */
+    private void bossPrism(Canvas c, float px, float py, BossPart p,
+                           int color, float time) {
+        float r = p.radius;
+        float breathe = 0.75f + 0.25f * (float) Math.sin(time * 5f + p.orbit);
+        glow.setColor(0x66C77DFF);
+        c.drawCircle(px, py, r * 2.3f * breathe, glow);
+        c.save();
+        c.translate(px, py);
+        c.rotate((float) Math.toDegrees(time * 75f + p.orbit * 0.6f));
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(color);
+        for (int i = 0; i < 4; i++) {
+            c.save();
+            c.rotate(i * 90f);
+            shapePath.rewind();
+            shapePath.moveTo(0f, -r * 1.95f);
+            shapePath.lineTo(r * 0.5f, -r * 0.45f);
+            shapePath.lineTo(-r * 0.5f, -r * 0.45f);
+            shapePath.close();
+            c.drawPath(shapePath, paint);
+            c.restore();
+        }
+        shapePath.rewind();
+        shapePath.moveTo(0f, -r * 0.92f);
+        shapePath.lineTo(r * 0.72f, 0f);
+        shapePath.lineTo(0f, r * 0.92f);
+        shapePath.lineTo(-r * 0.72f, 0f);
+        shapePath.close();
+        paint.setColor(0xFF2A1240);
+        c.drawPath(shapePath, paint);
+        paint.setColor(0xFFF3E8FF);
+        c.drawCircle(0f, 0f, r * 0.34f * breathe, paint);
+        c.restore();
         paint.setStyle(Paint.Style.FILL);
     }
 

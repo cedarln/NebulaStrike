@@ -7,9 +7,9 @@ package com.nebulastrike.game.core;
 public class BossPart {
     /**
      * GUN 瞄准炮塔 / LASER 激光吊舱 / SHIELD 护盾发生器（存活时削弱核心伤害）/
-     * POD 分裂舱（周期性投放僚机）。
+     * POD 分裂舱（周期性投放僚机）/ PRISM 棱镜（后期召唤，环绕舰体并放出十字光束）。
      */
-    public enum Kind { GUN, LASER, SHIELD, POD }
+    public enum Kind { GUN, LASER, SHIELD, POD, PRISM }
 
     public Kind kind;
     /** offset from the boss center, virtual units */
@@ -24,6 +24,9 @@ public class BossPart {
     public float destroyedAge;
     /** rendering: current barrel angle toward the player */
     public float aim;
+    /** PRISM 环绕舰体的当前角度与角速度（正负方向各一个）。 */
+    public float orbit;
+    public float spin;
 
     public void init(Kind kind, float ox, float oy, float radius, float hp, float fireCd) {
         this.kind = kind;
@@ -37,6 +40,8 @@ public class BossPart {
         this.fireCd = fireCd;
         this.destroyedAge = 0f;
         this.aim = (float) (Math.PI / 2);
+        this.orbit = 0f;
+        this.spin = 0f;
     }
 
     public void update(float dt) {

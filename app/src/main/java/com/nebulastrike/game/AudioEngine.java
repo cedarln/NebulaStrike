@@ -352,6 +352,15 @@ public class AudioEngine {
                     play(SfxId.ARC_ZAP, 0.42f + Math.min(0.25f, e.code * 0.05f),
                             1f + Math.min(0.5f, e.code * 0.08f), panFor(e.x));
                     break;
+                case BOSS_NET:
+                    // 整面弹幕网通电：低频嗡鸣铺底，别盖住玩家自己的枪声
+                    play(SfxId.BOSS_NET, 0.76f, vary(0.03f), panFor(e.x));
+                    break;
+                case BOSS_PRISM:
+                    // 召唤两枚时音色更亮，提示"多了一对麻烦的东西"
+                    play(SfxId.BOSS_PRISM, 0.86f,
+                            e.code > 1 ? 1.03f : 0.96f, panFor(e.x));
+                    break;
             }
         }
     }
@@ -520,6 +529,8 @@ public class AudioEngine {
             case PHASE_SHIFT: return 110_000_000L;  // 一群相位者同时换相时留一点层次
             case REFLECT: return 90_000_000L;       // 密集弹幕下连弹时别糊成一片
             case ARC_ZAP: return 70_000_000L;       // 电弧每发命中都会连锁，留一点层次
+            case BOSS_NET: return 0L;               // 一张网只响一次
+            case BOSS_PRISM: return 0L;              // 一局 Boss 战最多召唤一次
             case ACHIEVEMENT: return 500_000_000L;   // 一次结算连解两条时只吹一记号角
             default: return 0L;
         }

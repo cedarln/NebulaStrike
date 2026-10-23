@@ -72,6 +72,8 @@ public final class SfxBank {
         put(SfxId.PHASE_SHIFT, phaseShift(), 0.60f);
         put(SfxId.REFLECT, reflect(), 0.62f);
         put(SfxId.ARC_ZAP, arcZap(), 0.55f);
+        put(SfxId.BOSS_NET, bossNet(), 0.66f);
+        put(SfxId.BOSS_PRISM, bossPrism(), 0.72f);
     }
 
     public static SfxBank create() {
@@ -942,6 +944,54 @@ public final class SfxBank {
             double tick = noise(r) * (t < 0.012 ? 0.5 : 0.1);
             x[i] = (float) ((crack + tone + tick) * env(t, 0.20, 0.001, 1.4));
         }
+        return x;
+    }
+
+    /** 弹幕网：低频电网充能嗡鸣 + 四记均匀电流滴答，像整面墙同时通电。 */
+    private static float[] bossNet() {
+        int n = frames(0.48);
+        float[] x = new float[n];
+        Random r = new Random(733);
+        double ph1 = 0, ph2 = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double k = Math.min(1.0, t / 0.4);
+            ph1 += (90 + 50 * k) / SAMPLE_RATE;
+            ph2 += (180 + 110 * k) / SAMPLE_RATE;
+            double hum = 0.5 * sine(ph1) + 0.12 * square(ph2, 0.28);
+            double ticks = 0;
+            for (int g = 0; g < 4; g++) {
+                double tt = t - (0.06 + g * 0.1);
+                if (tt >= 0 && tt < 0.02) ticks += noise(r) * (1.0 - tt / 0.02) * 0.35;
+            }
+            x[i] = (float) ((hum * (0.35 + 0.65 * k) + ticks) * env(t, 0.48, 0.02, 1.1));
+        }
+        echo(x, 0.07, 0.22);
+        return x;
+    }
+
+    /** 棱镜召唤：紫水晶质感的错拍琶音（三个泛音依次点亮）+ 高频闪砂。 */
+    private static float[] bossPrism() {
+        int n = frames(0.56);
+        float[] x = new float[n];
+        Random r = new Random(941);
+        double[] f = {784, 1046.5, 1568};
+        double[] ph = new double[f.length];
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double tone = 0;
+            for (int k = 0; k < f.length; k++) {
+                double start = k * 0.07;
+                if (t < start) continue;
+                double local = t - start;
+                ph[k] += f[k] * (1.0 + 0.004 * Math.sin(k * 1.7)) / SAMPLE_RATE;
+                tone += (0.4 * sine(ph[k]) + 0.18 * tri(ph[k] * 2.0))
+                        * Math.exp(-local * 4.5) / (k + 1);
+            }
+            double shimmer = noise(r) * Math.exp(-t * 9) * 0.12;
+            x[i] = (float) ((tone + shimmer) * env(t, 0.56, 0.004, 1.1));
+        }
+        echo(x, 0.09, 0.35);
         return x;
     }
 

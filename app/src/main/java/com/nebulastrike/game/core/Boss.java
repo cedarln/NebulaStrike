@@ -6,7 +6,9 @@ package com.nebulastrike.game.core;
  * so fights escalate from a small scout carrier to a screen-filling leviathan.
  */
 public class Boss {
-    public static final int MAX_PARTS = 12;
+    public static final int MAX_PARTS = 14;
+    /** 三阶段召唤的棱镜数量（正反方向各一枚）。 */
+    public static final int PRISM_COUNT = 2;
 
     public final BossPart[] parts = new BossPart[MAX_PARTS];
     public int partCount;
@@ -39,6 +41,9 @@ public class Boss {
     /** 横冲速度（虚拟单位/秒） */
     public static final float RAM_SPEED = 1150f;
     private static final float RAM_DURATION = 0.5f;
+    /** 三阶段棱镜召唤：已召唤过就不再重复，队列由 GameWorld 消费。 */
+    public boolean prismsSummoned;
+    public boolean prismQueued;
 
     public Boss() {
         for (int i = 0; i < parts.length; i++) parts[i] = new BossPart();
@@ -66,6 +71,8 @@ public class Boss {
         this.ramCd = 8f - 1.2f * tier;
         this.ramTimer = 0f;
         this.ramTargetX = this.x;
+        this.prismsSummoned = false;
+        this.prismQueued = false;
         layoutParts();
     }
 
@@ -140,13 +147,22 @@ public class Boss {
         age += dt;
         if (flash > 0f) flash = Math.max(0f, flash - dt);
         if (staggerTimer > 0f) staggerTimer = Math.max(0f, staggerTimer - dt);
-        for (int i = 0; i < partCount; i++) parts[i].update(dt);
+        for (int i = 0; i < partCount; i++) {
+            BossPart p = parts[i];
+            p.update(dt);
+            if (p.active && p.kind == BossPart.Kind.PRISM) {
+                p.orbit += p.spin * dt;
+                p.ox = (float) Math.cos(p.orbit) * radius * 1.18f;
+                p.oy = (float) Math.sin(p.orbit) * radius * 0.6f - radius * 0.1f;
+            }
+        }
 
         float hpFrac = hp / maxHp;
         int newPhase = hpFrac > 0.66f ? 1 : (hpFrac > 0.33f ? 2 : 3);
         if (newPhase != phase) {
             phase = newPhase;
             flash = 0.3f;
+            if (phase >= 3 && tier >= 1) prismQueued = true;
         }
 
         // entry glide then sine patrol; larger / later bosses move a bit quicker
@@ -220,6 +236,44 @@ public class Boss {
 
     public void resetSummon() {
         minionCd = 6.5f;
+    }
+
+    /** 三阶段棱镜召唤：第二艘 Boss 起、入场就位、从硬直中恢复后才允许。 */
+    public boolean readyToSummonPrism() {
+        return tier >= 1 && phase >= 3 && prismQueued && !prismsSummoned
+                && staggerTimer <= 0f && y >= arenaY - 4f;
+    }
+
+    /** 召唤一对反向环绕的棱镜，加到部件末尾；返回实际数量。 */
+    public int summonPrisms() {
+        if (tier < 1 || prismsSummoned) return 0;
+        prismsSummoned = true;
+        prismQueued = false;
+        int made = 0;
+        float pr = clamp(radius * 0.2f, 14f, 24f);
+        float hp = 30f + 10f * level;
+        for (int i = 0; i < PRISM_COUNT && partCount < MAX_PARTS; i++) {
+            BossPart p = parts[partCount];
+            float sign = i == 0 ? 1f : -1f;
+            p.init(BossPart.Kind.PRISM, sign * radius * 1.18f, -radius * 0.1f,
+                    pr, hp, 1.8f + i * 1.5f);
+            p.orbit = i == 0 ? 0f : (float) Math.PI;
+            p.spin = sign * (1.05f + 0.08f * tier);
+            p.ox = (float) Math.cos(p.orbit) * radius * 1.18f;
+            partCount++;
+            made++;
+        }
+        flash = 0.35f;
+        return made;
+    }
+
+    public int prismsAlive() {
+        int n = 0;
+        for (int i = 0; i < partCount; i++) {
+            BossPart p = parts[i];
+            if (p.active && p.kind == BossPart.Kind.PRISM) n++;
+        }
+        return n;
     }
 
     public void damage(int amount) {

@@ -15,6 +15,8 @@ public class BossLaser {
     public boolean firing;
     /** only one hit per beam, even if the player stays inside it */
     public boolean hitThisShot;
+    /** 棱镜十字光束：预警期间不再追瞄玩家，保持固定的十字方向。 */
+    public boolean fixedAim;
 
     public void init(float x, float y, float angle, float warmup, float beam) {
         this.x = x;
@@ -27,6 +29,7 @@ public class BossLaser {
         this.active = true;
         this.firing = false;
         this.hitThisShot = false;
+        this.fixedAim = false;
     }
 
     public void update(float dt) {

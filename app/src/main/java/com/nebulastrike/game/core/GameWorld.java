@@ -69,7 +69,11 @@ public class GameWorld {
         /** v1.23：反射护罩把一发敌弹弹回去（code = 剩余就绪层数） */
         REFLECT,
         /** v1.24：电弧炮命中后的连锁放电（code = 连锁到的目标数） */
-        ARC_CHAIN
+        ARC_CHAIN,
+        /** v1.25：Boss 弹幕网（code = 本次网格弹数） */
+        BOSS_NET,
+        /** v1.25：Boss 召唤棱镜（code = 召唤数量） */
+        BOSS_PRISM
     }
     public static final class GameEvent {
         public final EventType type;
@@ -101,7 +105,7 @@ public class GameWorld {
     public final Ship ship = new Ship();
     /** 多武器叠加后同屏弹丸更多，池子相应扩充（v1.10 基础炮常驻后再加一档）。 */
     public final Bullet[] bullets = new Bullet[168];
-    public final EnemyBullet[] enemyBullets = new EnemyBullet[56];
+    public final EnemyBullet[] enemyBullets = new EnemyBullet[72];
     public final Enemy[] enemies = new Enemy[48];
     public final Particle[] particles = new Particle[256];
     public final PowerUp[] powerups = new PowerUp[24];
@@ -390,8 +394,8 @@ public class GameWorld {
 
     // boss battle
     public final Boss boss = new Boss();
-    /** 独立瞄准的 Boss 激光（预警 -> 持续光束）。 */
-    public final BossLaser[] bossLasers = new BossLaser[4];
+    /** 独立瞄准的 Boss 激光（预警 -> 持续光束）；满足棱镜十字光束同时开火。 */
+    public final BossLaser[] bossLasers = new BossLaser[12];
     public int bossesDefeated;
     int nextBossWave = 4;
     /**
@@ -781,6 +785,13 @@ public class GameWorld {
             addShake(0.4f, 14f);
             events.add(new GameEvent(EventType.BOSS_RAM, boss.x, boss.y));
         }
+        if (boss.readyToSummonPrism()) {
+            int made = boss.summonPrisms();
+            if (made > 0) {
+                addShake(0.5f, 16f);
+                events.add(new GameEvent(EventType.BOSS_PRISM, boss.x, boss.y, made));
+            }
+        }
         if (boss.hp <= 0) {
             boss.active = false;
             bossActive = false;
@@ -844,6 +855,20 @@ public class GameWorld {
                 p.fireCd = 5.4f - 0.35f * boss.level + RNG.get().nextFloat() * 0.8f;
                 continue;
             }
+            if (p.kind == BossPart.Kind.PRISM) {            // 棱镜：四向十字光束
+                float base = boss.age * 0.8f;
+                int made = 0;
+                for (int k = 0; k < 4; k++) {
+                    BossLaser l = freeBossLaser();
+                    if (l == null) break;
+                    l.init(px, py, base + k * (float) (Math.PI / 2), 0.7f, 0.28f);
+                    l.fixedAim = true;
+                    made++;
+                }
+                p.fireCd = made > 0 ? 4.4f - boss.phase * 0.25f : 0.5f;
+                if (made > 0) spark(px, py, 2, 4);
+                continue;
+            }
             float dx = ship.x - px, dy = ship.y - py;
             float len = (float) Math.sqrt(dx * dx + dy * dy);
             if (len < 1f) len = 1f;
@@ -877,10 +902,12 @@ public class GameWorld {
         for (BossLaser l : bossLasers) {
             if (!l.active) continue;
             if (!l.firing) {
-                // 预警期间缓慢跟踪，给玩家留出横向位移的窗口
-                float px = ship.x - l.x, py = ship.y - l.y;
-                float desired = (float) Math.atan2(py, px);
-                l.angle = lerpAngle(l.angle, desired, Math.min(1f, dt * 3.2f));
+                // 预警期间缓慢跟踪，给玩家留出横向位移的窗口；棱镜十字光束保持固定方向
+                if (!l.fixedAim) {
+                    float px = ship.x - l.x, py = ship.y - l.y;
+                    float desired = (float) Math.atan2(py, px);
+                    l.angle = lerpAngle(l.angle, desired, Math.min(1f, dt * 3.2f));
+                }
             }
             boolean wasFiring = l.firing;
             l.update(dt);
@@ -952,13 +979,17 @@ public class GameWorld {
         int tier = boss.tier;
         attackSeq++;
         boolean ring = tier >= 1 && boss.phase >= 2 && attackSeq % 3 == 0;
+        boolean net = tier >= 1 && boss.phase >= 2 && attackSeq % 4 == 0;
         switch (boss.phase) {
             case 1: // 简单扇形：随着 Boss 级别变宽
                 fireFan(5 + tier * 2, 290f + tier * 18f, 0.19f);
                 if (tier >= 2) fireAimed(2, 380f, 0.09f);
                 break;
-            case 2: // 扇形 + 双侧瞄准弹，每三次交替一次扩散脉冲环
-                if (ring) {
+            case 2: // 扇形 + 双侧瞄准弹，每三次交替扩散脉冲环、每四次铺一张弹幕网
+                if (net) {
+                    fireNet(9 + tier, 2, 180f + tier * 8f);
+                    fireAimed(2, 390f, 0.10f);
+                } else if (ring) {
                     fireRing(10 + tier * 3, 235f + tier * 12f);
                     fireAimed(2, 400f, 0.12f);
                 } else {
@@ -967,7 +998,10 @@ public class GameWorld {
                 }
                 break;
             default:
-                if (ring && tier >= 2) {
+                if (net) {
+                    fireNet(10 + tier, tier >= 2 ? 3 : 2, 190f + tier * 8f);
+                    fireAimed(3, 430f, 0.12f);
+                } else if (ring && tier >= 2) {
                     fireHelix(8 + tier * 2, 310f + tier * 12f);
                     fireRing(12 + tier * 3, 270f);
                 } else if (tier <= 1) {
@@ -979,6 +1013,32 @@ public class GameWorld {
                 }
                 break;
         }
+    }
+
+    /**
+     * 弹幕网：横贯全屏的慢速矩阵弹，中间留一条两列宽的缺口，
+     * 缺口位置每次攻击横移，逼玩家先找缝再穿过去。返回本次弹数。
+     */
+    int fireNet(int columns, int rows, float speed) {
+        if (columns < 4) columns = 4;
+        int gap = Math.floorMod(attackSeq, columns - 2) + 1;
+        float margin = 54f;
+        float step = (WIDTH - margin * 2f) / (columns - 1);
+        float y0 = boss.y + boss.hitRadius * 0.55f;
+        int made = 0;
+        for (int row = 0; row < rows; row++) {
+            float y = y0 - row * 96f;
+            for (int col = 0; col < columns; col++) {
+                if (col == gap || col == gap + 1) continue;
+                EnemyBullet b = freeEnemyBullet();
+                if (b == null) break;
+                b.initNet(margin + col * step, y, speed);
+                made++;
+            }
+        }
+        addShake(0.22f, 7f);
+        events.add(new GameEvent(EventType.BOSS_NET, boss.x, boss.y, made));
+        return made;
     }
 
     /** 扩散脉冲环：360° 均匀弹幕，需要玩家从缝隙中穿过去。 */

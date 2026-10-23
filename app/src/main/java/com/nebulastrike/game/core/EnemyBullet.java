@@ -9,6 +9,8 @@ public class EnemyBullet {
     public boolean grazed;
     /** 水雷：布雷艇投放的静止爆炸物，渲染成带齿的环（碰撞行为与普通敌弹一致）。 */
     public boolean mine;
+    /** 弹幕网节点：Boss 的矩阵弹幕，渲染成方框网格，与普通圆弹一眼可分。 */
+    public boolean net;
 
     public void init(float x, float y, float vx, float vy) {
         this.x = x;
@@ -19,6 +21,7 @@ public class EnemyBullet {
         this.active = true;
         this.grazed = false;
         this.mine = false;
+        this.net = false;
     }
 
     /** Custom-radius variant (boss shells are bigger). */
@@ -31,6 +34,13 @@ public class EnemyBullet {
         this.active = true;
         this.grazed = false;
         this.mine = false;
+        this.net = false;
+    }
+
+    /** 弹幕网节点：缓慢直落，视觉上连成一张网格。 */
+    public void initNet(float x, float y, float vy) {
+        initRadius(x, y, 0f, vy, 12f);
+        this.net = true;
     }
 
     /** 水雷：几乎静止，只在原地缓慢下坠，玩家碰到即受伤。 */
