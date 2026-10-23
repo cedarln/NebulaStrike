@@ -20,7 +20,9 @@ public enum WeaponType {
     /** LASER + MISSILE：蜂群穿刺束，自动追踪。 */
     SWARM(0.13f, 1),
     /** 弹跳弹（v1.10）：命中前最多在左右壁各反弹一次，专治盾卫这类正面怪物。 */
-    BOUNCE(0.24f, 2);
+    BOUNCE(0.24f, 2),
+    /** 电弧炮（v1.24）：命中后向附近目标跳跃放电，叠层增加弹数与跳跃次数。 */
+    ARC(0.30f, 2);
 
     public final float cooldown;
     public final int damage;
@@ -64,6 +66,7 @@ public enum WeaponType {
             case CLUSTER: return "CLUSTER";
             case SWARM: return "SWARM";
             case BOUNCE: return "BOUNCE";
+            case ARC: return "ARC";
             default: return "VULCAN";
         }
     }

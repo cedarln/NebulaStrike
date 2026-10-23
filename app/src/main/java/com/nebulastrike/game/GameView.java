@@ -275,6 +275,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case PHASE_SHIFT: haptics.tick(); break;
                     // 反射护罩挡下敌弹：比擦弹重、比受击轻，像"接住再丢回去"
                     case REFLECT: haptics.impact(); break;
+                    // 电弧连锁：轻点一下，别和连锁闪电道具的重震混淆
+                    case ARC_CHAIN: haptics.tick(); break;
                     case MIRAGE_REVEAL: haptics.tick(); break;
                     // EMP 放出去要"撞一下"，磁暴艇被打爆吞弹只是轻提示
                     case MAG_BURST:

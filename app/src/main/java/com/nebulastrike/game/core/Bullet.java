@@ -32,6 +32,10 @@ public class Bullet {
     public boolean bent;
     /** v1.23：由反射护罩弹回来的敌弹（渲染成相位紫，与普通火力区分）。 */
     public boolean reflected;
+    /** v1.24：电弧炮弹体，命中后向附近目标连锁放电。 */
+    public boolean arc;
+    /** 电弧剩余跳跃次数（0 = 命中后不再连锁）。 */
+    public int arcJumps;
 
     public void init(float x, float y, float vy) {
         init(x, y, 0f, vy, 1, false);
@@ -56,6 +60,8 @@ public class Bullet {
         this.ult = false;
         this.bent = false;
         this.reflected = false;
+        this.arc = false;
+        this.arcJumps = 0;
         this.landed = false;
     }
 
@@ -84,6 +90,14 @@ public class Bullet {
         init(x, y, vx, vy, damage, false);
         this.cluster = true;
         this.radius = 11f;
+    }
+
+    /** 电弧炮：命中后从弹着点继续向附近目标跳跃 jumps 次。 */
+    public void initArc(float x, float y, float vx, float vy, int damage, int jumps) {
+        init(x, y, vx, vy, damage, false);
+        this.arc = true;
+        this.arcJumps = jumps;
+        this.radius = 10f;
     }
 
     public void update(float dt) {

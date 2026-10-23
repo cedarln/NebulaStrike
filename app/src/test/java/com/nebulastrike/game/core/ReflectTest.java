@@ -219,7 +219,8 @@ public class ReflectTest {
 
     @Test
     public void dropTableServesReflectBeforeTurret() {
-        assertEquals(PowerUp.Kind.GRAVITY, GameWorld.dropKind(0.96f));
+        assertEquals(PowerUp.Kind.GRAVITY, GameWorld.dropKind(0.95f));
+        assertEquals(PowerUp.Kind.ARC, GameWorld.dropKind(0.97f));
         assertEquals(PowerUp.Kind.REFLECT, GameWorld.dropKind(0.985f));
         assertEquals(PowerUp.Kind.TURRET, GameWorld.dropKind(0.999f));
     }

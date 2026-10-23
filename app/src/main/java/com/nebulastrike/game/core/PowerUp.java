@@ -14,7 +14,9 @@ public class PowerUp {
     public enum Kind { SPREAD, MISSILE, LASER, POWER, SHIELD, BOMB, RAPID, X2, LIFE, WINGMAN, TIME,
         ORBIT, CHAIN, BONUS, BOUNCE, NOVA, NANITE, TURRET, GRAVITY,
         /** v1.23：反射护罩（叠加，最多 2 层；每层 6 秒充能一次，把命中你的敌弹弹回去）。 */
-        REFLECT }
+        REFLECT,
+        /** v1.24：电弧炮（武器类，叠加不替换；命中后向附近目标连锁放电）。 */
+        ARC }
 
     public Kind kind;
     public float x, y;

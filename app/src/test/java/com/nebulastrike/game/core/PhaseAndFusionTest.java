@@ -233,6 +233,7 @@ public class PhaseAndFusionTest {
             case SPREAD: return WeaponType.SPREAD;
             case LASER: return WeaponType.LASER;
             case MISSILE: return WeaponType.MISSILE;
+            case ARC: return WeaponType.ARC;
             default: return null;
         }
     }

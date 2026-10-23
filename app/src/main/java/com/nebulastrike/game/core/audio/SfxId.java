@@ -81,5 +81,7 @@ public enum SfxId {
     /** v1.22：相位者切换相位的空灵扫频（code 1 下沉，code 0 上浮） */
     PHASE_SHIFT,
     /** v1.23：反射护罩弹回敌弹的金属回旋音（code 1 表示还有就绪层，音色更亮） */
-    REFLECT
+    REFLECT,
+    /** v1.24：电弧炮连锁放电的电流噼啪声（连锁目标越多音越高） */
+    ARC_ZAP
 }

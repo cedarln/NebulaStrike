@@ -270,7 +270,27 @@ public class Renderer {
         paint.setStyle(Paint.Style.FILL);
         for (Bullet b : w.bullets) {
             if (!b.active) continue;
-            if (b.reflected) {
+            if (b.arc) {
+                // 电弧炮：青白电浆球 + 外围抖动电弧环，命中后自行连锁
+                glow.setColor(0x66A8F0FF);
+                c.drawCircle(b.x, b.y, b.radius + 9f, glow);
+                paint.setColor(0xFF9BE8FF);
+                c.drawCircle(b.x, b.y, b.radius, paint);
+                paint.setColor(0xFFFFFFFF);
+                c.drawCircle(b.x, b.y, b.radius * 0.45f, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2f);
+                paint.setColor(0x99D8F6FF);
+                float rr2 = b.radius + 5f;
+                for (int i = 0; i < 3; i++) {
+                    float a0 = w.timeAlive * 9f + i * 2.1f;
+                    c.drawLine(b.x + (float) Math.cos(a0) * rr2,
+                            b.y + (float) Math.sin(a0) * rr2,
+                            b.x + (float) Math.cos(a0 + 0.9f) * (rr2 + 5f),
+                            b.y + (float) Math.sin(a0 + 0.9f) * (rr2 + 5f), paint);
+                }
+                paint.setStyle(Paint.Style.FILL);
+            } else if (b.reflected) {
                 // 反射弹：相位紫弹体 + 反向飞出的尾焰，和敌方弹幕明确区分
                 paint.setStyle(Paint.Style.FILL);
                 glow.setColor(0x88B48FFF);
@@ -429,6 +449,7 @@ public class Renderer {
                 case TURRET: color = 0xFFC0CCE8; label = "TR"; break;
                 case GRAVITY: color = 0xFFC9A0FF; label = "GV"; break;
                 case REFLECT: color = 0xFFB48FFF; label = "RF"; break;
+                case ARC: color = 0xFF9BE8FF; label = "AC"; break;
                 default: color = 0xFFFF5C7A; label = "B"; break;
             }
             boolean hot = p.attracted;
@@ -579,17 +600,20 @@ public class Renderer {
         for (int i = 0; i < GameWorld.MAX_ARCS; i++) {
             float age = w.arcAge[i];
             if (age <= 0f) continue;
-            boolean heal = w.arcKind[i] == 1;
-            float k = Math.min(1f, age / (heal ? 0.34f : 0.42f));
-            int rgb = heal ? 0x7CFF6B : 0x7DF9FF;
+            int kind = w.arcKind[i];
+            boolean heal = kind == 1;
+            boolean zap = kind == 2;
+            float base = heal ? 0.34f : zap ? 0.24f : 0.42f;
+            float k = Math.min(1f, age / base);
+            int rgb = heal ? 0x7CFF6B : zap ? 0x9BE8FF : 0x7DF9FF;
             float x1 = w.arcX1[i], y1 = w.arcY1[i];
             float x2 = w.arcX2[i], y2 = w.arcY2[i];
             float dx = x2 - x1, dy = y2 - y1;
             float len = (float) Math.sqrt(dx * dx + dy * dy);
             if (len < 2f) continue;
             float nx = -dy / len, ny = dx / len;
-            float amp = heal ? 6f : 24f;
-            int segs = heal ? 4 : Math.max(4, (int) (len / 42f));
+            float amp = heal ? 6f : zap ? 16f : 24f;
+            int segs = heal ? 4 : Math.max(4, (int) (len / (zap ? 34f : 42f)));
             shapePath.rewind();
             shapePath.moveTo(x1, y1);
             for (int s = 1; s < segs; s++) {
@@ -599,10 +623,10 @@ public class Renderer {
                 shapePath.lineTo(x1 + dx * t + nx * off, y1 + dy * t + ny * off);
             }
             shapePath.lineTo(x2, y2);
-            paint.setStrokeWidth(heal ? 10f : 16f);
+            paint.setStrokeWidth(heal ? 10f : zap ? 9f : 16f);
             paint.setColor(((int) (0x2A * k) << 24) | rgb);
             c.drawPath(shapePath, paint);
-            paint.setStrokeWidth(heal ? 3f : 5f);
+            paint.setStrokeWidth(heal ? 3f : zap ? 3.5f : 5f);
             paint.setColor(((int) (0xBB * k) << 24) | rgb);
             c.drawPath(shapePath, paint);
             if (!heal) {
@@ -1765,6 +1789,7 @@ public class Renderer {
             case CLUSTER: return 0xFFFFB03A;
             case SWARM: return 0xFFCFB8FF;
             case BOUNCE: return 0xFF6BFFC8;
+            case ARC: return 0xFF9BE8FF;
             default: return 0xFFFFD166;
         }
     }

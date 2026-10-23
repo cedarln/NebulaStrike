@@ -71,6 +71,7 @@ public final class SfxBank {
         put(SfxId.RAM_IMPACT, ramImpact(), 0.72f);
         put(SfxId.PHASE_SHIFT, phaseShift(), 0.60f);
         put(SfxId.REFLECT, reflect(), 0.62f);
+        put(SfxId.ARC_ZAP, arcZap(), 0.55f);
     }
 
     public static SfxBank create() {
@@ -924,6 +925,23 @@ public final class SfxBank {
             x[i] = (float) ((ring + whoosh) * env(t, 0.34, 0.002, 1.2));
         }
         echo(x, 0.05, 0.3);
+        return x;
+    }
+
+    /** 电弧炮：短促的电流噼啪 + 下滑放电哨音，连锁越长音色越亮。 */
+    private static float[] arcZap() {
+        int n = frames(0.20);
+        float[] x = new float[n];
+        Random r = new Random(613);
+        double ph = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            ph += (900 - 500 * Math.min(1.0, t / 0.14)) / SAMPLE_RATE;
+            double crack = noise(r) * Math.exp(-t * 40) * 0.55;
+            double tone = sine(ph) * Math.exp(-t * 22) * 0.35;
+            double tick = noise(r) * (t < 0.012 ? 0.5 : 0.1);
+            x[i] = (float) ((crack + tone + tick) * env(t, 0.20, 0.001, 1.4));
+        }
         return x;
     }
 

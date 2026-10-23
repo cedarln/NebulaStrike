@@ -67,7 +67,9 @@ public class GameWorld {
         /** v1.22：相位者切换相位（code 1 = 进入相位，0 = 重新实体化） */
         PHASE_SHIFT,
         /** v1.23：反射护罩把一发敌弹弹回去（code = 剩余就绪层数） */
-        REFLECT
+        REFLECT,
+        /** v1.24：电弧炮命中后的连锁放电（code = 连锁到的目标数） */
+        ARC_CHAIN
     }
     public static final class GameEvent {
         public final EventType type;
@@ -102,7 +104,7 @@ public class GameWorld {
     public final EnemyBullet[] enemyBullets = new EnemyBullet[56];
     public final Enemy[] enemies = new Enemy[48];
     public final Particle[] particles = new Particle[256];
-    public final PowerUp[] powerups = new PowerUp[20];
+    public final PowerUp[] powerups = new PowerUp[24];
     /** 玩家部署的炮台（TURRET 道具），最多同时 3 座。 */
     public final Turret[] turrets = new Turret[3];
     /** v1.15：重力井（GRAVITY 道具）同时最多 2 口，避免整屏敌弹被吸干净。 */
@@ -2807,6 +2809,20 @@ public class GameWorld {
                 }
                 break;
             }
+            case ARC: {
+                // 电弧炮：慢速电浆球，命中后向附近目标跳跃放电；叠层同时加弹数与跳数
+                int orbs = Math.min(3, 1 + Math.max(0, stack - 1)
+                        + Math.max(0, (lvl - 2) / 2));
+                int jumps = Math.min(4, 1 + lvl / 2 + Math.max(0, stack - 1));
+                for (int i = 0; i < orbs; i++) {
+                    Bullet b = freeBullet();
+                    if (b == null) return;
+                    float off = (i - (orbs - 1) / 2f) * 26f;
+                    b.initArc(ship.x + off, ship.y - Ship.RADIUS - 8f,
+                            0f, -980f, WeaponType.ARC.damage, jumps);
+                }
+                break;
+            }
             default: {
                 // VULCAN：单发 / 双发平行 / 三向
                 int vulcanLvl = Math.min(Ship.MAX_POWER, lvl);
@@ -2857,6 +2873,73 @@ public class GameWorld {
             f.radius = 6f;
         }
         spark(x, y, 5, 1);
+    }
+
+    /**
+     * 电弧炮连锁：从弹着点向 260 半径内最近的敌机 / Boss 部件跳跃，
+     * 每跳造成 1 点伤害并在视觉层留一道电弧。主目标由 exclude 排除，
+     * 相位中的敌机不参与（打得中才叫连锁）。
+     */
+    private void chainArc(float fromX, float fromY, int jumps, Enemy exclude) {
+        Enemy[] picked = new Enemy[8];
+        BossPart[] pickedParts = new BossPart[8];
+        int n = 0, np = 0, chained = 0;
+        for (int step = 0; step < jumps && step < picked.length; step++) {
+            Enemy best = null;
+            float bestD = 260f * 260f;
+            for (Enemy e : enemies) {
+                if (!e.active || e == exclude || e.isPhased()
+                        || contains(picked, e)) continue;
+                float dx = e.x - fromX, dy = e.y - fromY;
+                float d = dx * dx + dy * dy;
+                if (d < bestD) {
+                    bestD = d;
+                    best = e;
+                }
+            }
+            BossPart bestPart = null;
+            if (boss.active) {
+                for (int i = 0; i < boss.partCount; i++) {
+                    BossPart p = boss.parts[i];
+                    if (!p.active || containsPart(pickedParts, p)) continue;
+                    float dx = p.worldX(boss) - fromX, dy = p.worldY(boss) - fromY;
+                    float d = dx * dx + dy * dy;
+                    if (d < bestD) {
+                        bestD = d;
+                        bestPart = p;
+                    }
+                }
+            }
+            if (best == null && bestPart == null) break;
+            if (best != null) {
+                arc(fromX, fromY, best.x, best.y, 0.24f, 2);
+                best.damage(1);
+                best.flash = Math.max(best.flash, 0.10f);
+                spark(best.x, best.y, 4, 3);
+                picked[n++] = best;
+                fromX = best.x;
+                fromY = best.y;
+                if (best.hp <= 0f) killEnemy(best);
+            } else {
+                float px = bestPart.worldX(boss), py = bestPart.worldY(boss);
+                arc(fromX, fromY, px, py, 0.24f, 2);
+                damageBossPart(bestPart, 1);
+                spark(px, py, 4, 3);
+                pickedParts[np++] = bestPart;
+                fromX = px;
+                fromY = py;
+            }
+            chained++;
+        }
+        if (chained > 0) {
+            addShake(0.05f, 2f);
+            events.add(new GameEvent(EventType.ARC_CHAIN, fromX, fromY, chained));
+        }
+    }
+
+    private static boolean containsPart(BossPart[] arr, BossPart p) {
+        for (BossPart a : arr) if (a == p) return true;
+        return false;
     }
 
     /** Homing missiles curve toward the closest enemy. */
@@ -2919,6 +3002,7 @@ public class GameWorld {
                         registerHit(b);
                         spark(b.x, b.y, 3, 2);
                         if (b.cluster) burstFragments(b.x, b.y);
+                        if (b.arc && b.arcJumps > 0) chainArc(b.x, b.y, b.arcJumps, null);
                         int dealt = damageOrCrit(b.damage);
                         if (dealt != b.damage
                                 || dealt >= 3) spawnFloatText(b.x, b.y, dealt,
@@ -2936,6 +3020,7 @@ public class GameWorld {
                     else b.active = false;
                     registerHit(b);
                     if (b.cluster) burstFragments(b.x, b.y);
+                    if (b.arc && b.arcJumps > 0) chainArc(b.x, b.y, b.arcJumps, null);
                     int dealt = damageOrCrit(b.damage);
                     boss.damage(dealt);
                     if (dealt != b.damage) {
@@ -2987,6 +3072,7 @@ public class GameWorld {
                     }
                     spark(b.x, b.y, 3, 0);
                     if (b.cluster) burstFragments(b.x, b.y);
+                    if (b.arc && b.arcJumps > 0) chainArc(b.x, b.y, b.arcJumps, e);
                     if (e.hp <= 0) {
                         killEnemy(e);
                         if (b.piercing) continue; // 激光穿过残骸继续命中后面的敌机
@@ -3118,6 +3204,10 @@ public class GameWorld {
             case BOUNCE:
                 ship.addWeapon(WeaponType.BOUNCE);
                 weaponCd[WeaponType.BOUNCE.ordinal()] = 0f;
+                break;
+            case ARC:
+                ship.addWeapon(WeaponType.ARC);
+                weaponCd[WeaponType.ARC.ordinal()] = 0f;
                 break;
             case NOVA:
                 detonateNova();
@@ -3365,10 +3455,12 @@ public class GameWorld {
     }
 
     /**
-     * 掉落分布（v1.15，v1.23 在尾部加入 REFLECT）。BONUS 只由突袭奖励波投放，不在常规掉落表内。
+     * 掉落分布（v1.15，v1.23 加入 REFLECT，v1.24 加入 ARC）。
+     * BONUS 只由突袭奖励波投放，不在常规掉落表内。
      * 追踪弹 MISSILE 14%（用户反馈"想要更多追踪弹"），
-     * 尾部"特殊道具"区（0.87~1.0，共 13%）：
-     * BOUNCE 3%、NOVA 3%、NANITE 2.5%、GRAVITY 2.2%、REFLECT 1.6%、TURRET 0.7%。
+     * 尾部"特殊道具"区（0.85~1.0，共 15%）：
+     * BOUNCE 3%、NOVA 3%、NANITE 2.5%、GRAVITY 2%、ARC 2%、REFLECT 1.5%、TURRET 1%。
+     * ARC 的 2% 由双倍分数与僚机各让出 1%（效果本身不变，只是出现频率略降）。
      * 独立成纯函数便于测试边界。
      */
     public static PowerUp.Kind dropKind(float roll) {
@@ -3381,15 +3473,16 @@ public class GameWorld {
         if (roll < 0.65f) return PowerUp.Kind.ORBIT;
         if (roll < 0.70f) return PowerUp.Kind.CHAIN;
         if (roll < 0.74f) return PowerUp.Kind.RAPID;
-        if (roll < 0.78f) return PowerUp.Kind.X2;
-        if (roll < 0.81f) return PowerUp.Kind.LIFE;
-        if (roll < 0.84f) return PowerUp.Kind.WINGMAN;
-        if (roll < 0.87f) return PowerUp.Kind.TIME;
-        if (roll < 0.90f) return PowerUp.Kind.BOUNCE;
-        if (roll < 0.93f) return PowerUp.Kind.NOVA;
-        if (roll < 0.955f) return PowerUp.Kind.NANITE;
-        if (roll < 0.977f) return PowerUp.Kind.GRAVITY;
-        if (roll < 0.993f) return PowerUp.Kind.REFLECT;
+        if (roll < 0.77f) return PowerUp.Kind.X2;
+        if (roll < 0.80f) return PowerUp.Kind.LIFE;
+        if (roll < 0.82f) return PowerUp.Kind.WINGMAN;
+        if (roll < 0.85f) return PowerUp.Kind.TIME;
+        if (roll < 0.88f) return PowerUp.Kind.BOUNCE;
+        if (roll < 0.91f) return PowerUp.Kind.NOVA;
+        if (roll < 0.935f) return PowerUp.Kind.NANITE;
+        if (roll < 0.955f) return PowerUp.Kind.GRAVITY;
+        if (roll < 0.975f) return PowerUp.Kind.ARC;
+        if (roll < 0.99f) return PowerUp.Kind.REFLECT;
         return PowerUp.Kind.TURRET;
     }
 

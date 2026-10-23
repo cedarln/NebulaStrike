@@ -347,6 +347,11 @@ public class AudioEngine {
                     play(SfxId.REFLECT, 0.78f,
                             e.code == 1 ? 1.08f : 0.88f, panFor(e.x));
                     break;
+                case ARC_CHAIN:
+                    // code = 连锁到的目标数：连得越多音越高；高频爆发由限流压成一次噼啪
+                    play(SfxId.ARC_ZAP, 0.42f + Math.min(0.25f, e.code * 0.05f),
+                            1f + Math.min(0.5f, e.code * 0.08f), panFor(e.x));
+                    break;
             }
         }
     }
@@ -425,6 +430,9 @@ public class AudioEngine {
                 break;
             case BOUNCE:
                 play(SfxId.SHOOT_BOUNCE, 0.40f, vary(0.07f), panFor(x));
+                break;
+            case ARC:
+                play(SfxId.SHOOT_LASER, 0.32f, 0.82f, panFor(x));
                 break;
             default:
                 play(SfxId.SHOOT_VULCAN, 0.40f, vary(0.06f), panFor(x));
@@ -511,6 +519,7 @@ public class AudioEngine {
             case RAM_IMPACT: return 180_000_000L;   // 同一波两只冲撞者撞停时别叠成一声
             case PHASE_SHIFT: return 110_000_000L;  // 一群相位者同时换相时留一点层次
             case REFLECT: return 90_000_000L;       // 密集弹幕下连弹时别糊成一片
+            case ARC_ZAP: return 70_000_000L;       // 电弧每发命中都会连锁，留一点层次
             case ACHIEVEMENT: return 500_000_000L;   // 一次结算连解两条时只吹一记号角
             default: return 0L;
         }
