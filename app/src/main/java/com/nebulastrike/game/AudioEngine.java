@@ -361,6 +361,19 @@ public class AudioEngine {
                     play(SfxId.BOSS_PRISM, 0.86f,
                             e.code > 1 ? 1.03f : 0.96f, panFor(e.x));
                     break;
+                case ALTAR_SPAWN:
+                    // 祭坛降临：低频石鸣居中，作为"场上有新东西"的余光提醒
+                    play(SfxId.ALTAR_SPAWN, 0.72f, vary(0.03f), panFor(e.x));
+                    break;
+                case ALTAR_ABSORB:
+                    // code = 当前充能：充得越满音越高，不看条也能听出快成了
+                    play(SfxId.ALTAR_ABSORB, 0.40f,
+                            1f + Math.min(0.7f, e.code / 150f), panFor(e.x));
+                    break;
+                case ALTAR_BLESSED:
+                    // 赐福是一次完整的正面结算：给足音量与居中定位
+                    play(SfxId.ALTAR_BLESS, 0.95f, 1f, 0f);
+                    break;
             }
         }
     }
@@ -531,6 +544,9 @@ public class AudioEngine {
             case ARC_ZAP: return 70_000_000L;       // 电弧每发命中都会连锁，留一点层次
             case BOSS_NET: return 0L;               // 一张网只响一次
             case BOSS_PRISM: return 0L;              // 一局 Boss 战最多召唤一次
+            case ALTAR_SPAWN: return 0L;             // 几十秒才来一座
+            case ALTAR_ABSORB: return 50_000_000L;   // 连吞时要听得出颗粒，但不能糊
+            case ALTAR_BLESS: return 0L;             // 一座祭坛只爆发一次
             case ACHIEVEMENT: return 500_000_000L;   // 一次结算连解两条时只吹一记号角
             default: return 0L;
         }

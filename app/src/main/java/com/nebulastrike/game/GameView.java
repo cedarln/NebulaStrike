@@ -281,6 +281,10 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case BOSS_NET: haptics.impact(); break;
                     // 棱镜召唤：比横冲轻，像"多了两个东西在绕圈"
                     case BOSS_PRISM: haptics.tick(); break;
+                    // 祭坛降临只是提示；吸弹太频繁不给震，免得整场都在嗡嗡
+                    case ALTAR_SPAWN: haptics.tick(); break;
+                    // 赐福爆发是一整段正反馈的收口：和大招同档
+                    case ALTAR_BLESSED: haptics.bomb(); break;
                     case MIRAGE_REVEAL: haptics.tick(); break;
                     // EMP 放出去要"撞一下"，磁暴艇被打爆吞弹只是轻提示
                     case MAG_BURST:

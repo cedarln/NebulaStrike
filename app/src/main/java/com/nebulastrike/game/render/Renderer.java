@@ -9,6 +9,7 @@ import android.graphics.Shader;
 
 import com.nebulastrike.game.core.Achievement;
 import com.nebulastrike.game.core.Achievements;
+import com.nebulastrike.game.core.Altar;
 import com.nebulastrike.game.core.Boss;
 import com.nebulastrike.game.core.BossLaser;
 import com.nebulastrike.game.core.BossPart;
@@ -105,6 +106,7 @@ public class Renderer {
         drawEnemies(c, w);
         drawTurrets(c, w);
         drawGravityWells(c, w);
+        drawAltar(c, w);
         if (w.boss.active) {
             drawBoss(c, w);
             drawBossLasers(c, w);
@@ -191,6 +193,25 @@ public class Renderer {
                 paint.setStrokeWidth(6f * k);
                 paint.setColor(((int) (0xA0 * k) << 24) | 0x00C9A0FF);
                 c.drawCircle(g.x, g.y, rr, paint);
+            }
+            paint.setStyle(Paint.Style.FILL);
+        }
+
+        // 祭坛赐福：符文色薄雾 + 从法阵向外炸开的两道环，法阵消失的位置就是爆发点
+        if (w.altarFlash > 0f) {
+            float k = w.altarFlash;
+            int col = altarColor(w.altar.blessing);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setShader(null);
+            paint.setColor(((int) (52 * k) << 24) | col);
+            c.drawRect(0, 0, VW, VH, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            float t = 1f - k;
+            for (int i = 0; i < 2; i++) {
+                float rr = 50f + (520f + i * 240f) * Math.min(1f, t + i * 0.12f);
+                paint.setStrokeWidth((12f - i * 5f) * k);
+                paint.setColor(((int) ((0xC0 - i * 0x40) * k) << 24) | col);
+                c.drawCircle(w.altar.x, w.altar.y, rr, paint);
             }
             paint.setStyle(Paint.Style.FILL);
         }
@@ -1240,6 +1261,149 @@ public class Renderer {
                 c.drawCircle(ox, oy, 3.6f, paint);
             }
         }
+        paint.setStyle(Paint.Style.FILL);
+    }
+
+    /** 祭坛符文色：出生时就能看清"这一座给什么"，玩家据此决定投不投火力。 */
+    private static int altarColor(Altar.Blessing b) {
+        switch (b) {
+            case VITAL: return 0x6BFF9E;
+            case AEGIS: return 0x7DF9FF;
+            case FORTUNE: return 0xFF7AD9;
+            default: return 0xFFC24D;
+        }
+    }
+
+    /**
+     * 局内祭坛：呼吸光环 + 三层反向符文环 + 自转六边形暗核 + 充能弧。
+     * 充能满前最后一段会开始频闪，提示"再补两下就开花"。
+     */
+    private void drawAltar(Canvas c, GameWorld w) {
+        Altar a = w.altar;
+        if (!a.active) return;
+        float fade = Math.min(1f, a.life / 1.8f);
+        float blink = a.life < 1.8f
+                ? 0.45f + 0.55f * (0.5f + 0.5f * (float) Math.sin(w.timeAlive * 14f)) : 1f;
+        float al = fade * blink;
+        float pulse = 0.5f + 0.5f * (float) Math.sin(w.timeAlive * 3.1f);
+        int col = altarColor(a.blessing);
+        float frac = a.fraction();
+        paint.setShader(null);
+
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(a.channeled ? 4f : 2f);
+        int auraA = (int) (((a.channeled ? 0x5A : 0x22) + 0x10 * pulse) * al);
+        paint.setColor((auraA << 24) | col);
+        c.drawCircle(a.x, a.y, Altar.AURA * (0.96f + 0.04f * pulse), paint);
+
+        if (a.channeled) {
+            for (int i = 0; i < 6; i++) {
+                float ang = w.timeAlive * 1.6f + i * (float) (Math.PI / 3);
+                float ca = (float) Math.cos(ang), sa = (float) Math.sin(ang);
+                paint.setStrokeWidth(2.5f);
+                paint.setColor(((int) (0x46 * al) << 24) | col);
+                c.drawLine(a.x + ca * Altar.AURA * 0.72f, a.y + sa * Altar.AURA * 0.72f,
+                        a.x + ca * Altar.AURA * 0.94f, a.y + sa * Altar.AURA * 0.94f, paint);
+            }
+        }
+
+        for (int i = 0; i < 3; i++) {
+            float rr = Altar.RADIUS + 10f + i * 9f;
+            float spin = w.timeAlive * (i % 2 == 0 ? 68f : -54f) + i * 41f;
+            paint.setStrokeWidth(4.5f - i);
+            paint.setColor(((int) ((0xA8 - i * 0x24) * al) << 24) | col);
+            c.drawArc(a.x - rr, a.y - rr, a.x + rr, a.y + rr, spin, 104f - i * 16f, false, paint);
+        }
+
+        shapePath.reset();
+        float spinDeg = w.timeAlive * 18f;
+        for (int i = 0; i < 6; i++) {
+            double ang = Math.toRadians(spinDeg + i * 60);
+            float px = a.x + (float) Math.cos(ang) * Altar.RADIUS * (1f + 0.025f * pulse);
+            float py = a.y + (float) Math.sin(ang) * Altar.RADIUS * (1f + 0.025f * pulse);
+            if (i == 0) shapePath.moveTo(px, py);
+            else shapePath.lineTo(px, py);
+        }
+        shapePath.close();
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(((int) (0xE8 * al) << 24) | 0x000B0718);
+        c.drawPath(shapePath, paint);
+
+        glow.setColor(((int) ((0x48 + 0x30 * frac) * al) << 24) | col);
+        c.drawCircle(a.x, a.y, Altar.RADIUS * (0.85f + 0.08f * pulse), glow);
+        if (a.flash > 0f) {
+            paint.setColor(((int) (0x80 * Math.min(1f, a.flash) * al) << 24) | 0xFFFFFF);
+            c.drawCircle(a.x, a.y, Altar.RADIUS * 0.62f, paint);
+        }
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3f);
+        paint.setColor(((int) (0xD8 * al) << 24) | col);
+        c.drawPath(shapePath, paint);
+
+        drawAltarSigil(c, a, col, al);
+
+        // 充能弧：从正上方顺时针长满；将满时整条开始频闪
+        float gaugeR = Altar.RADIUS + 26f;
+        arcRect.set(a.x - gaugeR, a.y - gaugeR, a.x + gaugeR, a.y + gaugeR);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(7f);
+        paint.setColor(((int) (0x30 * al) << 24) | col);
+        c.drawArc(arcRect, -90f, 360f, false, paint);
+        if (frac > 0f) {
+            float bright = frac > 0.82f
+                    ? 0.7f + 0.3f * (0.5f + 0.5f * (float) Math.sin(w.timeAlive * 18f)) : 1f;
+            paint.setColor(((int) (0xF0 * al * bright) << 24) | col);
+            c.drawArc(arcRect, -90f, 360f * frac, false, paint);
+        }
+        paint.setStyle(Paint.Style.FILL);
+    }
+
+    /** 祭坛中央符文：军械（三角+三点）/ 生机（十字）/ 守护（盾）/ 财宝（菱形）。 */
+    private void drawAltarSigil(Canvas c, Altar a, int col, float al) {
+        c.save();
+        c.translate(a.x, a.y);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3.2f);
+        paint.setColor(((int) (0xE0 * al) << 24) | col);
+        switch (a.blessing) {
+            case ARSENAL:
+                shapePath.reset();
+                shapePath.moveTo(0f, -19f);
+                shapePath.lineTo(17f, 10f);
+                shapePath.lineTo(-17f, 10f);
+                shapePath.close();
+                c.drawPath(shapePath, paint);
+                paint.setStyle(Paint.Style.FILL);
+                for (int i = -1; i <= 1; i++) c.drawCircle(i * 12f, 20f, 2.6f, paint);
+                break;
+            case VITAL:
+                c.drawLine(0f, -20f, 0f, 20f, paint);
+                c.drawLine(-20f, 0f, 20f, 0f, paint);
+                break;
+            case AEGIS:
+                shapePath.reset();
+                shapePath.moveTo(0f, -20f);
+                shapePath.lineTo(15f, -10f);
+                shapePath.lineTo(12f, 10f);
+                shapePath.lineTo(0f, 21f);
+                shapePath.lineTo(-12f, 10f);
+                shapePath.lineTo(-15f, -10f);
+                shapePath.close();
+                c.drawPath(shapePath, paint);
+                break;
+            case FORTUNE:
+                shapePath.reset();
+                shapePath.moveTo(0f, -22f);
+                shapePath.lineTo(16f, 0f);
+                shapePath.lineTo(0f, 22f);
+                shapePath.lineTo(-16f, 0f);
+                shapePath.close();
+                c.drawPath(shapePath, paint);
+                paint.setStyle(Paint.Style.FILL);
+                c.drawCircle(0f, 0f, 4f, paint);
+                break;
+        }
+        c.restore();
         paint.setStyle(Paint.Style.FILL);
     }
 

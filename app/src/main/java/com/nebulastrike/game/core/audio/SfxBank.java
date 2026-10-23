@@ -74,6 +74,9 @@ public final class SfxBank {
         put(SfxId.ARC_ZAP, arcZap(), 0.55f);
         put(SfxId.BOSS_NET, bossNet(), 0.66f);
         put(SfxId.BOSS_PRISM, bossPrism(), 0.72f);
+        put(SfxId.ALTAR_SPAWN, altarSpawn(), 0.62f);
+        put(SfxId.ALTAR_ABSORB, altarAbsorb(), 0.30f);
+        put(SfxId.ALTAR_BLESS, altarBless(), 0.88f);
     }
 
     public static SfxBank create() {
@@ -992,6 +995,76 @@ public final class SfxBank {
             x[i] = (float) ((tone + shimmer) * env(t, 0.56, 0.004, 1.1));
         }
         echo(x, 0.09, 0.35);
+        return x;
+    }
+
+    /** 祭坛降临：低频石鸣从地下升起来 + 一记空灵泛音，神秘而不带威胁。 */
+    private static float[] altarSpawn() {
+        int n = frames(0.72);
+        float[] x = new float[n];
+        Random r = new Random(1201);
+        double ph1 = 0, ph2 = 0, ph3 = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double k = Math.min(1.0, t / 0.5);
+            ph1 += 98 / SAMPLE_RATE;
+            ph2 += 196 / SAMPLE_RATE;
+            ph3 += 392 / SAMPLE_RATE;
+            double drone = (0.42 * sine(ph1) + 0.16 * tri(ph2))
+                    * (1.0 + 0.06 * Math.sin(t * 11.0));
+            double chime = t > 0.08
+                    ? (0.14 * sine(ph3) + 0.07 * sine(ph3 * 1.5))
+                            * Math.exp(-(t - 0.08) * 5.5) : 0.0;
+            double air = noise(r) * 0.06 * (0.3 + 0.7 * k);
+            x[i] = (float) ((drone * (0.30 + 0.70 * k) + chime + air)
+                    * env(t, 0.72, 0.02, 0.85));
+        }
+        echo(x, 0.10, 0.30);
+        return x;
+    }
+
+    /** 祭坛吞弹：短促的"啵"+ 上滑小铃，清亮到能在一屏枪声里单独听见。 */
+    private static float[] altarAbsorb() {
+        int n = frames(0.14);
+        float[] x = new float[n];
+        Random r = new Random(1207);
+        double ph = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            ph += (620 + 420 * Math.min(1.0, t / 0.10)) / SAMPLE_RATE;
+            double pop = sine(ph) * Math.exp(-t * 26) * 0.45;
+            double tick = noise(r) * Math.exp(-t * 55) * 0.28;
+            x[i] = (float) ((pop + tick) * env(t, 0.14, 0.001, 1.3));
+        }
+        return x;
+    }
+
+    /** 赐福爆发：四音上行 + 次低频托底 + 余韵，像一次小型的"祝祷"。 */
+    private static float[] altarBless() {
+        int n = frames(0.9);
+        float[] x = new float[n];
+        Random r = new Random(1213);
+        double[] f = {261.63, 329.63, 392.0, 523.25};
+        double[] ph = new double[f.length];
+        double phSub = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double tone = 0;
+            for (int k = 0; k < f.length; k++) {
+                double start = 0.10 + k * 0.11;
+                if (t < start) continue;
+                double local = t - start;
+                ph[k] += f[k] / SAMPLE_RATE;
+                double voice = 0.30 * sine(ph[k]) + 0.13 * tri(ph[k])
+                        + 0.07 * sine(ph[k] * 2.0);
+                tone += voice * Math.exp(-local * 2.4) / (1.0 + k * 0.22);
+            }
+            phSub += 65.4 / SAMPLE_RATE;
+            double sub = sine(phSub) * Math.exp(-t * 1.9) * 0.22;
+            double shimmer = noise(r) * Math.exp(-t * 5.0) * 0.07;
+            x[i] = (float) ((tone + sub + shimmer) * env(t, 0.9, 0.01, 0.9));
+        }
+        echo(x, 0.11, 0.4);
         return x;
     }
 

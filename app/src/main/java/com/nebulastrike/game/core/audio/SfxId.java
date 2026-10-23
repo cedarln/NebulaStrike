@@ -87,5 +87,11 @@ public enum SfxId {
     /** v1.25：Boss 弹幕网展开的低频电网嗡鸣 */
     BOSS_NET,
     /** v1.25：Boss 召唤棱镜的晶体琶音（召唤两枚时音更亮） */
-    BOSS_PRISM
+    BOSS_PRISM,
+    /** v1.26：祭坛降临的低频石鸣 + 空灵泛音 */
+    ALTAR_SPAWN,
+    /** v1.26：祭坛吞掉一颗敌弹的短促"啵"（充能越高音越高） */
+    ALTAR_ABSORB,
+    /** v1.26：祭坛赐福爆发的四音上行圣咏 */
+    ALTAR_BLESS
 }

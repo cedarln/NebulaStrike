@@ -73,7 +73,13 @@ public class GameWorld {
         /** v1.25：Boss 弹幕网（code = 本次网格弹数） */
         BOSS_NET,
         /** v1.25：Boss 召唤棱镜（code = 召唤数量） */
-        BOSS_PRISM
+        BOSS_PRISM,
+        /** v1.26：祭坛出现在场上（code = {@link Altar.Blessing#ordinal()}） */
+        ALTAR_SPAWN,
+        /** v1.26：祭坛吞掉一颗敌弹（code = 当前充能值） */
+        ALTAR_ABSORB,
+        /** v1.26：祭坛爆发赐福（code = {@link Altar.Blessing#ordinal()}） */
+        ALTAR_BLESSED
     }
     public static final class GameEvent {
         public final EventType type;
@@ -113,6 +119,30 @@ public class GameWorld {
     public final Turret[] turrets = new Turret[3];
     /** v1.15：重力井（GRAVITY 道具）同时最多 2 口，避免整屏敌弹被吸干净。 */
     public final GravityWell[] gravityWells = new GravityWell[2];
+
+    // ---- v1.26：局内祭坛 ALTAR ----
+    /** 场上最多一座祭坛：它要占住一块场地，多了反而变成刷分点。 */
+    public final Altar altar = new Altar();
+    /** 第一座祭坛出现的时刻（秒）。 */
+    public static final float ALTAR_FIRST_AT = 36f;
+    /** 两座祭坛之间的最短间隔与随机量。 */
+    public static final float ALTAR_MIN_GAP = 44f;
+    public static final float ALTAR_GAP_JITTER = 18f;
+    /** 下一次祭坛出现的时刻（timeAlive 秒）。 */
+    public float altarNextAt = ALTAR_FIRST_AT;
+    /** 本局出现的祭坛数 / 成功取走的赐福数。 */
+    public int altarsSpawned;
+    public int altarsBlessed;
+    /** 赐福爆发时的全屏余晖（与 novaFlash 同族）。 */
+    public float altarFlash;
+    /** 赐福爆发时清掉的敌弹数（测试与结算用）。 */
+    public int altarCleared;
+    /**
+     * 祭坛自己的随机源：不能借用 {@link RNG}，否则每次祭坛刷新都会让后续敌机/掉落序列整体错位，
+     * 改动一个局内事件不该重排整局的关卡节拍。
+     */
+    private long altarSeed = 0x2545F4914F6CDD1DL;
+
     public final Star[] stars = new Star[90];
     /** v1.11 伤害/得分飘字池；满槽时覆盖最旧的一条（与粒子同样的 ring cursor）。 */
     public final FloatText[] floatTexts = new FloatText[40];
@@ -1661,10 +1691,12 @@ public class GameWorld {
         if (parryFlash > 0f) parryFlash = Math.max(0f, parryFlash - dt * 4f);
         if (gravityFlash > 0f) gravityFlash = Math.max(0f, gravityFlash - dt * 2.2f);
         if (ultFlash > 0f) ultFlash = Math.max(0f, ultFlash - dt * 1.6f);
+        if (altarFlash > 0f) altarFlash = Math.max(0f, altarFlash - dt * 1.7f);
         updateRelics(dt);
         updateNano(dt);
         updateTurrets(dt);
         updateGravityWells(dt);
+        updateAltar(dt);
         updateMinersAndCarriers();
     }
 
@@ -1818,6 +1850,136 @@ public class GameWorld {
                 }
             }
         }
+    }
+
+    // ---- v1.26：局内祭坛 ALTAR ----
+
+    /** 祭坛计时：到期熄灭、站进光环吸弹、充满爆发赐福。Boss 在场时不刷新新的祭坛。 */
+    private void updateAltar(float dt) {
+        if (!altar.active) {
+            if (!bossActive && timeAlive >= altarNextAt) spawnAltar();
+            return;
+        }
+        altar.update(dt);
+        if (altar.life <= 0f) {
+            // 熄灭不惩罚：玩家只是没把这块场地用起来
+            altar.active = false;
+            altar.channeled = false;
+            spark(altar.x, altar.y, 12, 6);
+            altarNextAt = timeAlive + ALTAR_MIN_GAP + nextAltarRoll() % (int) ALTAR_GAP_JITTER;
+            return;
+        }
+        float dx = ship.x - altar.x, dy = ship.y - altar.y;
+        altar.channeled = dx * dx + dy * dy <= Altar.AURA * Altar.AURA;
+        if (altar.channeled) absorbIntoAltar(dt);
+        if (altar.full()) blessAltar();
+    }
+
+    private void spawnAltar() {
+        int roll = nextAltarRoll();
+        float x = 190f + roll % 520;
+        float y = 380f + (roll / 520) % 130;
+        Altar.Blessing[] all = Altar.Blessing.values();
+        Altar.Blessing pick = all[(roll >>> 16) & 3];
+        altar.init(x, y, pick);
+        altarsSpawned++;
+        altarNextAt = timeAlive + ALTAR_MIN_GAP + nextAltarRoll() % (int) ALTAR_GAP_JITTER;
+        addShake(0.12f, 6f);
+        events.add(new GameEvent(EventType.ALTAR_SPAWN, x, y, pick.ordinal()));
+    }
+
+    /** 祭坛专用 LCG：同一种子下位置与符文可复现，且完全不碰对局主随机源。 */
+    private int nextAltarRoll() {
+        altarSeed = altarSeed * 6364136223846793005L + 1442695040888963407L;
+        return (int) ((altarSeed >>> 33) & 0x7fffffff);
+    }
+
+    /**
+     * 引导吸弹：光环内的敌弹被拽向核心，进核心即被吞掉。
+     * 只拉不直接清，给玩家留出"这颗要进来了"的读数时间。
+     */
+    private void absorbIntoAltar(float dt) {
+        for (EnemyBullet b : enemyBullets) {
+            if (!b.active) continue;
+            float dx = altar.x - b.x, dy = altar.y - b.y;
+            float d = (float) Math.sqrt(dx * dx + dy * dy);
+            if (d >= Altar.AURA) continue;
+            if (d > Altar.ABSORB + b.radius && d > 1e-3f) {
+                float pull = Altar.PULL_ACCEL * (1f - d / Altar.AURA) * dt;
+                b.vx += dx / d * pull;
+                b.vy += dy / d * pull;
+                continue;
+            }
+            b.active = false;
+            boolean filled = altar.addCharge(Altar.CHARGE_PER_BULLET);
+            int gained = addScore(3, SCORE_OTHER);
+            spark(b.x, b.y, 3, 6);
+            spawnFloatText(altar.x, altar.y - Altar.RADIUS - 16f, gained, FLOAT_GRAVITY, false);
+            events.add(new GameEvent(EventType.ALTAR_ABSORB, b.x, b.y, (int) altar.charge));
+            if (filled) break;
+        }
+    }
+
+    /** 赐福爆发：按祭坛出生时亮着的符文给奖励，并清掉场地上的敌弹当收尾。 */
+    private void blessAltar() {
+        Altar.Blessing kind = altar.blessing;
+        float ax = altar.x, ay = altar.y;
+        altar.active = false;
+        altar.channeled = false;
+        altarsBlessed++;
+        switch (kind) {
+            case ARSENAL:
+                ship.addWeapon(dropWeaponType());
+                if (ship.powerLevel < Ship.MAX_POWER) ship.powerLevel++;
+                else addScore(300, SCORE_PICKUP);
+                applyFusion();
+                break;
+            case VITAL:
+                if (lives < Math.max(MAX_LIVES, startLivesOf())) lives++;
+                else if (ship.bombs < Ship.MAX_BOMBS) ship.bombs++;
+                else addScore(500, SCORE_PICKUP);
+                break;
+            case AEGIS:
+                if (ship.shieldLayers < ship.shieldCap) ship.addShield();
+                else {
+                    ship.nanoTimer = extendTimer(ship.nanoTimer, Ship.NANITE_DURATION * 0.5f);
+                    if (!ship.addReflect()) addScore(200, SCORE_PICKUP);
+                }
+                break;
+            case FORTUNE:
+                addScore(600 + 50 * wave, SCORE_PICKUP);
+                x2Timer = extendTimer(x2Timer, X2_DURATION);
+                break;
+        }
+        // 收尾清弹：财宝清全屏，其余清身边一圈，至少让这次引导值回票价
+        boolean all = kind == Altar.Blessing.FORTUNE;
+        float clearR = 300f;
+        int cleared = 0;
+        for (EnemyBullet b : enemyBullets) {
+            if (!b.active) continue;
+            float dx = b.x - ax, dy = b.y - ay;
+            if (!all && dx * dx + dy * dy > clearR * clearR) continue;
+            b.active = false;
+            cleared++;
+            spark(b.x, b.y, 2, 6);
+        }
+        if (cleared > 0) {
+            addScore(cleared * 3, SCORE_OTHER);
+            ultCharge(cleared * 0.015f, ax, ay);
+        }
+        altarCleared += cleared;
+        altarFlash = 1f;
+        bombFlash = Math.max(bombFlash, 0.42f);
+        addShake(0.42f, 16f);
+        addHitStop(0.06f);
+        spark(ax, ay, 22, 6);
+        events.add(new GameEvent(EventType.ALTAR_BLESSED, ax, ay, kind.ordinal()));
+    }
+
+    /** 测试缝：在指定位置与符文上直接放一座祭坛（跳过随机与时间条件）。 */
+    void spawnAltarForTest(float x, float y, Altar.Blessing blessing) {
+        altar.init(x, y, blessing);
+        altarsSpawned++;
     }
 
     /** 吞掉一颗敌弹：小额分数 + 紫色飘字，同时给一点擦弹充能（贴脸吸弹也是走位）。 */
@@ -3046,6 +3208,21 @@ public class GameWorld {
                 }
             }
         }
+        // 祭坛核心吃子弹并转化为充能：不打它就只能靠站桩吸弹，两种投入都算数
+        if (altar.active) {
+            for (Bullet b : bullets) {
+                if (!b.active || b.hitCooldown > 0f) continue;
+                float dx = b.x - altar.x, dy = b.y - altar.y;
+                float rr = b.radius + Altar.RADIUS;
+                if (dx * dx + dy * dy > rr * rr) continue;
+                if (b.piercing) b.hitCooldown = 0.06f;   // 贯穿激光持续灌注
+                else b.active = false;
+                altar.flash = Math.max(altar.flash, 0.35f);
+                altar.addCharge(b.damage * Altar.CHARGE_PER_DAMAGE);
+                spark(b.x, b.y, 3, 6);
+            }
+            if (altar.full()) blessAltar();
+        }
         // bullets vs destructible parts first, then the exposed core
         if (boss.active) {
             for (Bullet b : bullets) {
@@ -4009,6 +4186,15 @@ public class GameWorld {
         gravityAbsorbed = 0;
         gravityBursts = 0;
         gravityWellsDeployed = 0;
+        // v1.26：祭坛状态归零
+        altar.active = false;
+        altar.channeled = false;
+        altarNextAt = ALTAR_FIRST_AT;
+        altarSeed = 0x2545F4914F6CDD1DL;
+        altarsSpawned = 0;
+        altarsBlessed = 0;
+        altarFlash = 0f;
+        altarCleared = 0;
         ultConverted = 0;
         ult.reset();
         ultFlash = 0f;
