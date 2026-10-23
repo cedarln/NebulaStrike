@@ -57,15 +57,21 @@ TAG="v$VER"
 GRADLE_APK="app/build/outputs/apk/release/app-release.apk"
 TMP="$(mktemp -d /tmp/nebulastrike-release.XXXXXX)"
 
-# 任何一步失败都还原版本号并删掉本地 tag，仓库不会留下半成品（成功时只清临时目录）
+# 任何一步失败都还原版本号并删掉本地 tag，仓库不会留下半成品（成功时只清临时目录）。
+# 一旦提交/推送成功，回滚不再动 build.gradle 和 tag——此时远端已有发布记录，
+# 本地还原只会把工作区退回旧版本号，下一次发版会撞上重复的 versionCode。
 rollback() {
     if [ "${OK:-0}" != 1 ] && [ -z "$DRY_RUN" ]; then
-        if [ -f "$TMP/build.gradle.bak" ]; then
-            cp "$TMP/build.gradle.bak" app/build.gradle
-            git add app/build.gradle >/dev/null 2>&1 || true
-            log "  已还原 app/build.gradle"
+        if [ "${PUSHED:-0}" = 1 ]; then
+            log "  发布已推送，保留 build.gradle 与 $TAG（请检查上面的失败步骤）"
+        else
+            if [ -f "$TMP/build.gradle.bak" ]; then
+                cp "$TMP/build.gradle.bak" app/build.gradle
+                git add app/build.gradle >/dev/null 2>&1 || true
+                log "  已还原 app/build.gradle"
+            fi
+            git tag -d "$TAG" >/dev/null 2>&1 || true
         fi
-        git tag -d "$TAG" >/dev/null 2>&1 || true
     fi
     rm -rf "$TMP"
 }
@@ -222,6 +228,7 @@ if [ -z "$DRY_RUN" ]; then
         PUSH_LOG="$(git push "https://cedarln:$TOKEN@github.com/$REPO.git" main "$TAG" 2>&1)" \
             || die "推送失败，请检查 token 权限：$PUSH_LOG"
     fi
+    PUSHED=1
 else
     log "  (试运行：跳过提交/tag/推送)"
 fi
@@ -281,7 +288,13 @@ print(json.dumps({"tag_name": tag, "name": "NebulaStrike " + tag,
     # ---- 8. 回验：latest 指向 + 重新下载比对校验和 ----
     log "回验发布产物"
     if [ -n "$HAS_GH" ]; then
-        LATEST="$(gh api "repos/$REPO/releases/latest" -q .tag_name 2>/dev/null || true)"
+        # releases/latest 有秒级延迟：刚创建完立刻查询可能仍指向旧版本，重试几次再判定
+        LATEST=""
+        for attempt in 1 2 3 4 5; do
+            LATEST="$(gh api "repos/$REPO/releases/latest" -q .tag_name 2>/dev/null || true)"
+            [ "$LATEST" = "$TAG" ] && break
+            [ "$attempt" -lt 5 ] && sleep 2
+        done
         gh release download "$TAG" -R "$REPO" --pattern '*.apk' --dir "$TMP/check" --clobber >/dev/null 2>&1
     else
         LATEST="$(curl -sS -H "Authorization: Bearer $TOKEN" \
