@@ -85,7 +85,9 @@ public class GameWorld {
         /** v1.27：赏金兑现（code = 当前连杀数） */
         BOUNTY_CLAIMED,
         /** v1.27：赏金目标脱逃 / 超时 */
-        BOUNTY_FAILED
+        BOUNTY_FAILED,
+        /** v1.28：点亮一组道具连携（code = {@link Synergy#ordinal()}） */
+        SYNERGY_ON
     }
     public static final class GameEvent {
         public final EventType type;
@@ -185,6 +187,21 @@ public class GameWorld {
      * 与祭坛同理，一张悬赏不该重排整局的敌机节拍。
      */
     private long bountySeed = 0x9E3779B97F4A7C15L;
+
+    /** v1.28：当前生效的连携位掩码（{@link Synergy#bit()} 的并集）。 */
+    public int synergyMask;
+    /** 本局累计点亮过多少组连携（重复点亮也计数）。 */
+    public int synergyUnlockCount;
+    /** 连携提示剩余秒数；<=0 表示不显示。 */
+    public float synergyToast;
+    public static final float SYNERGY_TOAST_TIME = 2.4f;
+    /** 提示要展示的连携下标（-1 = 无）。 */
+    public int synergyToastIndex = -1;
+    /**
+     * 沙盒开关：确定性长跑测试只验证某一套系统时，关掉连携可避免额外射速/穿透
+     * 改变击杀时刻，进而错位后续刷新序列（与 {@link #bountyEnabled} 同一类测试缝）。
+     */
+    public boolean synergiesEnabled = true;
 
     public final Star[] stars = new Star[90];
     /** v1.11 伤害/得分飘字池；满槽时覆盖最旧的一条（与粒子同样的 ring cursor）。 */
@@ -732,6 +749,8 @@ public class GameWorld {
         if (joyAnim < joyTarget) joyAnim = Math.min(joyTarget, joyAnim + dt * 8f);
         else if (joyAnim > joyTarget) joyAnim = Math.max(joyTarget, joyAnim - dt * 8f);
 
+        // 连携要在本帧射击 / 僚机 / 轨道球之前刷新，让这些系统立刻吃到当帧的加成
+        refreshSynergies(dt);
         ship.update(dt, WIDTH, HEIGHT);
         // 每路武器（含常驻基础炮）都走自己的冷却，互不影响
         for (int i = 0; i < weaponCd.length; i++) {
@@ -1229,12 +1248,47 @@ public class GameWorld {
         }
     }
 
+    // ---- v1.28：道具连携 ----
+
+    /**
+     * 每帧重算连携位：条件满足即刻生效、条件消失即刻收回，只在"新点亮"时提示一次。
+     * 连携本身不落任何持久状态，掉命/捡道具后由下一帧重新判定，因此不会出现
+     * "道具过期了加成还挂着"的幽灵收益。
+     */
+    void refreshSynergies(float dt) {
+        if (synergyToast > 0f) synergyToast = Math.max(0f, synergyToast - dt);
+        int mask = 0;
+        if (synergiesEnabled) {
+            for (Synergy s : Synergy.values()) {
+                if (s.holds(ship)) mask |= s.bit();
+            }
+        }
+        // 镜盾的充能倍率跟着掩码走：反射层被消耗 / 护盾碎掉时立刻恢复常规速度
+        ship.reflectRechargeScale = (mask & Synergy.MIRROR.bit()) != 0
+                ? Ship.MIRROR_RECHARGE_MULT : 1f;
+        int fresh = mask & ~synergyMask;
+        synergyMask = mask;
+        if (fresh == 0) return;
+        Synergy lit = Synergy.values()[Integer.numberOfTrailingZeros(fresh)];
+        synergyUnlockCount++;
+        synergyToast = SYNERGY_TOAST_TIME;
+        synergyToastIndex = lit.ordinal();
+        addShake(0.12f, 4f);
+        spark(ship.x, ship.y - Ship.RADIUS - 12f, 10, 12);
+        events.add(new GameEvent(EventType.SYNERGY_ON, ship.x, ship.y, lit.ordinal()));
+    }
+
+    public boolean hasSynergy(Synergy s) {
+        return (synergyMask & s.bit()) != 0;
+    }
+
     /** 僚机：道具激活期间从两翼交替/齐射小弹丸。 */
     private void updateWingman(float dt) {
         if (ship.wingmanTimer <= 0f) return;
         wingmanCd -= dt;
         if (wingmanCd > 0f) return;
-        wingmanCd = 0.24f;
+        // 编队连携：僚机与轨道球同时在岗时，两翼的节奏再提一档
+        wingmanCd = hasSynergy(Synergy.VANGUARD) ? 0.17f : 0.24f;
         wingmanShots++;
         for (int i = -1; i <= 1; i += 2) {
             Bullet b = freeBullet();
@@ -1295,7 +1349,8 @@ public class GameWorld {
                 float rad = rr + e.type.radius;
                 if (dx * dx + dy * dy <= rad * rad) {
                     orbitCd[i] = 0.14f;
-                    e.damage(2);
+                    int dmg = hasSynergy(Synergy.VANGUARD) ? 3 : 2;
+                    e.damage(dmg);
                     e.flash = 0.1f;
                     spark(sx, sy, 4, 3);
                     events.add(new GameEvent(EventType.ORBIT_HIT, sx, sy));
@@ -1312,7 +1367,7 @@ public class GameWorld {
                     if (dx * dx + dy * dy <= rad * rad) {
                         orbitCd[i] = 0.2f;
                         spark(sx, sy, 4, 3);
-                        damageBossPart(p, 2);
+                        damageBossPart(p, hasSynergy(Synergy.VANGUARD) ? 3 : 2);
                         break;
                     }
                 }
@@ -3085,7 +3140,8 @@ public class GameWorld {
         fireWeapon(type, stack);
         weaponCd[i] = type.cooldown
                 * (ship.rapidTimer > 0f ? 0.5f : 1f)
-                * (ship.overdriveTimer > 0f ? Ship.OVERDRIVE_FIRE_MULT : 1f);
+                * (ship.overdriveTimer > 0f ? Ship.OVERDRIVE_FIRE_MULT : 1f)
+                * (hasSynergy(Synergy.OVERCHARGE) ? 0.62f : 1f);
     }
 
     /** 弹道生成：武器类型 × 火力等级 × 同类叠加层数共同决定数量与形状。 */
@@ -3100,6 +3156,7 @@ public class GameWorld {
             case SPREAD: {
                 // 叠层/升级会继续加宽扇形，最多 9 / 11 向
                 int rays = Math.min(6, 1 + lvl);
+                boolean pierce = hasSynergy(Synergy.TRIDENT);
                 for (int i = -(rays - 1); i <= rays - 1; i++) {
                     Bullet b = freeBullet();
                     if (b == null) return;
@@ -3107,6 +3164,8 @@ public class GameWorld {
                     b.init(ship.x, ship.y - Ship.RADIUS - 6f,
                             (float) Math.cos(ang) * 1150f, (float) Math.sin(ang) * 1150f,
                             WeaponType.SPREAD.damage, false);
+                    // 三叉戟：扇形弹获得穿透，正对密集编队时能一路犁过去
+                    if (pierce) b.piercing = true;
                 }
                 break;
             }
@@ -3203,7 +3262,8 @@ public class GameWorld {
                 // 电弧炮：慢速电浆球，命中后向附近目标跳跃放电；叠层同时加弹数与跳数
                 int orbs = Math.min(3, 1 + Math.max(0, stack - 1)
                         + Math.max(0, (lvl - 2) / 2));
-                int jumps = Math.min(4, 1 + lvl / 2 + Math.max(0, stack - 1));
+                int jumps = Math.min(5, 1 + lvl / 2 + Math.max(0, stack - 1)
+                        + (hasSynergy(Synergy.CONDUCTION) ? 1 : 0));
                 for (int i = 0; i < orbs; i++) {
                     Bullet b = freeBullet();
                     if (b == null) return;
@@ -4379,6 +4439,11 @@ public class GameWorld {
         bountyBanner = 0f;
         bountyBannerKind = 0;
         bountyBannerType = null;
+        // v1.28：连携由装配即时推导，重开只需清掉提示与计数
+        synergyMask = 0;
+        synergyUnlockCount = 0;
+        synergyToast = 0f;
+        synergyToastIndex = -1;
         ultConverted = 0;
         ult.reset();
         ultFlash = 0f;
@@ -4762,16 +4827,18 @@ public class GameWorld {
 
     /**
      * 反射护罩：把命中飞船的敌弹翻面成友军火力。
-     * 与"吸收"不同，这一发不会消失：它带着 2 点伤害飞回敌阵，层数也不减——
-     * 玩家拿到的是一条持续的正向回路，而不是一次性的免死。
+     * 与"吸收"不同，这一发不会消失：它带着 2 点伤害（镜盾连携下 3 点）飞回敌阵，
+     * 层数也不减——玩家拿到的是一条持续的正向回路，而不是一次性的免死。
      */
-    private void reflectEnemyBullet(EnemyBullet src) {
+    void reflectEnemyBullet(EnemyBullet src) {
         float vx = -src.vx * 1.25f;
         float vy = Math.min(-Math.abs(src.vy) * 1.25f - 220f, -320f);
         src.active = false;
         Bullet out = freeBullet();
         if (out != null) {
-            out.init(src.x, src.y, vx, vy, 2, false);
+            // 镜盾连携：有护盾托底的反射弹打得更重
+            out.init(src.x, src.y, vx, vy,
+                    hasSynergy(Synergy.MIRROR) ? 3 : 2, false);
             out.reflected = true;
             out.radius = 11f;
         }

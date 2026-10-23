@@ -99,5 +99,7 @@ public enum SfxId {
     /** v1.27：赏金兑现的金币铃（连杀越高音越亮） */
     BOUNTY_CLAIM,
     /** v1.27：赏金目标脱逃的低沉收尾（不刺耳，只报个信） */
-    BOUNTY_FAIL
+    BOUNTY_FAIL,
+    /** v1.28：点亮一组道具连携的双音"接通"铃 */
+    SYNERGY_ON
 }

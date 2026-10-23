@@ -29,6 +29,7 @@ import com.nebulastrike.game.core.Relic;
 import com.nebulastrike.game.core.Settings;
 import com.nebulastrike.game.core.Ship;
 import com.nebulastrike.game.core.Star;
+import com.nebulastrike.game.core.Synergy;
 import com.nebulastrike.game.core.Turret;
 import com.nebulastrike.game.core.Ultimate;
 import com.nebulastrike.game.core.Ui;
@@ -2293,6 +2294,7 @@ public class Renderer {
         }
 
         drawRelicChips(c, w);
+        drawSynergyChips(c, w);
 
         // 擦弹充能：固定放左下，避免和左上角的状态条抢位置
         if (w.ship.overdriveTimer > 0f) {
@@ -2308,6 +2310,31 @@ public class Renderer {
             paint.setTextSize(24f + 8f * pulse);
             paint.setColor(pulse > 0.05f ? 0xFFFFFFFF : 0xB07DF9FF);
             c.drawText("截弹 " + w.bulletsShotDown, 240f, 1202f + 3f * pulse, paint);
+        }
+
+        // 连携点亮提示：底部中央一条，把"这组搭配现在多给了什么"讲清楚
+        if (w.synergyToast > 0f && w.synergyToastIndex >= 0
+                && w.synergyToastIndex < Synergy.values().length) {
+            Synergy s = Synergy.values()[w.synergyToastIndex];
+            float k = Math.min(1f, w.synergyToast / 0.35f);
+            float in = Math.min(1f,
+                    (GameWorld.SYNERGY_TOAST_TIME - w.synergyToast) / 0.22f);
+            float y = 1128f + 10f * (1f - in);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setColor(((int) (0xAA * k) << 24) | 0x00121A2E);
+            c.drawRoundRect(200f, y - 34f, 700f, y + 34f, 12f, 12f, paint);
+            paint.setColor(((int) (0xCC * k) << 24) | 0x00FFD166);
+            c.drawRect(200f, y - 34f, 206f, y + 34f, paint);
+            paint.setFakeBoldText(true);
+            paint.setTextSize(27f);
+            paint.setColor(((int) (0xFF * k) << 24) | 0xFFFFD166);
+            c.drawText("连携 · " + s.label, VW / 2f + 3f, y - 2f, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextSize(21f);
+            paint.setColor(((int) (0xE6 * k) << 24) | 0xFFE8F1FF);
+            c.drawText(s.blurb, VW / 2f + 3f, y + 25f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
         }
 
         // lives as mini ships
@@ -2356,6 +2383,47 @@ public class Renderer {
             c.drawText(r.badge(), VW - 46f, y + 16f, paint);
             paint.setFakeBoldText(false);
             y += 48f;
+        }
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /**
+     * 连携角标：接在圣物芯片下面竖排。条件满足才出现，道具一过期就自动收起，
+     * 所以它读起来是"当前装配的加成"，而不是需要记忆的永久状态。
+     */
+    private void drawSynergyChips(Canvas c, GameWorld w) {
+        if (w.synergyMask == 0) return;
+        int relicRows = 0;
+        for (Relic r : Relic.values()) {
+            if (w.hasRelic(r)) relicRows++;
+        }
+        float y = 150f + relicRows * 48f + 4f;
+        paint.setTextAlign(Paint.Align.RIGHT);
+        for (Synergy s : Synergy.values()) {
+            if ((w.synergyMask & s.bit()) == 0) continue;
+            boolean fresh = w.synergyToast > 0f && w.synergyToastIndex == s.ordinal();
+            float glowA = fresh
+                    ? 0.45f + 0.4f * Math.abs((float) Math.sin(w.timeAlive * 9f)) : 0.26f;
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(0x99121A2E);
+            c.drawRoundRect(VW - 238f, y, VW - 22f, y + 32f, 8f, 8f, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2f);
+            paint.setColor(((int) (glowA * 255) << 24) | 0x00FFD166);
+            c.drawRoundRect(VW - 238f, y, VW - 22f, y + 32f, 8f, 8f, paint);
+            paint.setStyle(Paint.Style.FILL);
+            c.save();
+            c.translate(VW - 216f, y + 16f);
+            c.rotate(45f);
+            paint.setColor(0xFFFFD166);
+            c.drawRect(-6f, -6f, 6f, 6f, paint);
+            c.restore();
+            paint.setTextSize(21f);
+            paint.setFakeBoldText(true);
+            paint.setColor(0xE6FFE9A8);
+            c.drawText(s.label, VW - 34f, y + 23f, paint);
+            paint.setFakeBoldText(false);
+            y += 38f;
         }
         paint.setTextAlign(Paint.Align.LEFT);
     }
@@ -2761,6 +2829,7 @@ public class Renderer {
                 "GV 重力井会把附近的敌弹吸进去 · 吸满 12 发朝上方喷还成自己的子弹",
                 "ULT 终极槽靠击坠 / 擦弹 / 弹反 / 吞弹积累 · 攒满按右下角大招键，全屏点名",
                 "同类道具叠加不替换 · 集齐两把基础武器自动融合出第三把",
+                "两件道具同时在线会自动点亮连携 · 右侧金色角标显示当前组合",
                 "道具字母会换、边缘会撕裂的是伪装者 MIRAGE · 现形前打下来额外加分还必掉真道具",
                 "磁暴艇 MAGNETON 会把直射弹掰弯 · 换激光 / 导弹 / 长枪照旧，打爆它还能吞掉一圈敌弹",
                 "集群蜂后 QUEEN 边飞边产幼机，越残血产得越快 · 优先击杀她，一屏幼机当场崩溃",

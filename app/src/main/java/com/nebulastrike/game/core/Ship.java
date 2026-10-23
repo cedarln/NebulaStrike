@@ -50,8 +50,12 @@ public class Ship {
     public int reflectLayers;
     public static final int MAX_REFLECT_LAYERS = 2;
     public static final float REFLECT_RECHARGE = 6f;
+    /** 镜盾连携的充能倍率：反射 + 护盾同时在线时充得更快。 */
+    public static final float MIRROR_RECHARGE_MULT = 1.6f;
     /** 每层反射护罩的充能余量（0 = 就绪）。 */
     public final float[] reflectCd = new float[MAX_REFLECT_LAYERS];
+    /** 反射充能倍率（由 GameWorld 按连携每帧刷新）。 */
+    public float reflectRechargeScale = 1f;
     public int bombs = 1;
     public static final int MAX_BOMBS = 3;
     /** 速射道具剩余时间（>0 时射击冷却减半） */
@@ -129,6 +133,7 @@ public class Ship {
         shieldCap = MAX_SHIELD_LAYERS;
         reflectLayers = 0;
         for (int i = 0; i < reflectCd.length; i++) reflectCd[i] = 0f;
+        reflectRechargeScale = 1f;
         bombs = 1;
         rapidTimer = 0f;
         wingmanTimer = 0f;
@@ -269,7 +274,7 @@ public class Ship {
     public boolean consumeReflect() {
         int i = readyReflectLayer();
         if (i < 0) return false;
-        reflectCd[i] = REFLECT_RECHARGE;
+        reflectCd[i] = REFLECT_RECHARGE / Math.max(0.01f, reflectRechargeScale);
         return true;
     }
 

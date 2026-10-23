@@ -80,6 +80,7 @@ public final class SfxBank {
         put(SfxId.BOUNTY_START, bountyStart(), 0.72f);
         put(SfxId.BOUNTY_CLAIM, bountyClaim(), 0.86f);
         put(SfxId.BOUNTY_FAIL, bountyFail(), 0.42f);
+        put(SfxId.SYNERGY_ON, synergyLink(), 0.78f);
     }
 
     public static SfxBank create() {
@@ -1139,6 +1140,37 @@ public final class SfxBank {
             x[i] = (float) (tone * env(t, 0.42, 0.01, 1.3));
         }
         echo(x, 0.08, 0.18);
+        return x;
+    }
+
+    /** 连携点亮：两音"接通"铃 + 一层薄薄的电流颤音，像两块模块咬合。 */
+    private static float[] synergyLink() {
+        int n = frames(0.5);
+        float[] x = new float[n];
+        Random r = new Random(1427);
+        double[] f = {659.25, 987.77};
+        double[] ph = new double[f.length];
+        double phTrem = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double tone = 0;
+            for (int k = 0; k < f.length; k++) {
+                double start = k * 0.085;
+                if (t < start) continue;
+                double local = t - start;
+                ph[k] += f[k] / SAMPLE_RATE;
+                tone += (0.24 * sine(ph[k]) + 0.09 * tri(ph[k] * 2.0))
+                        * Math.exp(-local * (7.5 - k * 2.2))
+                        / (1.0 + k * 0.2);
+            }
+            // 咬合那一下的电流颤音：高频轻颤，只在前半段
+            phTrem += 2637.0 / SAMPLE_RATE;
+            double trem = sine(phTrem) * Math.exp(-t * 12.0) * 0.05
+                    * (0.6 + 0.4 * Math.sin(t * 180.0));
+            double shimmer = noise(r) * Math.exp(-t * 20.0) * 0.06;
+            x[i] = (float) ((tone + trem + shimmer) * env(t, 0.5, 0.003, 1.3));
+        }
+        echo(x, 0.06, 0.2);
         return x;
     }
 
