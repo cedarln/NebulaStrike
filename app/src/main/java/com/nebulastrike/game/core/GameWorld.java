@@ -59,7 +59,9 @@ public class GameWorld {
         /** v1.18：解锁成就（code = {@link Achievement#ordinal()}） */
         ACHIEVEMENT_UNLOCKED,
         /** v1.19：每日挑战开局（code = 日期键对今日规则的序号） */
-        DAILY_START
+        DAILY_START,
+        /** v1.20：BOSS RUSH 开局（code = 本局固定的命数） */
+        BOSS_RUSH_START
     }
     public static final class GameEvent {
         public final EventType type;
@@ -349,9 +351,10 @@ public class GameWorld {
     // persistence-backed state
     public int bestScore;
     public boolean newBest;
-    /** local top-5 scores, descending; 0 = empty slot. Two boards: WAVES / ENDLESS */
+    /** local top-5 scores, descending; 0 = empty slot. Three boards: WAVES / ENDLESS / RUSH */
     public final int[] leaderboard = new int[5];
     public final int[] leaderboardEndless = new int[5];
+    public final int[] leaderboardRush = new int[5];
     /** 0-based rank of the last finished run on the board for the active mode; -1 = not on board */
     public int scoreRank = -1;
     public final Settings settings = new Settings();
@@ -500,6 +503,20 @@ public class GameWorld {
     /** {@link #todayKey()} 的一秒缓存：渲染层每帧要读日期，但不能每帧建 Calendar。 */
     private int cachedDailyKey;
     private long cachedDailyCheck;
+
+    // ---- v1.20 BOSS RUSH ----
+    /** 连战局固定命数（不吃 LAB）。 */
+    public static final int RUSH_LIVES = 3;
+    /** 两场 Boss 之间的喘息：刚好够捡完掉落，不给刷小怪的时间。 */
+    static final float BOSS_RUSH_GAP = 1.8f;
+    /** 开局到第一个 Boss 入场的准备时间。 */
+    static final float BOSS_RUSH_OPENING = 2.6f;
+    /** 本局已连续击败的 Boss 数（结算页与 HUD 用）。 */
+    public int bossRushKills;
+    /** 开局横幅剩余秒数。 */
+    public float bossRushBanner;
+    /** 本局是否刷新了"深入纪录"（结算页提示）。 */
+    public boolean bossRushImproved;
 
     // ---- 得分构成（结算图用） ----
     public static final int SCORE_ENEMY = 0;
@@ -718,12 +735,15 @@ public class GameWorld {
             for (BossLaser l : bossLasers) l.active = false;
             if (bossGapTimer > 0f) bossGapTimer = Math.max(0f, bossGapTimer - dt);
             // trigger at wave milestones when the screen is calm-ish
-            if (wave >= nextBossWave && bossGapTimer <= 0f) {
+            // BOSS RUSH：不看 wave，喘息一结束下一位立刻入场（连战没有普通节拍）
+            boolean due = bossRush() ? bossGapTimer <= 0f
+                    : wave >= nextBossWave && bossGapTimer <= 0f;
+            if (due) {
                 // 从"当前节拍"跳档，而不是在旧档位上加固定步长：wave 由分数驱动，
                 // 高分玩家一场 Boss 拖几十秒就能攒够下一场的额度，只加步长会让下一场
                 // 在上一场尸体凉透前立刻接上（实测后期 endless 会退化成无间断 Boss 链，
                 // 普通刷新、突袭波和新舰型全被挤掉）。BOSS_MIN_GAP 再兜一层，留出喘息。
-                nextBossWave = wave + (mode == GameMode.ENDLESS ? 3 : 4);
+                if (!bossRush()) nextBossWave = wave + (mode == GameMode.ENDLESS ? 3 : 4);
                 boss.init(bossesDefeated);
                 bossActive = true;
                 events.add(new GameEvent(EventType.BOSS_SPAWNED, boss.x, boss.y));
@@ -756,8 +776,14 @@ public class GameWorld {
             boss.active = false;
             bossActive = false;
             // 打完立刻上表：下一场至少等这段喘息，别让高分把 Boss 战连成一片
-            bossGapTimer = mode == GameMode.ENDLESS ? BOSS_MIN_GAP : BOSS_MIN_GAP * 1.5f;
+            bossGapTimer = bossRush() ? BOSS_RUSH_GAP
+                    : mode == GameMode.ENDLESS ? BOSS_MIN_GAP : BOSS_MIN_GAP * 1.5f;
             bossesDefeated++;
+            if (bossRush()) {
+                bossRushKills++;
+                // 越深入赏金越高：第 n 个 Boss 额外 150×n，刷分靠稳而不是靠苟
+                addScore(150 * bossRushKills, SCORE_BOSS);
+            }
             ultCharge(ULT_GAIN_BOSS, boss.x, boss.y);
             for (BossLaser l : bossLasers) l.active = false;
             for (int i = 0; i < boss.partCount; i++) {
@@ -1282,6 +1308,7 @@ public class GameWorld {
      */
     private void updateRushWave(float dt) {
         if (!spawningEnabled || bossActive) return;
+        if (bossRush()) return;   // 连战局没有小怪，只剩 Boss 与它召来的僚机
         rushTimer -= dt;
         if (rushTimer > 0f) return;
         rushTimer = mode == GameMode.ENDLESS ? 24f : 32f;
@@ -1475,6 +1502,8 @@ public class GameWorld {
             return;
         }
         if (!mutatorsEnabled || !spawningEnabled) return;
+        // 连战局每局规则一致：不掷异变，比的是走位和节奏，不是这一把摇到了什么
+        if (bossRush()) return;
         if (timeAlive < mutatorNextAt) return;
         Mutator[] all = Mutator.values();
         Mutator picked = all[1 + RNG.get().nextInt(Mutator.COUNT)];
@@ -1537,6 +1566,7 @@ public class GameWorld {
         if (relicBanner > 0f) relicBanner = Math.max(0f, relicBanner - dt);
         if (achieveBanner > 0f) achieveBanner = Math.max(0f, achieveBanner - dt);
         if (dailyBanner > 0f) dailyBanner = Math.max(0f, dailyBanner - dt);
+        if (bossRushBanner > 0f) bossRushBanner = Math.max(0f, bossRushBanner - dt);
         if (novaFlash > 0f) novaFlash = Math.max(0f, novaFlash - dt * 2.2f);
         if (breakPulse > 0f) breakPulse = Math.max(0f, breakPulse - dt * 3.2f);
         if (mutatorBanner > 0f) mutatorBanner = Math.max(0f, mutatorBanner - dt);
@@ -2046,6 +2076,7 @@ public class GameWorld {
      */
     void updateV117Encounters(float dt) {
         if (!spawningEnabled || bossActive) return;
+        if (bossRush()) return;   // 连战局只打 Boss：保底投放会抢走 Boss 战的空间
         v117EncounterTimer -= dt;
         if (v117EncounterTimer > 0f) return;
         float t = mode == GameMode.ENDLESS ? timeAlive * 1.6f : timeAlive;
@@ -2484,6 +2515,7 @@ public class GameWorld {
     private void updateSpawning(float dt) {
         if (!spawningEnabled) return;
         if (bossActive) return; // the boss owns the sky
+        if (bossRush()) return; // 连战局全程没有常规刷新：空档只有喘息，没有小怪
         spawnTimer -= dt;
         formationTimer -= dt;
         if (formationTimer <= 0f) {
@@ -3314,6 +3346,8 @@ public class GameWorld {
             for (int i = 0; i < leaderboard.length && i < lb.length; i++) leaderboard[i] = lb[i];
             int[] elb = s.leaderboard(GameMode.ENDLESS);
             for (int i = 0; i < leaderboardEndless.length && i < elb.length; i++) leaderboardEndless[i] = elb[i];
+            int[] rlb = s.leaderboard(GameMode.RUSH);
+            for (int i = 0; i < leaderboardRush.length && i < rlb.length; i++) leaderboardRush[i] = rlb[i];
         }
     }
 
@@ -3321,6 +3355,7 @@ public class GameWorld {
     public int[] board(GameMode m) {
         // 日常局不进分数榜：它的榜单是"最近 14 天日历"，见 {@link #dailyHistory()}
         if (m == GameMode.DAILY) return new int[5];
+        if (m == GameMode.RUSH) return leaderboardRush;
         return m == GameMode.ENDLESS ? leaderboardEndless : leaderboard;
     }
 
@@ -3359,6 +3394,10 @@ public class GameWorld {
             case START_DAILY:
                 closePanels();
                 restart(GameMode.DAILY);
+                break;
+            case START_RUSH:
+                closePanels();
+                restart(GameMode.RUSH);
                 break;
             case CHECK_UPDATE:
                 // IDLE/最新/失败 -> 重新检查；已发现新版本 -> 开始下载；忙碌中忽略
@@ -3575,6 +3614,14 @@ public class GameWorld {
             if (daily()) {
                 // 日常局只写日历：全球同一天同一把尺，历史最高分和两张分数榜留给自由局
                 dailyImproved = recordDailyRun();
+            } else if (bossRush()) {
+                // 连战局只写自己的榜与"最深入纪录"：不吃 CAMPAIGN 的历史最高分
+                if (bossRushKills > settings.rushBest) {
+                    settings.rushBest = bossRushKills;
+                    bossRushImproved = true;
+                    if (store != null) store.save(settings);
+                }
+                scoreRank = insertScore(score, mode);
             } else {
                 if (score > bestScore) {
                     bestScore = score;
@@ -3657,6 +3704,14 @@ public class GameWorld {
         achievements.beginRun();
         mode = m;
         applyDailyRules(m);
+        // v1.20：连战局每场都从第一位 Boss 重来，深潜纪录只涨不跌
+        bossRushKills = 0;
+        bossRushImproved = false;
+        bossRushBanner = bossRush() ? 3.2f : 0f;
+        if (bossRush()) {
+            events.add(new GameEvent(EventType.BOSS_RUSH_START,
+                    WIDTH / 2f, HEIGHT - 140f, RUSH_LIVES));
+        }
         score = 0;
         lives = startLivesOf();
         kills = 0;
@@ -3755,6 +3810,7 @@ public class GameWorld {
         for (int i = 0; i < weaponCd.length; i++) weaponCd[i] = 0f;
         bossesDefeated = 0;
         nextBossWave = m == GameMode.ENDLESS ? 3 : 4; // endless: bosses come faster
+        bossGapTimer = bossRush() ? BOSS_RUSH_OPENING : 0f;   // 连战局开场 2.6 秒后第一位入场
         formationTimer = m == GameMode.ENDLESS ? 6f : 8f;
         spawnTimer = 0f;
         state = State.PLAYING;
@@ -3775,6 +3831,16 @@ public class GameWorld {
     /** 当前是否在每日挑战局里。 */
     public boolean daily() {
         return mode == GameMode.DAILY;
+    }
+
+    /** 当前是否在 BOSS RUSH 连战局里。 */
+    public boolean bossRush() {
+        return mode == GameMode.RUSH;
+    }
+
+    /** 下一场 Boss 的编号（0 起；HUD 展示用 1 起）。 */
+    public int bossRushNext() {
+        return bossesDefeated + 1;
     }
 
     /**
@@ -3834,29 +3900,38 @@ public class GameWorld {
     }
 
     // ---- 本局生效系数：日常挑战锁标准难度、屏蔽 LAB，保证全球同一把尺 ----
+    // BOSS RUSH 同理：它有自己的榜，不能让 LAB 或难度档位改写别人的成绩。
+
+    private boolean competitive() {
+        return daily() || bossRush();
+    }
 
     private Difficulty difficultyOf() {
-        return daily() ? Difficulty.STANDARD : settings.difficulty;
+        return competitive() ? Difficulty.STANDARD : settings.difficulty;
     }
 
     private int dropRatePctOf() {
-        return daily() ? 100 : settings.dropRatePct;
+        return competitive() ? 100 : settings.dropRatePct;
     }
 
     private int enemySpeedPctOf() {
-        return daily() ? 100 : settings.enemySpeedPct;
+        return competitive() ? 100 : settings.enemySpeedPct;
     }
 
     private int startPowerOf() {
-        return daily() ? 1 : settings.startPower;
+        if (daily()) return 1;
+        if (bossRush()) return 2;   // 开局就敢当面刚 Boss：两路火力，且第一场必掉装备
+        return settings.startPower;
     }
 
     private int startLivesOf() {
-        return daily() ? dailyLives : settings.startLives;
+        if (daily()) return dailyLives;
+        if (bossRush()) return RUSH_LIVES;
+        return settings.startLives;
     }
 
     private boolean godModeOf() {
-        return !daily() && settings.godMode;
+        return !competitive() && settings.godMode;
     }
 
     // ---- 今日规则与随机异变波的叠加：同类倍率只认更极端的一档，不相乘 ----

@@ -67,6 +67,7 @@ public final class SfxBank {
         put(SfxId.BROOD_CHIRP, broodChirp(), 0.48f);
         put(SfxId.ACHIEVEMENT, achievement(), 0.66f);
         put(SfxId.DAILY_START, dailyStart(), 0.6f);
+        put(SfxId.BOSS_RUSH, bossRushStart(), 0.78f);
     }
 
     public static SfxBank create() {
@@ -1186,6 +1187,37 @@ public final class SfxBank {
             x[i] = (float) ((bell + pad) * env(t, 1.1, 0.002, 0.8));
         }
         echo(x, 0.16, 0.3);
+        return x;
+    }
+
+    /**
+     * v1.20 BOSS RUSH 开局：低音铜管在一个八度内往上爬，两记定音鼓砸在 0 秒和 0.55 秒，
+     * 像擂台开场介绍选手。刻意避开钟声泛音（那是 DAILY 的语汇），让两种开局一听就分得开。
+     */
+    private static float[] bossRushStart() {
+        int n = frames(1.15);
+        float[] x = new float[n];
+        Random r = new Random(20201020);
+        double phA = 0, phB = 0, phDrum = 0;
+        double[] hits = {0.0, 0.55};
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double k = Math.min(1.0, t / 0.9);
+            double f = 110.0 * Math.pow(2.0, k);
+            phA += f / SAMPLE_RATE;
+            phB += f * 1.5 / SAMPLE_RATE;
+            double brass = (saw(phA) * 0.34 + saw(phB) * 0.18) * Math.min(1.0, t / 0.08);
+            double hit = 0;
+            for (double s : hits) {
+                double local = t - s;
+                if (local < 0) continue;
+                phDrum += (70 + 60 * Math.exp(-local * 9)) / SAMPLE_RATE;
+                hit += sine(phDrum) * Math.exp(-local * 7) * 0.55;
+            }
+            double hiss = noise(r) * 0.05 * Math.max(0.0, 1.0 - t / 1.15);
+            x[i] = (float) ((brass + hit + hiss) * env(t, 1.15, 0.004, 0.8));
+        }
+        echo(x, 0.11, 0.24);
         return x;
     }
 

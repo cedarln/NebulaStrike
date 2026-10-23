@@ -58,6 +58,10 @@ public class Settings {
     /** 与 {@link #dailyKeys} 一一对应的当日最佳分。 */
     public final int[] dailyScores = new int[DailyChallenge.HISTORY_SLOTS];
 
+    // ---- BOSS RUSH（v1.20）：单局深入的最多 Boss 数 ----
+    /** 一次 BOSS RUSH 里连续击败的 Boss 数量纪录；0 = 还没打过。 */
+    public volatile int rushBest;
+
     /** 某天的历史最佳分；没打过返回 0。 */
     public int dailyBest(int dateKey) {
         for (int i = 0; i < dailyKeys.length; i++) {
@@ -206,6 +210,7 @@ public class Settings {
                 dailyScores[i] = 0;
             }
         }
+        if (rushBest < 0) rushBest = 0;
     }
 
     /** yyyyMMdd 形式的日期键合法性检查：年份合理、月份 1..12、日期 1..31。 */

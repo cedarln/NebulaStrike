@@ -44,6 +44,7 @@ public class SharedPrefsStore implements SettingsStore {
             into.dailyKeys[i] = prefs.getInt("dailyKey" + i, 0);
             into.dailyScores[i] = prefs.getInt("dailyScore" + i, 0);
         }
+        into.rushBest = prefs.getInt("rushBest", 0);
         into.sanitize();
     }
 
@@ -60,7 +61,7 @@ public class SharedPrefsStore implements SettingsStore {
     @Override
     public int[] leaderboard(GameMode mode) {
         if (mode == GameMode.DAILY) return new int[5];   // 日常走日历，不占分数榜
-        String prefix = mode == GameMode.ENDLESS ? "elb" : "lb";
+        String prefix = leaderboardPrefix(mode);
         int[] out = new int[5];
         for (int i = 0; i < out.length; i++) out[i] = prefs.getInt(prefix + i, 0);
         return out;
@@ -69,10 +70,19 @@ public class SharedPrefsStore implements SettingsStore {
     @Override
     public void saveLeaderboard(GameMode mode, int[] scores) {
         if (mode == GameMode.DAILY) return;
-        String prefix = mode == GameMode.ENDLESS ? "elb" : "lb";
+        String prefix = leaderboardPrefix(mode);
         SharedPreferences.Editor e = prefs.edit();
         for (int i = 0; i < 5 && i < scores.length; i++) e.putInt(prefix + i, scores[i]);
         e.apply();
+    }
+
+    /** 每种模式一张独立的榜：WAVES=lb，ENDLESS=elb，BOSS RUSH=brb。 */
+    private static String leaderboardPrefix(GameMode mode) {
+        switch (mode) {
+            case ENDLESS: return "elb";
+            case RUSH: return "brb";
+            default: return "lb";
+        }
     }
 
     @Override
@@ -104,6 +114,7 @@ public class SharedPrefsStore implements SettingsStore {
             e.putInt("dailyKey" + i, s.dailyKeys[i]);
             e.putInt("dailyScore" + i, s.dailyScores[i]);
         }
+        e.putInt("rushBest", s.rushBest);
         e.apply();
     }
 }

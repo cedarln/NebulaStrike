@@ -19,9 +19,13 @@ public final class Ui {
 
     // menu
     public static final Rect START = new Rect(GameWorld.WIDTH / 2f - 220f, 372f, 440f, 76f);
-    /** ENDLESS 与 DAILY 并排一行：日常挑战上线后菜单不再有三个整行模式按钮的空间。 */
-    public static final Rect START_ENDLESS = new Rect(GameWorld.WIDTH / 2f - 220f, 462f, 210f, 76f);
-    public static final Rect START_DAILY = new Rect(GameWorld.WIDTH / 2f + 10f, 462f, 210f, 76f);
+    /**
+     * 三种特殊模式并排一行（v1.20 加入 BOSS RUSH 后菜单只剩这一行能放下三个入口）。
+     * 每个 140 宽，右缘 670 与 START 对齐。
+     */
+    public static final Rect START_ENDLESS = new Rect(GameWorld.WIDTH / 2f - 220f, 462f, 140f, 76f);
+    public static final Rect START_DAILY = new Rect(GameWorld.WIDTH / 2f - 70f, 462f, 140f, 76f);
+    public static final Rect START_RUSH = new Rect(GameWorld.WIDTH / 2f + 80f, 462f, 140f, 76f);
     public static final Rect SETTINGS = new Rect(GameWorld.WIDTH / 2f - 220f, 552f, 210f, 64f);
     public static final Rect CHEATS = new Rect(GameWorld.WIDTH / 2f + 10f, 552f, 210f, 64f);
     /** CODEX 与成就入口共用一行（v1.18 成就系统上线后菜单不再有三个整行按钮的空间）。 */
@@ -115,7 +119,8 @@ public final class Ui {
 
     /** Logical UI actions produced by taps. */
     public enum Action {
-        START, START_ENDLESS, START_DAILY, OPEN_SETTINGS, TOGGLE_SOUND, TOGGLE_PARTICLES, TOGGLE_HAPTICS,
+        START, START_ENDLESS, START_DAILY, START_RUSH,
+        OPEN_SETTINGS, TOGGLE_SOUND, TOGGLE_PARTICLES, TOGGLE_HAPTICS,
         TOGGLE_REDUCED_FX, TOGGLE_LEFT_HAND, SETTINGS_BACK, RESUME, RESTART, QUIT_TO_MENU, PAUSE,
         CHECK_UPDATE,
         OPEN_CHEATS, CHEATS_BACK, TOGGLE_GOD, CHEAT_RESET,
@@ -192,6 +197,7 @@ public final class Ui {
                 }
                 if (START.contains(x, y)) return Action.START;
                 if (START_ENDLESS.contains(x, y)) return Action.START_ENDLESS;
+                if (START_RUSH.contains(x, y)) return Action.START_RUSH;
                 if (START_DAILY.contains(x, y)) return Action.START_DAILY;
                 if (SETTINGS.contains(x, y)) return Action.OPEN_SETTINGS;
                 if (CHEATS.contains(x, y)) return Action.OPEN_CHEATS;

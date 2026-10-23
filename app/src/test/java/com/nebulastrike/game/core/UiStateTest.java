@@ -260,8 +260,8 @@ public class UiStateTest {
 
     @Test
     public void menuAndCodexRectsDoNotOverlap() {
-        Ui.Rect[] menu = {Ui.START, Ui.START_ENDLESS, Ui.SETTINGS, Ui.CHEATS, Ui.CODEX,
-                Ui.CHECK_UPDATE};
+        Ui.Rect[] menu = {Ui.START, Ui.START_ENDLESS, Ui.START_DAILY, Ui.START_RUSH,
+                Ui.SETTINGS, Ui.CHEATS, Ui.CODEX, Ui.CHECK_UPDATE};
         for (int i = 0; i < menu.length; i++) {
             for (int j = i + 1; j < menu.length; j++) {
                 assertFalse("菜单按钮重叠", overlap(menu[i], menu[j]));

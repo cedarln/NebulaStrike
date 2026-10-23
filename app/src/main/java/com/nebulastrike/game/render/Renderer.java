@@ -1618,6 +1618,11 @@ public class Renderer {
             // 日常局的顶部标签就是"今天的规则"：常驻、不闪烁，和随机异变波区分开
             paint.setColor(w.dailyRule.colorRgb);
             c.drawText("日常 " + w.dailyRule.label + " · W" + w.wave, VW / 2f - 70f, 60f, paint);
+        } else if (w.bossRush()) {
+            // 连战局没有 wave 概念，顶栏直接报"第几位 Boss"，让人知道自己在爬多深
+            paint.setColor(0xFFFFB03A);
+            c.drawText("BOSS RUSH · 第 " + w.bossRushNext() + " 个",
+                    VW / 2f - 70f, 60f, paint);
         } else {
             paint.setColor(w.mode == GameMode.ENDLESS ? 0xFFB08FFF : 0xFF8FA3C8);
             c.drawText((w.mode == GameMode.ENDLESS ? "ENDLESS " : "WAVE ") + w.wave,
@@ -1862,6 +1867,27 @@ public class Renderer {
                             + DailyChallenge.livesScoreBonus(w.dailyLives)
                             + " · 同一天重开同一条时间线",
                     VW / 2f, 646f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+        // BOSS RUSH 开局横幅：连战规则一句话讲完，2.6 秒后第一位就进场
+        if (w.bossRushBanner > 0f && w.bossRush()) {
+            float k = Math.min(1f, w.bossRushBanner / 0.4f);
+            float in = Math.min(1f, (3.2f - w.bossRushBanner) / 0.3f);
+            float s = 0.75f + 0.25f * in;
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(42f * s);
+            paint.setFakeBoldText(true);
+            paint.setColor(((int) (0xFF * k) << 24) | 0xFFFFB03A);
+            c.drawText("BOSS RUSH · 连战", VW / 2f, 545f, paint);
+            paint.setTextSize(32f * s);
+            paint.setColor(((int) (0xF0 * k) << 24) | 0xFFFF7A5C);
+            c.drawText("第 1 个 Boss 即将入场", VW / 2f, 588f, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextSize(23f * s);
+            paint.setColor(((int) (0xE0 * k) << 24) | 0xFFC8D6F0);
+            c.drawText("没有小怪 · 打完一个喘息 1.8 秒就来下一个", VW / 2f, 622f, paint);
+            c.drawText("开局 " + GameWorld.RUSH_LIVES + " 条命 · 火力 2 · 越深赏金越高",
+                    VW / 2f, 652f, paint);
             paint.setTextAlign(Paint.Align.LEFT);
         }
         if (w.mutatorBanner > 0f && w.mutator.isActive()) {
@@ -2155,8 +2181,7 @@ public class Renderer {
         c.drawText("SLIDE ANYWHERE TO FLY  •  AUTO FIRE  •  BOMB BUTTON", VW / 2f, 360f, paint);
 
         button(c, Ui.START, "CAMPAIGN", 0xFF274BFF, 0xFFE8F1FF, true);
-        button(c, Ui.START_ENDLESS, "ENDLESS", 0xFF8A2BE2, 0xFFFFD166, true, 34f);
-        drawDailyButton(c, w);
+        drawModeRow(c, w);
         button(c, Ui.SETTINGS, "SETTINGS", 0xFF182040, 0xFF8FA3C8, false, 30f);
         button(c, Ui.CHEATS, w.settings.cheatsActive() ? "LAB ON" : "LAB",
                 0xFF182040, 0xFFFF8FD1, false, 30f);
@@ -2191,6 +2216,7 @@ public class Renderer {
                 "集群蜂后 QUEEN 边飞边产幼机，越残血产得越快 · 优先击杀她，一屏幼机当场崩溃",
                 "达成成就当场 +300 分并涨军衔 · 单局取历史最佳、生涯只累加，进度永远不倒退",
                 "每日挑战 DAILY 由当天日期决定规则、命数与种子 · 同一天重开就是同一条时间线，可以刷分",
+                "BOSS RUSH 只打 Boss，没有小怪只有喘息 · 越深赏金越高",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
@@ -2201,39 +2227,53 @@ public class Renderer {
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
-    /** 日常挑战入口：把今天摇到的规则直接写在按钮上，点下去之前就知道要面对什么。 */
-    private void drawDailyButton(Canvas c, GameWorld w) {
-        Ui.Rect r = Ui.START_DAILY;
+    /** 三种非主线模式并排：ENDLESS / DAILY / RUSH，副标题把"点下去会发生什么"写清楚。 */
+    private void drawModeRow(Canvas c, GameWorld w) {
+        int endlessBest = w.board(GameMode.ENDLESS)[0];
+        drawModeButton(c, Ui.START_ENDLESS, "ENDLESS", 0xFFB08FFF,
+                "无尽刷分", endlessBest > 0 ? "最高 " + endlessBest : "暂无纪录");
+
         int key = w.todayKey();
         Mutator rule = DailyChallenge.ruleFor(key);
         int lives = DailyChallenge.livesFor(key);
         boolean played = w.dailyPlayedToday();
-        int accent = played ? 0xFF6FE38B : 0xFF7DF9FF;
+        int best = w.settings.dailyBest(key);
+        drawModeButton(c, Ui.START_DAILY, played ? "DAILY ✓" : "DAILY",
+                played ? 0xFF6FE38B : 0xFF7DF9FF,
+                DailyChallenge.display(key) + " · " + lives + "命",
+                played ? "最佳 " + best + " · 连胜 " + w.settings.dailyStreak(key)
+                        : rule.label + " · 待打卡");
+
+        int rushBest = w.settings.rushBest;
+        drawModeButton(c, Ui.START_RUSH, "RUSH", 0xFFFFB03A,
+                "Boss 连战 · " + GameWorld.RUSH_LIVES + "命",
+                rushBest > 0 ? "深入 " + rushBest + " 个" : "未挑战");
+    }
+
+    /** 竖排三行的小号模式按钮：标题 + 两行说明，三个并排时也不会挤字。 */
+    private void drawModeButton(Canvas c, Ui.Rect r, String title, int accent,
+                                String sub1, String sub2) {
+        paint.setShader(null);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(played ? 0xFF123528 : 0xFF0E2A46);
-        c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 18f, 18f, paint);
+        paint.setColor(0xCC0C1629);
+        c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 16f, 16f, paint);
         paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(3f);
-        paint.setColor(((int) (0xCC * (played ? 1f : 0.8f)) << 24) | accent);
-        c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 18f, 18f, paint);
+        paint.setStrokeWidth(2.5f);
+        paint.setColor(0xCC000000 | accent);
+        c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 16f, 16f, paint);
         paint.setStyle(Paint.Style.FILL);
         paint.setTextAlign(Paint.Align.CENTER);
         paint.setFakeBoldText(true);
-        paint.setTextSize(32f);
-        paint.setColor(played ? 0xFF8AF3A6 : 0xFFCFF4FF);
-        c.drawText(played ? "DAILY ✓" : "DAILY", r.cx(), r.cy() - 2f, paint);
+        paint.setTextSize(28f);
+        paint.setColor(0xFFE8F1FF);
+        c.drawText(title, r.cx(), r.cy() - 11f, paint);
         paint.setFakeBoldText(false);
-        paint.setTextSize(18f);
-        paint.setColor(0xFFC8D6F0);
-        c.drawText(DailyChallenge.display(key) + " · " + rule.label + " · " + lives + " 命",
-                r.cx(), r.cy() + 26f, paint);
         paint.setTextSize(15f);
+        paint.setColor(accent);
+        c.drawText(sub1, r.cx(), r.cy() + 15f, paint);
+        paint.setTextSize(13f);
         paint.setColor(0x99C8D6F0);
-        int best = w.settings.dailyBest(key);
-        c.drawText(best > 0 ? "今日最佳 " + best + " 分 · 连胜 "
-                        + w.settings.dailyStreak(key) + " 天"
-                : "连胜 " + w.settings.dailyStreak(key) + " 天 · 今日待打卡",
-                r.cx(), r.y - 8f, paint);
+        c.drawText(sub2, r.cx(), r.cy() + 35f, paint);
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
@@ -2894,6 +2934,7 @@ public class Renderer {
         paint.setColor(0xFFFFFFFF);
         String modeTag = w.daily()
                 ? "日常 " + DailyChallenge.display(w.dailyKey) + " · " + w.dailyRule.label
+                : w.bossRush() ? "BOSS RUSH · 连破 " + w.bossRushKills + " 个"
                 : (w.mode == GameMode.ENDLESS ? "ENDLESS" : "WAVE " + w.wave)
                         + "   •   " + w.settings.difficulty.label();
         c.drawText("Score " + w.score + "   •   " + modeTag, VW / 2f, 468f, paint);
@@ -2912,6 +2953,19 @@ public class Renderer {
                 c.drawText("今日最佳 " + todayBest + "  ·  开局 " + w.dailyLives
                         + " 条命 · 得分 ×" + DailyChallenge.livesScoreBonus(w.dailyLives),
                         VW / 2f, 518f, paint);
+            }
+        } else if (w.bossRush()) {
+            // 连战局看的是"打到第几个"，分数只是附带：纪录行单独讲深度
+            if (w.bossRushImproved) {
+                float pulse = 1f + 0.06f * (float) Math.sin(w.stateTimer * 6f);
+                paint.setTextSize(38f * pulse);
+                paint.setColor(0xFFFFD166);
+                c.drawText("★ 深入新纪录 " + w.settings.rushBest + " 个 ★", VW / 2f, 520f, paint);
+            } else {
+                paint.setTextSize(34f);
+                paint.setColor(0xFF8FA3C8);
+                c.drawText("最深纪录 " + w.settings.rushBest + " 个  ·  本局 "
+                        + w.bossRushKills + " 个", VW / 2f, 518f, paint);
             }
         } else if (w.newBest) {
             float pulse = 1f + 0.06f * (float) Math.sin(w.stateTimer * 6f);
@@ -3162,8 +3216,10 @@ public class Renderer {
 
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setTextSize(size * 0.92f);
-        paint.setColor(mode == GameMode.ENDLESS ? 0xFFB08FFF : 0xFF7DF9FF);
-        c.drawText(mode == GameMode.ENDLESS ? "ENDLESS TOP 5" : "CAMPAIGN TOP 5",
+        paint.setColor(mode == GameMode.ENDLESS ? 0xFFB08FFF
+                : mode == GameMode.RUSH ? 0xFFFFB03A : 0xFF7DF9FF);
+        c.drawText(mode == GameMode.ENDLESS ? "ENDLESS TOP 5"
+                        : mode == GameMode.RUSH ? "BOSS RUSH TOP 5" : "CAMPAIGN TOP 5",
                 x + 20f, y + rowH, paint);
 
         paint.setTextSize(size);

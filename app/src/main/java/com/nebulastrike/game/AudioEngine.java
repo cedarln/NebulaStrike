@@ -329,6 +329,10 @@ public class AudioEngine {
                     // 开局横幅音：同样居中，code 是今日规则在 Mutator 里的序号
                     play(SfxId.DAILY_START, 0.8f, 1f, 0f);
                     break;
+                case BOSS_RUSH_START:
+                    // 连战开场：居中重音，末音拖长一点，盖住第一位 Boss 入场前的空档
+                    play(SfxId.BOSS_RUSH, 0.92f, 1f, 0f);
+                    break;
             }
         }
     }
