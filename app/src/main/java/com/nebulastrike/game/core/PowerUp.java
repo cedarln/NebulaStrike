@@ -12,7 +12,9 @@ public class PowerUp {
      * 新类型一律追加在末尾，避免改变既有 ordinal（掉落表、音效、存档都按 ordinal 映射）。
      */
     public enum Kind { SPREAD, MISSILE, LASER, POWER, SHIELD, BOMB, RAPID, X2, LIFE, WINGMAN, TIME,
-        ORBIT, CHAIN, BONUS, BOUNCE, NOVA, NANITE, TURRET, GRAVITY }
+        ORBIT, CHAIN, BONUS, BOUNCE, NOVA, NANITE, TURRET, GRAVITY,
+        /** v1.23：反射护罩（叠加，最多 2 层；每层 6 秒充能一次，把命中你的敌弹弹回去）。 */
+        REFLECT }
 
     public Kind kind;
     public float x, y;

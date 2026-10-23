@@ -70,6 +70,7 @@ public final class SfxBank {
         put(SfxId.BOSS_RUSH, bossRushStart(), 0.78f);
         put(SfxId.RAM_IMPACT, ramImpact(), 0.72f);
         put(SfxId.PHASE_SHIFT, phaseShift(), 0.60f);
+        put(SfxId.REFLECT, reflect(), 0.62f);
     }
 
     public static SfxBank create() {
@@ -902,6 +903,27 @@ public final class SfxBank {
             x[i] = (float) ((clash + bell + pick) * env(t, 0.30, 0.001, 1.1));
         }
         echo(x, 0.055, 0.22);
+        return x;
+    }
+
+    /** 反射护罩：敌弹被弹回的空心金属回旋声——先急坠再上扬，像被原路打回去。 */
+    private static float[] reflect() {
+        int n = frames(0.34);
+        float[] x = new float[n];
+        Random r = new Random(517);
+        double ph1 = 0, ph2 = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double down = Math.min(1.0, t / 0.10);
+            double up = Math.min(1.0, Math.max(0.0, (t - 0.10) / 0.24));
+            double sweep = 1.6 - 1.0 * down + 0.6 * up;
+            ph1 += 880 * sweep / SAMPLE_RATE;
+            ph2 += 1320 * sweep / SAMPLE_RATE;
+            double ring = (0.5 * sine(ph1) + 0.3 * tri(ph2)) * Math.exp(-t * 9);
+            double whoosh = noise(r) * Math.exp(-t * 34) * 0.25;
+            x[i] = (float) ((ring + whoosh) * env(t, 0.34, 0.002, 1.2));
+        }
+        echo(x, 0.05, 0.3);
         return x;
     }
 

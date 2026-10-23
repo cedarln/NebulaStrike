@@ -342,6 +342,11 @@ public class AudioEngine {
                     play(SfxId.PHASE_SHIFT, 0.62f,
                             e.code == 1 ? 0.90f : 1.16f, panFor(e.x));
                     break;
+                case REFLECT:
+                    // code = 是否还有就绪层：最后一层弹完音色更沉，提示"这张底牌用掉了"
+                    play(SfxId.REFLECT, 0.78f,
+                            e.code == 1 ? 1.08f : 0.88f, panFor(e.x));
+                    break;
             }
         }
     }
@@ -505,6 +510,7 @@ public class AudioEngine {
             case BROOD_CHIRP: return 150_000_000L;
             case RAM_IMPACT: return 180_000_000L;   // 同一波两只冲撞者撞停时别叠成一声
             case PHASE_SHIFT: return 110_000_000L;  // 一群相位者同时换相时留一点层次
+            case REFLECT: return 90_000_000L;       // 密集弹幕下连弹时别糊成一片
             case ACHIEVEMENT: return 500_000_000L;   // 一次结算连解两条时只吹一记号角
             default: return 0L;
         }

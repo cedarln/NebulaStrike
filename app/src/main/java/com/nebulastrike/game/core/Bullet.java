@@ -30,6 +30,8 @@ public class Bullet {
     public boolean ult;
     /** v1.17：本发弹是否已被磁暴艇偏折过（结算卡"偏弹"按发计，不按帧计）。 */
     public boolean bent;
+    /** v1.23：由反射护罩弹回来的敌弹（渲染成相位紫，与普通火力区分）。 */
+    public boolean reflected;
 
     public void init(float x, float y, float vy) {
         init(x, y, 0f, vy, 1, false);
@@ -53,6 +55,7 @@ public class Bullet {
         this.bounces = 0;
         this.ult = false;
         this.bent = false;
+        this.reflected = false;
         this.landed = false;
     }
 

@@ -79,5 +79,7 @@ public enum SfxId {
     /** v1.21：冲撞者撞停的闷响（低频塌陷 + 碎石噪声，提示"现在是双倍伤害窗口"） */
     RAM_IMPACT,
     /** v1.22：相位者切换相位的空灵扫频（code 1 下沉，code 0 上浮） */
-    PHASE_SHIFT
+    PHASE_SHIFT,
+    /** v1.23：反射护罩弹回敌弹的金属回旋音（code 1 表示还有就绪层，音色更亮） */
+    REFLECT
 }

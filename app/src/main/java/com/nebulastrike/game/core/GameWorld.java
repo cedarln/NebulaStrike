@@ -65,7 +65,9 @@ public class GameWorld {
         /** v1.21：冲撞者撞停（硬直窗口开始，此时受击双倍） */
         RAM_IMPACT,
         /** v1.22：相位者切换相位（code 1 = 进入相位，0 = 重新实体化） */
-        PHASE_SHIFT
+        PHASE_SHIFT,
+        /** v1.23：反射护罩把一发敌弹弹回去（code = 剩余就绪层数） */
+        REFLECT
     }
     public static final class GameEvent {
         public final EventType type;
@@ -3016,6 +3018,11 @@ public class GameWorld {
                 float rr = Ship.RADIUS + b.radius;
                 if (distToSegment(b.x, b.y,
                         ship.prevX, ship.prevY, ship.x, ship.y) <= rr) {
+                    // 反射护罩优先于护盾：把这一发直接翻面，层数不消耗（只进充能）
+                    if (ship.consumeReflect()) {
+                        reflectEnemyBullet(b);
+                        continue;
+                    }
                     b.active = false;
                     spark(b.x, b.y, 6, 2);
                     onPlayerHit();
@@ -3125,6 +3132,10 @@ public class GameWorld {
             case GRAVITY:
                 // 摆在船上方：井口对着来袭弹幕才有"截住"的感觉，井会自己缓慢下移离场
                 deployGravityWell(p.x, p.y - 170f);
+                break;
+            case REFLECT:
+                // 叠加而不是替换：满 2 层后折算奖励分，已有层照常工作
+                if (!ship.addReflect()) addScore(200, SCORE_PICKUP);
                 break;
             case BONUS:
                 // 突袭奖励：大量分数 + 双倍分数 + 随机武器 + 清空敌弹
@@ -3354,10 +3365,10 @@ public class GameWorld {
     }
 
     /**
-     * 掉落分布（v1.15）。BONUS 只由突袭奖励波投放，不在常规掉落表内。
-     * 追踪弹 MISSILE 提到 14%（用户反馈"想要更多追踪弹"），
-     * 尾部"特殊道具"区（0.87~1.0，共 13%）本轮由四类扩为五类：
-     * BOUNCE 3%、NOVA 3%、NANITE 2.5%、GRAVITY 2.5%、TURRET 2%。
+     * 掉落分布（v1.15，v1.23 在尾部加入 REFLECT）。BONUS 只由突袭奖励波投放，不在常规掉落表内。
+     * 追踪弹 MISSILE 14%（用户反馈"想要更多追踪弹"），
+     * 尾部"特殊道具"区（0.87~1.0，共 13%）：
+     * BOUNCE 3%、NOVA 3%、NANITE 2.5%、GRAVITY 2.2%、REFLECT 1.6%、TURRET 0.7%。
      * 独立成纯函数便于测试边界。
      */
     public static PowerUp.Kind dropKind(float roll) {
@@ -3377,7 +3388,8 @@ public class GameWorld {
         if (roll < 0.90f) return PowerUp.Kind.BOUNCE;
         if (roll < 0.93f) return PowerUp.Kind.NOVA;
         if (roll < 0.955f) return PowerUp.Kind.NANITE;
-        if (roll < 0.98f) return PowerUp.Kind.GRAVITY;
+        if (roll < 0.977f) return PowerUp.Kind.GRAVITY;
+        if (roll < 0.993f) return PowerUp.Kind.REFLECT;
         return PowerUp.Kind.TURRET;
     }
 
@@ -4223,6 +4235,27 @@ public class GameWorld {
                 break;
             }
         }
+    }
+
+    /**
+     * 反射护罩：把命中飞船的敌弹翻面成友军火力。
+     * 与"吸收"不同，这一发不会消失：它带着 2 点伤害飞回敌阵，层数也不减——
+     * 玩家拿到的是一条持续的正向回路，而不是一次性的免死。
+     */
+    private void reflectEnemyBullet(EnemyBullet src) {
+        float vx = -src.vx * 1.25f;
+        float vy = Math.min(-Math.abs(src.vy) * 1.25f - 220f, -320f);
+        src.active = false;
+        Bullet out = freeBullet();
+        if (out != null) {
+            out.init(src.x, src.y, vx, vy, 2, false);
+            out.reflected = true;
+            out.radius = 11f;
+        }
+        spark(src.x, src.y, 8, 15);
+        addShake(0.08f, 3f);
+        events.add(new GameEvent(EventType.REFLECT, src.x, src.y,
+                ship.readyReflectLayer() >= 0 ? 1 : 0));
     }
 
     /**

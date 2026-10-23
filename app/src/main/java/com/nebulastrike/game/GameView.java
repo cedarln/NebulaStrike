@@ -273,6 +273,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case BOSS_RUSH_START: haptics.tick(); break;
                     case RAM_IMPACT: haptics.impact(); break;
                     case PHASE_SHIFT: haptics.tick(); break;
+                    // 反射护罩挡下敌弹：比擦弹重、比受击轻，像"接住再丢回去"
+                    case REFLECT: haptics.impact(); break;
                     case MIRAGE_REVEAL: haptics.tick(); break;
                     // EMP 放出去要"撞一下"，磁暴艇被打爆吞弹只是轻提示
                     case MAG_BURST:

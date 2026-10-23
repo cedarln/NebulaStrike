@@ -270,7 +270,21 @@ public class Renderer {
         paint.setStyle(Paint.Style.FILL);
         for (Bullet b : w.bullets) {
             if (!b.active) continue;
-            if (b.ult) {
+            if (b.reflected) {
+                // 反射弹：相位紫弹体 + 反向飞出的尾焰，和敌方弹幕明确区分
+                paint.setStyle(Paint.Style.FILL);
+                glow.setColor(0x88B48FFF);
+                c.drawCircle(b.x, b.y, b.radius + 7f, glow);
+                paint.setColor(0xFFB48FFF);
+                c.drawCircle(b.x, b.y, b.radius, paint);
+                paint.setColor(0xFFFFFFFF);
+                c.drawCircle(b.x, b.y, b.radius * 0.45f, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2f);
+                paint.setColor(0x99E8D8FF);
+                c.drawCircle(b.x, b.y, b.radius + 4f, paint);
+                paint.setStyle(Paint.Style.FILL);
+            } else if (b.ult) {
                 // 终极光矛：金色长枪 + 冷白核心，沿飞行方向拖出一道亮痕
                 float ang = (float) Math.atan2(b.vy, b.vx);
                 glow.setColor(0x66FFE08A);
@@ -414,6 +428,7 @@ public class Renderer {
                 case NANITE: color = 0xFF5CFFB8; label = "NA"; break;
                 case TURRET: color = 0xFFC0CCE8; label = "TR"; break;
                 case GRAVITY: color = 0xFFC9A0FF; label = "GV"; break;
+                case REFLECT: color = 0xFFB48FFF; label = "RF"; break;
                 default: color = 0xFFFF5C7A; label = "B"; break;
             }
             boolean hot = p.attracted;
@@ -1632,6 +1647,31 @@ public class Renderer {
             paint.setStyle(Paint.Style.FILL);
         }
 
+        // 反射护罩：每层一圈相位紫环，充能中按进度补满弧线
+        if (s.reflectLayers > 0) {
+            for (int i = 0; i < s.reflectLayers; i++) {
+                float rr = Ship.RADIUS * (2.75f + i * 0.3f);
+                float cd = s.reflectCd[i];
+                float frac = cd <= 0f
+                        ? 1f : Math.min(1f, 1f - cd / Ship.REFLECT_RECHARGE);
+                arcRect.set(s.x - rr, s.y - rr, s.x + rr, s.y + rr);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2.5f);
+                paint.setColor(0x33B48FFF);
+                c.drawCircle(s.x, s.y, rr, paint);
+                if (frac >= 1f) {
+                    float pulse = 0.7f + 0.3f * (float) Math.sin(w.timeAlive * 7f + i);
+                    glow.setColor(((int) (0x55 * pulse) << 24) | 0x00B48FFF);
+                    c.drawCircle(s.x, s.y, rr, glow);
+                    paint.setColor(0xFFD8C4FF);
+                } else {
+                    paint.setColor(0x99B48FFF);
+                }
+                c.drawArc(arcRect, -90f, 360f * frac, false, paint);
+            }
+            paint.setStyle(Paint.Style.FILL);
+        }
+
         // hull: swept-wing fighter
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(0xFFE8F1FF);
@@ -1852,6 +1892,17 @@ public class Renderer {
             paint.setColor(0xFF7CFF6B);
             paint.setTextSize(25f);
             c.drawText(layers > 1 ? "SHIELD x" + layers : "SHIELD", 40f, statusY, paint);
+            statusY += 42f;
+        }
+        if (w.ship.reflectLayers > 0) {
+            int ready = 0;
+            for (int i = 0; i < w.ship.reflectLayers; i++) {
+                if (w.ship.reflectCd[i] <= 0f) ready++;
+            }
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(0xFFB48FFF);
+            paint.setTextSize(25f);
+            c.drawText("REFLECT " + ready + "/" + w.ship.reflectLayers, 40f, statusY, paint);
             statusY += 42f;
         }
 

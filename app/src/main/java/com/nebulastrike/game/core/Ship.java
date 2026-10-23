@@ -43,6 +43,15 @@ public class Ship {
     public static final int MAX_SHIELD_LAYERS = 2;
     /** 护盾层数上限：圣物 AEGIS_FIELD 会把它抬到 3。 */
     public int shieldCap = MAX_SHIELD_LAYERS;
+    /**
+     * v1.23 反射护罩层数：每层在充能就绪时把一发敌弹弹回成自己的火力，
+     * 层数不消耗，只进入 6 秒充能——所以它是<b>叠加的被动</b>，不是一次性的盾。
+     */
+    public int reflectLayers;
+    public static final int MAX_REFLECT_LAYERS = 2;
+    public static final float REFLECT_RECHARGE = 6f;
+    /** 每层反射护罩的充能余量（0 = 就绪）。 */
+    public final float[] reflectCd = new float[MAX_REFLECT_LAYERS];
     public int bombs = 1;
     public static final int MAX_BOMBS = 3;
     /** 速射道具剩余时间（>0 时射击冷却减半） */
@@ -118,6 +127,8 @@ public class Ship {
         hasShield = false;
         shieldLayers = 0;
         shieldCap = MAX_SHIELD_LAYERS;
+        reflectLayers = 0;
+        for (int i = 0; i < reflectCd.length; i++) reflectCd[i] = 0f;
         bombs = 1;
         rapidTimer = 0f;
         wingmanTimer = 0f;
@@ -235,6 +246,30 @@ public class Ship {
         if (!hasShield) return false;
         shieldLayers = Math.max(0, shieldLayers - 1);
         if (shieldLayers == 0) hasShield = false;
+        return true;
+    }
+
+    /** 叠加一层反射护罩；满层时返回 false（由调用方折算奖励分）。 */
+    public boolean addReflect() {
+        if (reflectLayers >= MAX_REFLECT_LAYERS) return false;
+        reflectCd[reflectLayers] = 0f;
+        reflectLayers++;
+        return true;
+    }
+
+    /** 就绪中的反射层下标；没有就绪层时返回 -1。 */
+    public int readyReflectLayer() {
+        for (int i = 0; i < reflectLayers; i++) {
+            if (reflectCd[i] <= 0f) return i;
+        }
+        return -1;
+    }
+
+    /** 消耗一次反射（层数保留，只进入充能）；返回是否成功弹反。 */
+    public boolean consumeReflect() {
+        int i = readyReflectLayer();
+        if (i < 0) return false;
+        reflectCd[i] = REFLECT_RECHARGE;
         return true;
     }
 
@@ -363,6 +398,13 @@ public class Ship {
         if (nanoTimer > 0f) {
             nanoTimer -= dt;
             if (nanoTimer < 0f) nanoTimer = 0f;
+        }
+        // 反射护罩：每层独立充能（就绪的那层会在命中时把敌弹弹回去）
+        for (int i = 0; i < reflectLayers; i++) {
+            if (reflectCd[i] > 0f) {
+                reflectCd[i] -= dt;
+                if (reflectCd[i] < 0f) reflectCd[i] = 0f;
+            }
         }
         if (overdriveTimer > 0f) {
             overdriveTimer -= dt;
