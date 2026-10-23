@@ -88,9 +88,9 @@ public final class Ui {
     public static final Rect CODEX_TAB_BOSSES = new Rect(460f, 300f, 330f, 64f);
     public static final Rect CODEX_BACK = new Rect(GameWorld.WIDTH / 2f - 140f, 1420f, 280f, 64f);
     /** 图鉴行高与首行 Y（渲染与命中共用；v1.10 敌机增至 11 种，行高相应压缩）。 */
-    // v1.17 敌机图鉴涨到 14 条：行高 86 -> 72，整页才不压到 BACK 按钮
+    // v1.17 敌机图鉴涨到 14 条：行高 86 -> 72；v1.21 到 15 条再压到 64，整页才不压到 BACK
     public static final float CODEX_ROW_Y = 372f;
-    public static final float CODEX_ROW_H = 72f;
+    public static final float CODEX_ROW_H = 64f;
     public static final int CODEX_MAX_ROWS = EnemyType.values().length;
 
     /** 图鉴某一行（0 起）的命中矩形。 */

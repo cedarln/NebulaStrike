@@ -68,6 +68,7 @@ public final class SfxBank {
         put(SfxId.ACHIEVEMENT, achievement(), 0.66f);
         put(SfxId.DAILY_START, dailyStart(), 0.6f);
         put(SfxId.BOSS_RUSH, bossRushStart(), 0.78f);
+        put(SfxId.RAM_IMPACT, ramImpact(), 0.72f);
     }
 
     public static SfxBank create() {
@@ -1218,6 +1219,28 @@ public final class SfxBank {
             x[i] = (float) ((brass + hit + hiss) * env(t, 1.15, 0.004, 0.8));
         }
         echo(x, 0.11, 0.24);
+        return x;
+    }
+
+    /** 撞停闷响：低频塌陷 + 碎石噪声，和"撞上了"这一下的体感对齐。 */
+    private static float[] ramImpact() {
+        int n = frames(0.55);
+        float[] x = new float[n];
+        Random r = new Random(1492);
+        double ph = 0, ph2 = 0, lp = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double f = 92 + 70 * Math.exp(-t * 28);
+            ph += f / SAMPLE_RATE;
+            ph2 += f * 0.5 / SAMPLE_RATE;
+            double thud = 0.78 * sine(ph) + 0.34 * sine(ph2);
+            lp += 0.32 * (noise(r) - lp);
+            double grit = lp * Math.exp(-t * 14) * 1.1;
+            double click = noise(r) * Math.exp(-t * 180) * 0.4;
+            x[i] = (float) ((thud * Math.exp(-t * 9) + grit + click)
+                    * env(t, 0.55, 0.003, 1.4));
+        }
+        echo(x, 0.09, 0.20);
         return x;
     }
 

@@ -43,6 +43,17 @@ public class Enemy {
     public float empFx;
     /** 蜂后下一次产卵的倒计时（产卵间隔随血量下降而缩短）。 */
     public float broodCd;
+    /** 冲撞者阶段：0 下降 1 瞄准预警 2 俯冲 3 撞停硬直 4 离场。 */
+    public int ramPhase;
+    /** 冲撞者预警/硬直倒计时。 */
+    public float ramTimer;
+    /** 冲撞者的俯冲落点 x（预警线画在这里）。 */
+    public float ramAimX;
+    /** 冲撞者刚撞停（一次性标记，由 GameWorld 消费并播冲击表现）。 */
+    public boolean ramImpact;
+    /** 俯冲方向（单位向量，渲染层画速度线用）。 */
+    public float ramDirX;
+    public float ramDirY = 1f;
     /** 幼机归属：蜂后在敌机池中的下标；-1 表示与蜂后无关。 */
     public int broodOf = -1;
     /** 精英词缀：厚血、高分、必掉道具，渲染层加一圈光环。 */
@@ -83,6 +94,20 @@ public class Enemy {
     public static final float QUEEN_MIN_Y = 150f;
     public static final float QUEEN_AVOID_RADIUS = 320f;
 
+    // ---- v1.21 冲撞者 ----
+    /** 悬停高度：压到玩家视野上沿再瞄准，预警线才看得完整。 */
+    public static final float RAMMER_HOVER_Y = 400f;
+    /** 预警时长：足够从屏幕任一侧走到落点之外，又不至于等到走神。 */
+    public static final float RAMMER_TELEGRAPH = 0.85f;
+    /** 俯冲速度：比狙击弹更快，靠预警而不是靠反应力躲。 */
+    public static final float RAMMER_DASH_SPEED = 1700f;
+    /** 撞停高度：落在玩家活动区下沿附近，硬直期就贴在脸上挨打。 */
+    public static final float RAMMER_BOTTOM_Y = 1450f;
+    /** 撞停硬直：这段时间里受击双倍，是"躲开再反打"的奖励窗口。 */
+    public static final float RAMMER_STUN = 1.4f;
+    /** 瞄准期机身横移速度：跟得上走位，但可以被急转甩开。 */
+    public static final float RAMMER_TRACK = 300f;
+
     public void init(EnemyType type, float x, float y, float speedScale) {
         this.type = type;
         this.x = x;
@@ -111,6 +136,12 @@ public class Enemy {
         this.empFx = 0f;
         this.broodCd = type == EnemyType.QUEEN ? 1.4f : 0f;
         this.broodOf = -1;
+        this.ramPhase = 0;
+        this.ramTimer = 0f;
+        this.ramAimX = x;
+        this.ramImpact = false;
+        this.ramDirX = 0f;
+        this.ramDirY = 1f;
         this.elite = false;
         this.diveSpeed = type.baseSpeed * speedScale;
         switch (type) {
@@ -308,6 +339,61 @@ public class Enemy {
                 x = clamp(x, type.radius + 10f, worldW - type.radius - 10f);
                 break;
             }
+            case RAMMER: {
+                // 冲撞者：压到上沿 → 预警线锁定 → 俯冲 → 撞停硬直 → 离场。
+                // 全程只有"瞄准"和"硬直"两段时间看得见停下来的舰体，
+                // 玩家要记的是这两段，而不是猜它什么时候冲。
+                if (ramPhase == 0) {
+                    y += speed() * dt;
+                    if (!Float.isNaN(shipX)) {
+                        ramAimX = clamp(shipX, type.radius + 10f, worldW - type.radius - 10f);
+                    }
+                    if (y >= RAMMER_HOVER_Y) {
+                        y = RAMMER_HOVER_Y;
+                        ramPhase = 1;
+                        ramTimer = RAMMER_TELEGRAPH;
+                    }
+                    break;
+                }
+                if (ramPhase == 1) {
+                    ramTimer -= dt;
+                    if (!Float.isNaN(shipX)) {
+                        ramAimX = clamp(shipX, type.radius + 10f, worldW - type.radius - 10f);
+                        float dxAim = ramAimX - x;
+                        float step = Math.min(Math.abs(dxAim), RAMMER_TRACK * dt);
+                        x += dxAim > 0f ? step : -step;
+                    }
+                    if (ramTimer <= 0f) {
+                        ramPhase = 2;
+                        float dx = ramAimX - x;
+                        float dy = RAMMER_BOTTOM_Y - y;
+                        float d = (float) Math.sqrt(dx * dx + dy * dy);
+                        if (d < 1f) { dx = 0f; dy = 1f; d = 1f; }
+                        ramDirX = dx / d;
+                        ramDirY = dy / d;
+                    }
+                    break;
+                }
+                if (ramPhase == 2) {
+                    x = clamp(x + ramDirX * RAMMER_DASH_SPEED * dt,
+                            type.radius, worldW - type.radius);
+                    y += ramDirY * RAMMER_DASH_SPEED * dt;
+                    if (y >= RAMMER_BOTTOM_Y) {
+                        y = RAMMER_BOTTOM_Y;
+                        ramPhase = 3;
+                        ramTimer = RAMMER_STUN;
+                        ramImpact = true;
+                    }
+                    break;
+                }
+                if (ramPhase == 3) {
+                    ramTimer -= dt;
+                    if (ramTimer <= 0f) ramPhase = 4;
+                    break;
+                }
+                y += speed() * 1.35f * dt;
+                break;
+            }
         }
     }
 
@@ -345,8 +431,19 @@ public class Enemy {
         flash = Math.max(flash, 0.06f);
     }
 
+    /** 冲撞者是否处于撞停硬直（渲染层画眩晕环，受击双倍）。 */
+    public boolean isStunned() {
+        return type == EnemyType.RAMMER && ramPhase == 3;
+    }
+
+    /** 冲撞者是否正在蓄势俯冲（渲染层画预警线）。 */
+    public boolean isRamming() {
+        return type == EnemyType.RAMMER && ramPhase >= 1 && ramPhase <= 2;
+    }
+
     public void damage(int amount) {
-        hp -= amount;
+        // 撞停硬直是设计好的惩罚窗口：躲开这一撞，就该得到双倍回报
+        hp -= isStunned() ? amount * 2 : amount;
         flash = 0.08f;
     }
 

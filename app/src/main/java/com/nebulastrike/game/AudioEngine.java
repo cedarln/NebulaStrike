@@ -333,6 +333,10 @@ public class AudioEngine {
                     // 连战开场：居中重音，末音拖长一点，盖住第一位 Boss 入场前的空档
                     play(SfxId.BOSS_RUSH, 0.92f, 1f, 0f);
                     break;
+                case RAM_IMPACT:
+                    // 撞停是"该反打了"的听觉标记：闷、短、带碎石，别盖住身后的枪声
+                    play(SfxId.RAM_IMPACT, 0.78f, vary(0.08f), panFor(e.x));
+                    break;
             }
         }
     }
@@ -494,6 +498,7 @@ public class AudioEngine {
             case MIRAGE_REVEAL: return 90_000_000L;  // 一群伪装者同时现形时别糊成一片
             case EMP_BURST: return 120_000_000L;
             case BROOD_CHIRP: return 150_000_000L;
+            case RAM_IMPACT: return 180_000_000L;   // 同一波两只冲撞者撞停时别叠成一声
             case ACHIEVEMENT: return 500_000_000L;   // 一次结算连解两条时只吹一记号角
             default: return 0L;
         }

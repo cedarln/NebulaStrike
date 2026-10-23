@@ -75,5 +75,7 @@ public enum SfxId {
     /** v1.19：每日挑战开局的双音钟（先低后高，像"今天开始了"的盖章） */
     DAILY_START,
     /** v1.20：BOSS RUSH 开局（低音铜管上行 + 定音鼓重击，擂台开场的感觉） */
-    BOSS_RUSH
+    BOSS_RUSH,
+    /** v1.21：冲撞者撞停的闷响（低频塌陷 + 碎石噪声，提示"现在是双倍伤害窗口"） */
+    RAM_IMPACT
 }

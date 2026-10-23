@@ -414,7 +414,7 @@ public class NewEnemiesV117Test {
         for (Enemy e : world.enemies) {
             if (!e.active) continue;
             if (e.type == EnemyType.MIRAGE || e.type == EnemyType.MAGNETON
-                    || e.type == EnemyType.QUEEN) found = e;
+                    || e.type == EnemyType.QUEEN || e.type == EnemyType.RAMMER) found = e;
         }
         return found;
     }
@@ -438,6 +438,7 @@ public class NewEnemiesV117Test {
         assertTrue("伪装者应有保底登场", met.contains(EnemyType.MIRAGE));
         assertTrue("磁暴艇应有保底登场", met.contains(EnemyType.MAGNETON));
         assertTrue("蜂后应有保底登场", met.contains(EnemyType.QUEEN));
+        assertTrue("冲撞者应有保底登场", met.contains(EnemyType.RAMMER));
     }
 
     @Test
@@ -473,10 +474,13 @@ public class NewEnemiesV117Test {
         clearEnemies();
         assertEquals(EnemyType.QUEEN, encounterOnce().type);
         clearEnemies();
-        // 三型都收录过了：再补磁暴艇只该安静上场
+        assertEquals(EnemyType.RAMMER, encounterOnce().type);
+        clearEnemies();
+        // 四型都收录过了：再补磁暴艇只该安静上场
         world.v117EncounterCounts[0] = 2;
         world.v117EncounterCounts[1] = 0;
         world.v117EncounterCounts[2] = 2;
+        world.v117EncounterCounts[3] = 2;
         world.debutBanner = 0f;
         world.debutBannerType = null;
         assertEquals(EnemyType.MAGNETON, encounterOnce().type);

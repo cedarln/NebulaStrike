@@ -61,7 +61,9 @@ public class GameWorld {
         /** v1.19：每日挑战开局（code = 日期键对今日规则的序号） */
         DAILY_START,
         /** v1.20：BOSS RUSH 开局（code = 本局固定的命数） */
-        BOSS_RUSH_START
+        BOSS_RUSH_START,
+        /** v1.21：冲撞者撞停（硬直窗口开始，此时受击双倍） */
+        RAM_IMPACT
     }
     public static final class GameEvent {
         public final EventType type;
@@ -430,9 +432,9 @@ public class GameWorld {
      * 玩法再好也等于没做。这里按解锁窗口保底投放：到点就确保场上至少有一艘。
      */
     static final EnemyType[] V117_TYPES = {
-            EnemyType.MIRAGE, EnemyType.MAGNETON, EnemyType.QUEEN};
+            EnemyType.MIRAGE, EnemyType.MAGNETON, EnemyType.QUEEN, EnemyType.RAMMER};
     /** 与 V117_TYPES 对应的解锁 sim-time 窗口，和 pickEnemyType 里的出场时间一致。 */
-    static final float[] V117_WINDOWS = {115f, 150f, 180f};
+    static final float[] V117_WINDOWS = {115f, 150f, 180f, 125f};
     /** 保底遭遇倒计时（做成包级字段，测试可以直接拨快）。 */
     float v117EncounterTimer = 8f;
     /** 每种新舰型的保底遭遇次数，用于轮换——优先补最少出现的那一型。 */
@@ -2065,6 +2067,14 @@ public class GameWorld {
                     broodSpawned += born;
                     events.add(new GameEvent(EventType.BROOD_SPAWN, e.x, e.y, born));
                 }
+                continue;
+            }
+            if (e.type == EnemyType.RAMMER && e.ramImpact) {
+                // 撞停是一次性的表现事件：尘土、震屏、闷响，然后把标记交还敌机
+                e.ramImpact = false;
+                addShake(0.2f, 9f);
+                spark(e.x, e.y, 9, 14);
+                events.add(new GameEvent(EventType.RAM_IMPACT, e.x, e.y));
             }
         }
     }
@@ -2138,6 +2148,7 @@ public class GameWorld {
             case MIRAGE: return 11;
             case MAGNETON: return 12;
             case QUEEN: return 13;
+            case RAMMER: return 14;
             default: return 4;
         }
     }
@@ -2602,15 +2613,18 @@ public class GameWorld {
         float wMirage = t > 115f ? Math.min(0.055f, 0.025f + (t - 115f) / 2600f) : 0f;
         float wMagnet = t > 150f ? Math.min(0.10f, 0.05f + (t - 150f) / 1700f) : 0f;
         float wQueen = t > 180f ? 0.05f : 0f;
+        // v1.21：冲撞者 125s 解锁——她不是"多一种靶子"，而是要求玩家在预警线亮起时
+        // 主动让位；权重压低，避免满屏都是需要躲的俯冲
+        float wRammer = t > 125f ? Math.min(0.08f, 0.04f + (t - 125f) / 1800f) : 0f;
         // 保留至少 15% 无人机当"炮灰"：非无人机权重整体归一
         float sum = wTank + wHunter + wWeaver + wSui + wSplit + wHeal + wSnipe
-                + wMiner + wShield + wCarrier + wMirage + wMagnet + wQueen;
+                + wMiner + wShield + wCarrier + wMirage + wMagnet + wQueen + wRammer;
         if (sum > 0.85f) {
             float k = 0.85f / sum;
             wTank *= k; wHunter *= k; wWeaver *= k;
             wSui *= k; wSplit *= k; wHeal *= k; wSnipe *= k;
             wMiner *= k; wShield *= k; wCarrier *= k;
-            wMirage *= k; wMagnet *= k; wQueen *= k;
+            wMirage *= k; wMagnet *= k; wQueen *= k; wRammer *= k;
         }
         float c = 0f;
         if (r < (c += wTank)) return EnemyType.TANK;
@@ -2626,6 +2640,7 @@ public class GameWorld {
         if (r < (c += wMirage)) return EnemyType.MIRAGE;
         if (r < (c += wMagnet)) return EnemyType.MAGNETON;
         if (r < (c += wQueen)) return EnemyType.QUEEN;
+        if (r < (c += wRammer)) return EnemyType.RAMMER;
         return EnemyType.DRONE;
     }
 
@@ -3289,6 +3304,7 @@ public class GameWorld {
                 : type == EnemyType.MAGNETON ? 0.40f
                 : type == EnemyType.QUEEN ? 0.75f
                 : type == EnemyType.MIRAGE ? 0.20f
+                : type == EnemyType.RAMMER ? 0.30f
                 : type == EnemyType.HUNTER ? 0.12f
                 : type == EnemyType.SUICIDER ? 0.04f : 0.05f;
         chance = Math.min(1f, chance * dropRatePctOf() / 100f

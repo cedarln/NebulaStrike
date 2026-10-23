@@ -903,6 +903,82 @@ public class Renderer {
                     c.drawCircle(e.x, e.y - r * 0.62f, r * 0.16f, paint);
                     break;
                 }
+                case RAMMER: {
+                    boolean aiming = e.ramPhase == 1;
+                    boolean dashing = e.ramPhase == 2;
+                    boolean stunned = e.isStunned();
+                    float noseY = e.y + r * 1.1f;
+                    if (aiming) {
+                        // 预警线：从撞角直指落点，越接近俯冲越亮越粗
+                        float p = 1f - Math.min(1f, Math.max(0f, e.ramTimer))
+                                / Enemy.RAMMER_TELEGRAPH;
+                        float tx = e.ramAimX;
+                        float ty = Enemy.RAMMER_BOTTOM_Y;
+                        paint.setStyle(Paint.Style.STROKE);
+                        paint.setStrokeWidth(2f + 4f * p);
+                        paint.setColor(((int) (0x40 + 0xB0 * p) << 24) | 0x00FF7A5C);
+                        c.drawLine(e.x, noseY, tx, ty, paint);
+                        // 落点十字：这里就是它撞停挨打的位置
+                        paint.setStrokeWidth(2f + 2f * p);
+                        paint.setColor(((int) (0x60 + 0x80 * p) << 24) | 0x00FFD166);
+                        float cr = 26f + 10f * p;
+                        c.drawCircle(tx, ty, cr, paint);
+                        c.drawLine(tx - cr - 8f, ty, tx + cr + 8f, ty, paint);
+                        c.drawLine(tx, ty - cr - 8f, tx, ty + cr + 8f, paint);
+                        paint.setStyle(Paint.Style.FILL);
+                    }
+                    if (dashing) {
+                        // 冲刺残影：沿来路拉三条速度线
+                        paint.setStyle(Paint.Style.STROKE);
+                        paint.setStrokeWidth(3f);
+                        paint.setColor(0x88FF7A5C);
+                        for (int k = -1; k <= 1; k++) {
+                            c.drawLine(e.x - e.ramDirX * r * 2.2f + k * 10f,
+                                    e.y - e.ramDirY * r * 2.2f,
+                                    e.x - e.ramDirX * r * 4.4f + k * 10f,
+                                    e.y - e.ramDirY * r * 4.4f, paint);
+                        }
+                        paint.setStyle(Paint.Style.FILL);
+                    }
+                    // 舰体：下压的楔形撞角 + 张开的尾翼
+                    paint.setColor(base);
+                    shapePath.rewind();
+                    shapePath.moveTo(e.x, e.y + r * 1.1f);
+                    shapePath.lineTo(e.x + r * 0.95f, e.y - r * 0.25f);
+                    shapePath.lineTo(e.x + r * 0.45f, e.y - r * 0.75f);
+                    shapePath.lineTo(e.x - r * 0.45f, e.y - r * 0.75f);
+                    shapePath.lineTo(e.x - r * 0.95f, e.y - r * 0.25f);
+                    shapePath.close();
+                    c.drawPath(shapePath, paint);
+                    float heat = aiming
+                            ? 1f - Math.min(1f, Math.max(0f, e.ramTimer)) / Enemy.RAMMER_TELEGRAPH
+                            : dashing ? 1f : stunned ? 0.15f : 0.45f;
+                    paint.setColor(((int) (0x60 + 0xA0 * heat) << 24) | 0x00FFB84D);
+                    c.drawCircle(e.x, e.y + r * 0.55f, r * 0.24f, paint);
+                    paint.setColor(0xFF120A08);
+                    c.drawRect(e.x - r * 0.5f, e.y - r * 0.05f,
+                            e.x + r * 0.5f, e.y + r * 0.15f, paint);
+                    if (stunned) {
+                        // 眩晕：旋转的断续环 + 绕圈星点，一眼看出"现在打它双倍"
+                        float spin = w.timeAlive * 140f;
+                        paint.setStyle(Paint.Style.STROKE);
+                        paint.setStrokeWidth(3f);
+                        paint.setColor(0xAAFFD166);
+                        arcRect.set(e.x - r * 1.05f, e.y - r * 0.55f,
+                                e.x + r * 1.05f, e.y + r * 0.55f);
+                        c.drawArc(arcRect, spin, 210f, false, paint);
+                        c.drawArc(arcRect, spin + 180f, 120f, false, paint);
+                        paint.setStyle(Paint.Style.FILL);
+                        paint.setColor(0xFFFFE08A);
+                        for (int i = 0; i < 3; i++) {
+                            double a = Math.toRadians(spin * 1.6f + i * 120f);
+                            c.drawCircle(e.x + (float) Math.cos(a) * r * 0.85f,
+                                    e.y - r * 0.55f + (float) Math.sin(a) * r * 0.3f,
+                                    3.5f, paint);
+                        }
+                    }
+                    break;
+                }
             }
         }
     }
@@ -2451,7 +2527,7 @@ public class Renderer {
                 boolean known = w.settings.enemySeen(t);
                 codexRowFrame(c, i, known);
                 float y = Ui.CODEX_ROW_Y + i * Ui.CODEX_ROW_H;
-                codexEnemyIcon(c, t, 175f, y + 31f, known);
+                codexEnemyIcon(c, t, 175f, y + 30f, known);
                 if (known) {
                     codexText(c, 250f, y, enemyName(t),
                             "HP " + t.hp + "  ·  " + t.score + " 分  ·  半径 " + Math.round(t.radius),
@@ -2467,7 +2543,7 @@ public class Renderer {
                 boolean known = kills > 0;
                 codexRowFrame(c, tier, known);
                 float y = Ui.CODEX_ROW_Y + tier * Ui.CODEX_ROW_H;
-                codexBossIcon(c, tier, 175f, y + 31f, known);
+                codexBossIcon(c, tier, 175f, y + 30f, known);
                 codexText(c, 250f, y, known ? Boss.titleFor(tier) : "？？？",
                         known ? bossStats(tier) : "击败后解锁",
                         known ? bossDesc(tier) : "尚未战胜这艘舰体",
@@ -2594,19 +2670,19 @@ public class Renderer {
         paint.setStyle(Paint.Style.FILL);
     }
 
-    /** 图鉴行文案：名称 + 数值 + 说明三行（行高 86，说明压到 76 基线）。 */
+    /** 图鉴行文案：名称 + 数值 + 说明三行（行高 64，三行基线 22/40/57）。 */
     private void codexText(Canvas c, float x, float rowY, String name,
                            String stats, String desc, int nameColor) {
         paint.setTextSize(27f);
         paint.setFakeBoldText(true);
         paint.setColor(nameColor);
-        c.drawText(name, x, rowY + 24f, paint);
+        c.drawText(name, x, rowY + 22f, paint);
         paint.setFakeBoldText(false);
         paint.setTextSize(19f);
         paint.setColor(0xFF8FA3C8);
-        c.drawText(stats, x, rowY + 43f, paint);
+        c.drawText(stats, x, rowY + 40f, paint);
         paint.setColor(0xFFC8D6F0);
-        c.drawText(desc, x, rowY + 62f, paint);
+        c.drawText(desc, x, rowY + 57f, paint);
     }
 
     /** 缩略敌机图标：复用战场轮廓，未发现的只留灰色描边。 */
@@ -2727,6 +2803,26 @@ public class Renderer {
                 }
                 break;
             }
+            case RAMMER: {
+                // 楔形撞角 + 落点准星：图鉴里就能看懂"它会瞄准一条线冲下来"
+                paint.setColor(base);
+                shapePath.rewind();
+                shapePath.moveTo(x, y + r * 1.05f);
+                shapePath.lineTo(x + r * 0.9f, y - r * 0.25f);
+                shapePath.lineTo(x + r * 0.4f, y - r * 0.8f);
+                shapePath.lineTo(x - r * 0.4f, y - r * 0.8f);
+                shapePath.lineTo(x - r * 0.9f, y - r * 0.25f);
+                shapePath.close();
+                c.drawPath(shapePath, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2f);
+                paint.setColor(known ? 0xCCFFD166 : 0x406B7A99);
+                c.drawCircle(x, y + r * 0.5f, r * 0.55f, paint);
+                c.drawLine(x - r * 0.85f, y + r * 0.5f, x + r * 0.85f, y + r * 0.5f, paint);
+                c.drawLine(x, y - r * 0.4f, x, y + r * 1.15f, paint);
+                paint.setStyle(Paint.Style.FILL);
+                break;
+            }
             default:
                 break;
         }
@@ -2786,6 +2882,7 @@ public class Renderer {
             case MIRAGE: return "伪装者 MIRAGE";
             case MAGNETON: return "磁暴艇 MAGNETON";
             case QUEEN: return "集群蜂后 QUEEN";
+            case RAMMER: return "冲撞者 RAMMER";
             default: return t.name();
         }
     }
@@ -2806,6 +2903,7 @@ public class Renderer {
             case MIRAGE: return "披着道具外壳，字母会换即假；现形前击毁有赏";
             case MAGNETON: return "磁场弯折直射弹，换激光/追踪/长枪，击毁吞敌弹";
             case QUEEN: return "边飞边产幼机，越残血产得越快，击杀她幼机全崩";
+            case RAMMER: return "预警线亮起后俯冲，撞停硬直 1.4 秒且受击双倍";
             default: return "未知机型";
         }
     }
@@ -3404,6 +3502,7 @@ public class Renderer {
             case 11: rgb = 0xE86BB0; break;   // 伪装者：幻影玫瑰
             case 12: rgb = 0x4DA6FF; break;   // 磁暴艇：风暴蓝
             case 13: rgb = 0xFFAE3A; break;   // 蜂后：孕育琥珀
+            case 14: rgb = 0xFF7A5C; break;   // 冲撞者：撞击赤
             default: rgb = 0x5CE1FF; break;
         }
         return (alpha << 24) | rgb;
