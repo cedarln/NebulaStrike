@@ -81,6 +81,7 @@ public final class SfxBank {
         put(SfxId.BOUNTY_CLAIM, bountyClaim(), 0.86f);
         put(SfxId.BOUNTY_FAIL, bountyFail(), 0.42f);
         put(SfxId.SYNERGY_ON, synergyLink(), 0.78f);
+        put(SfxId.PHASE_BURST, phaseBurst(), 0.86f);
     }
 
     public static SfxBank create() {
@@ -1171,6 +1172,30 @@ public final class SfxBank {
             x[i] = (float) ((tone + trem + shimmer) * env(t, 0.5, 0.003, 1.3));
         }
         echo(x, 0.06, 0.2);
+        return x;
+    }
+
+    /** 相位冲击波：一记短促低频轰，叠一层向上扫开的气浪噪声，清出"空间被推开"的感觉。 */
+    private static float[] phaseBurst() {
+        int n = frames(0.42);
+        float[] x = new float[n];
+        Random r = new Random(1511);
+        double sub = 0, ph = 0, lp = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double p = t / 0.42;
+            double bf = 96 - 46 * Math.min(1.0, t / 0.26);
+            sub += bf / SAMPLE_RATE;
+            double thump = sine(sub) * Math.exp(-t * 9.0) * 0.85;
+            double coef = 0.06 + 0.5 * p;
+            lp += coef * (noise(r) - lp);
+            double air = lp * Math.exp(-t * 5.0) * 0.7;
+            double f = 280 + 1700 * p;
+            ph += f / SAMPLE_RATE;
+            double sweep = sine(ph) * Math.exp(-t * 11.0) * 0.18;
+            x[i] = (float) ((thump + air + sweep) * env(t, 0.42, 0.0018, 1.4));
+        }
+        echo(x, 0.09, 0.26);
         return x;
     }
 

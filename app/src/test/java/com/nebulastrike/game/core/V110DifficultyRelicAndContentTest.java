@@ -243,7 +243,7 @@ public class V110DifficultyRelicAndContentTest {
     }
 
     @Test
-    public void allSixRelicsCollectWithoutDuplicates() {
+    public void allRelicsCollectWithoutDuplicates() {
         GameWorld w = freshWorld();
         for (int i = 0; i < Relic.COUNT; i++) {
             w.wave = 4 + i * 4;
@@ -259,9 +259,9 @@ public class V110DifficultyRelicAndContentTest {
         assertEquals(Relic.COUNT, Integer.bitCount(w.relicMask));
     }
 
-    /** 集齐六枚 = 覆盖所有圣物被动效果，无需依赖随机顺序。 */
+    /** 集齐全部圣物 = 覆盖所有被动效果，无需依赖随机顺序。 */
     @Test
-    public void relicPassivesFireOnceAllSixAreOwned() {
+    public void relicPassivesFireOnceAllRelicsAreOwned() {
         GameWorld w = freshWorld();
         for (int i = 0; i < Relic.COUNT; i++) {
             w.wave = 4 + i * 4;

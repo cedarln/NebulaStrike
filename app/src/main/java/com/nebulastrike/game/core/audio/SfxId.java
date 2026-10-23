@@ -101,5 +101,7 @@ public enum SfxId {
     /** v1.27：赏金目标脱逃的低沉收尾（不刺耳，只报个信） */
     BOUNTY_FAIL,
     /** v1.28：点亮一组道具连携的双音"接通"铃 */
-    SYNERGY_ON
+    SYNERGY_ON,
+    /** v1.29：相位核心的冲刺冲击波（低频轰 + 快速上扫的气浪） */
+    PHASE_BURST
 }

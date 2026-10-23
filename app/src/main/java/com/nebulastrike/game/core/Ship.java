@@ -108,6 +108,10 @@ public class Ship {
     /** 冲刺方向（单位向量）。 */
     public float dashDirX, dashDirY = -1f;
     private float dashGrace;
+    /** 冲刺充能速率倍率（相位核心圣物抬高，每帧由 GameWorld 重算）。 */
+    public float dashRechargeScale = 1f;
+    /** 相位核心：冲刺瞬间冲击波的清弹半径与伤害。 */
+    public static final float PHASE_CORE_RECHARGE_MULT = 1.7f;
     private float lastMoveX, lastMoveY;
     /** 冲刺完成次数（统计数据）。 */
     public int dashesUsed;
@@ -147,6 +151,7 @@ public class Ship {
         dashDirX = 0f;
         dashDirY = -1f;
         dashTrailCount = 0;
+        dashRechargeScale = 1f;
         lastMoveX = 0f;
         lastMoveY = -1f;
         dashesUsed = 0;
@@ -315,7 +320,8 @@ public class Ship {
                 if (dashGrace <= 0f) dashTrailCount = 0;
             }
             if (dashCharge < DASH_MAX_CHARGE) {
-                dashCharge = Math.min(DASH_MAX_CHARGE, dashCharge + dt / DASH_RECHARGE_SECONDS);
+                dashCharge = Math.min(DASH_MAX_CHARGE,
+                        dashCharge + dt * dashRechargeScale / DASH_RECHARGE_SECONDS);
             }
             float dx = targetX - x, dy = targetY - y;
             float dist = (float) Math.sqrt(dx * dx + dy * dy);

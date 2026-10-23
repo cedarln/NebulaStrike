@@ -87,7 +87,9 @@ public class GameWorld {
         /** v1.27：赏金目标脱逃 / 超时 */
         BOUNTY_FAILED,
         /** v1.28：点亮一组道具连携（code = {@link Synergy#ordinal()}） */
-        SYNERGY_ON
+        SYNERGY_ON,
+        /** v1.29：相位核心的冲刺冲击波（code = 清掉的敌弹数） */
+        PHASE_BURST
     }
     public static final class GameEvent {
         public final EventType type;
@@ -161,6 +163,9 @@ public class GameWorld {
     public static final float BOUNTY_TIME = 16f;
     /** 连杀加成上限：连到第 6 单后奖励封顶，避免后期赏金吞掉常规得分。 */
     public static final int BOUNTY_MAX_STREAK = 6;
+    /** 赏金执照把连杀上限抬到第 9 单，并让赏金得分 ×1.5。 */
+    public static final int BOUNTY_MAX_STREAK_LICENSE = 9;
+    public static final float BOUNTY_LICENSE_SCORE_MULT = 1.5f;
     /**
      * 沙盒开关：确定性长跑测试若不想被"悬赏加血 + 保底道具"改变武器与刷新节拍，
      * 可以关掉它；与 {@link #spawningEnabled} / {@link #mutatorsEnabled} 同一类测试缝。
@@ -440,6 +445,12 @@ public class GameWorld {
     /** 光束核心（圣物）与圣盾自动补盾的倒计时。 */
     private float relicBeamCd;
     private float relicAegisCd;
+    /** 相位核心的冲刺冲击波：清弹半径与对敌伤害。 */
+    public static final float PHASE_BURST_RADIUS = 230f;
+    public static final int PHASE_BURST_DAMAGE = 6;
+    /** 冲击波视觉余量（1 → 0），渲染层据此画一圈扩散环。 */
+    public float phaseBurstFlash;
+    public float phaseBurstX, phaseBurstY;
     /** 纳米修复补盾倒计时。 */
     private float nanoCd;
     /** 新星冲击的屏幕余晖（渲染层用）。 */
@@ -947,6 +958,11 @@ public class GameWorld {
                 p.fireCd = 5.4f - 0.35f * boss.level + RNG.get().nextFloat() * 0.8f;
                 continue;
             }
+            if (p.kind == BossPart.Kind.MINE) {             // 布雷舱：向下方通道投放漂流水雷
+                dropMines(p);
+                p.fireCd = 3.6f - 0.18f * boss.phase + RNG.get().nextFloat() * 0.5f;
+                continue;
+            }
             if (p.kind == BossPart.Kind.PRISM) {            // 棱镜：四向十字光束
                 float base = boss.age * 0.8f;
                 int made = 0;
@@ -1031,6 +1047,25 @@ public class GameWorld {
             spark(px, py, 3, 5);
         }
         events.add(new GameEvent(EventType.FORMATION, px, py));
+    }
+
+    /** 布雷舱：斜向铺开一串漂流水雷，把下方通道切成几段。 */
+    private void dropMines(BossPart bay) {
+        float px = bay.worldX(boss), py = bay.worldY(boss);
+        int n = boss.phase >= 3 ? 3 : 2;
+        int made = 0;
+        for (int i = 0; i < n; i++) {
+            EnemyBullet m = freeEnemyBullet();
+            if (m == null) break;
+            float off = (i - (n - 1) / 2f) * 74f;
+            float drift = (i % 2 == 0 ? 56f : -56f) * (1f + 0.06f * boss.level);
+            m.initDriftingMine(px + off, py + bay.radius + 18f,
+                    drift, 90f + boss.level * 5f);
+            made++;
+        }
+        if (made == 0) return;
+        spark(px, py + bay.radius, 5, 8);
+        events.add(new GameEvent(EventType.MINE, px, py));
     }
 
     /** 横冲过程中沿舰体尾部洒下弹丸，形成一条"撞过来就得躲开"的弹幕走廊。 */
@@ -1321,7 +1356,59 @@ public class GameWorld {
         }
         addShake(0.1f, 4f);
         events.add(new GameEvent(EventType.DASH, ship.x, ship.y));
+        if (hasRelic(Relic.PHASE_CORE)) phaseBurst();
         return true;
+    }
+
+    /**
+     * 相位核心：冲刺起步时把周身敌弹清掉，并灼伤贴脸的敌机与 Boss 部件。
+     * 只结算一次、半径有限，奖励的是"往弹幕里冲"的决断而不是无脑贴脸。
+     */
+    private void phaseBurst() {
+        float r = PHASE_BURST_RADIUS;
+        int cleared = 0;
+        for (EnemyBullet b : enemyBullets) {
+            if (!b.active) continue;
+            float dx = b.x - ship.x, dy = b.y - ship.y;
+            if (dx * dx + dy * dy > r * r) continue;
+            b.active = false;
+            cleared++;
+            spark(b.x, b.y, 2, 3);
+        }
+        for (Enemy e : enemies) {
+            if (!e.active) continue;
+            float dx = e.x - ship.x, dy = e.y - ship.y;
+            float rr = r + e.type.radius;
+            if (dx * dx + dy * dy > rr * rr) continue;
+            e.damage(PHASE_BURST_DAMAGE);
+            e.flash = 0.12f;
+            spark(e.x, e.y, 5, 3);
+            if (e.hp <= 0f) killEnemy(e);
+        }
+        if (boss.active) {
+            for (int i = 0; i < boss.partCount; i++) {
+                BossPart p = boss.parts[i];
+                if (!p.active) continue;
+                float dx = p.worldX(boss) - ship.x, dy = p.worldY(boss) - ship.y;
+                float rr = r + p.radius;
+                if (dx * dx + dy * dy > rr * rr) continue;
+                damageBossPart(p, PHASE_BURST_DAMAGE);
+            }
+            float dx = boss.x - ship.x, dy = boss.y - ship.y;
+            float rr = r + boss.hitRadius;
+            if (dx * dx + dy * dy <= rr * rr) boss.damage(PHASE_BURST_DAMAGE - 2);
+        }
+        for (int i = 0; i < 14; i++) {
+            Particle p = freeParticle();
+            float ang = (float) (Math.PI * 2.0 * i / 14.0);
+            p.init(ship.x, ship.y, (float) Math.cos(ang) * 320f, (float) Math.sin(ang) * 320f,
+                    0.30f, 3.4f, 10);
+        }
+        phaseBurstFlash = 1f;
+        phaseBurstX = ship.x;
+        phaseBurstY = ship.y;
+        addShake(0.2f, 8f);
+        events.add(new GameEvent(EventType.PHASE_BURST, ship.x, ship.y, cleared));
     }
 
     /** 轨道球：环绕飞船的能量球，擦掉敌弹并撞伤敌机。 */
@@ -1790,6 +1877,7 @@ public class GameWorld {
         if (gravityFlash > 0f) gravityFlash = Math.max(0f, gravityFlash - dt * 2.2f);
         if (ultFlash > 0f) ultFlash = Math.max(0f, ultFlash - dt * 1.6f);
         if (altarFlash > 0f) altarFlash = Math.max(0f, altarFlash - dt * 1.7f);
+        if (phaseBurstFlash > 0f) phaseBurstFlash = Math.max(0f, phaseBurstFlash - dt * 2.6f);
         updateRelics(dt);
         updateNano(dt);
         updateTurrets(dt);
@@ -1799,8 +1887,10 @@ public class GameWorld {
         updateMinersAndCarriers();
     }
 
-    /** 圣物被动效果统一入口（光束自动开火 / 僚机续期 / 圣盾补层）。 */
+    /** 圣物被动效果统一入口（光束自动开火 / 僚机续期 / 圣盾补层 / 冲刺充能）。 */
     private void updateRelics(float dt) {
+        ship.dashRechargeScale = hasRelic(Relic.PHASE_CORE)
+                ? Ship.PHASE_CORE_RECHARGE_MULT : 1f;
         if (relicMask == 0) return;
         if (hasRelic(Relic.BEAM_CORE)) {
             relicBeamCd -= dt;
@@ -2046,7 +2136,7 @@ public class GameWorld {
         }
         pick.bounty = true;
         // 悬赏目标更硬，但连杀越高赏金也越高：风险与收益同步上涨
-        float mult = 1.7f + 0.15f * Math.min(BOUNTY_MAX_STREAK, bountyStreak);
+        float mult = 1.7f + 0.15f * Math.min(bountyStreakCap(), bountyStreak);
         pick.hp = pick.maxHp = Math.round(pick.maxHp * mult);
         bountyTarget = pick;
         bountyTimer = BOUNTY_TIME;
@@ -2065,7 +2155,10 @@ public class GameWorld {
         bountyStreak++;
         if (bountyStreak > bountyBestStreak) bountyBestStreak = bountyStreak;
         bountiesClaimed++;
-        int bonus = 250 + 150 * Math.min(BOUNTY_MAX_STREAK, bountyStreak) + 60 * wave;
+        int bonus = 250 + 150 * Math.min(bountyStreakCap(), bountyStreak) + 60 * wave;
+        if (hasRelic(Relic.BOUNTY_LICENSE)) {
+            bonus = Math.round(bonus * BOUNTY_LICENSE_SCORE_MULT);
+        }
         int gained = addScore(bonus, SCORE_OTHER);
         // 悬赏是表现奖励：与成就同理不计入关卡节拍，否则连杀越多 Boss 来得越早
         pacingExemptScore += gained;
@@ -2096,13 +2189,19 @@ public class GameWorld {
     private void failBounty() {
         if (bountyTarget != null) bountyTarget.bounty = false;
         bountyTarget = null;
-        bountyStreak = 0;
+        // 赏金执照：脱逃只掉一连，执照让"这一单没赶上"不再前功尽弃
+        bountyStreak = hasRelic(Relic.BOUNTY_LICENSE) ? Math.max(0, bountyStreak - 1) : 0;
         bountiesFailed++;
         bountyBanner = 1.6f;
         bountyBannerKind = 3;
         bountyBannerType = null;
         bountyNextAt = timeAlive + BOUNTY_MIN_GAP + nextBountyRoll() % (int) BOUNTY_GAP_JITTER;
         events.add(new GameEvent(EventType.BOUNTY_FAILED, ship.x, ship.y));
+    }
+
+    /** 当前连杀计数上限：赏金执照放宽到 9，其余情况沿用基础值。 */
+    public int bountyStreakCap() {
+        return hasRelic(Relic.BOUNTY_LICENSE) ? BOUNTY_MAX_STREAK_LICENSE : BOUNTY_MAX_STREAK;
     }
 
     /** 赏金专用 LCG：与对局主随机源隔离，悬赏序列可复现且不影响刷新节拍。 */
@@ -2870,10 +2969,13 @@ public class GameWorld {
         return r != null && (relicMask & (1 << r.ordinal())) != 0;
     }
 
-    /** 六枚圣物是否全部集齐。 */
+    /** 全部圣物是否集齐。 */
     public boolean relicsComplete() {
         return relicMask == (1 << Relic.COUNT) - 1;
     }
+
+    /** 测试缝：直接发放指定圣物，跳过"击败 Boss 随机掉落"。 */
+    void grantRelicForTest(Relic r) { applyRelic(r); }
 
     /** 击败 Boss 掉落一枚尚未持有的圣物；集齐后折算成奖励分。 */
     private void grantBossRelic() {
@@ -2905,6 +3007,7 @@ public class GameWorld {
         if (r == Relic.BEAM_CORE) relicBeamCd = 0.35f;
         if (r == Relic.AEGIS_FIELD) relicAegisCd = 18f;
         if (r == Relic.ETERNAL_WING) ship.wingmanTimer = Ship.WINGMAN_DURATION;
+        if (r == Relic.PHASE_CORE) ship.dashRechargeScale = Ship.PHASE_CORE_RECHARGE_MULT;
         spark(ship.x, ship.y, 14, 4);
         addShake(0.25f, 8f);
         events.add(new GameEvent(EventType.RELIC_GAINED, ship.x, ship.y, r.ordinal()));
@@ -2941,6 +3044,7 @@ public class GameWorld {
         relicMask = 0;
         relicBeamCd = 0f;
         relicAegisCd = 0f;
+        ship.dashRechargeScale = 1f;
         refreshShieldCap();
         resetWeaponCooldowns();
         for (Turret t : turrets) if (t.active) retireTurret(t);
@@ -4410,6 +4514,7 @@ public class GameWorld {
         relicBeamCd = 0f;
         relicAegisCd = 0f;
         nanoCd = 0f;
+        phaseBurstFlash = 0f;
         for (Turret t : turrets) t.active = false;
         for (GravityWell g : gravityWells) g.active = false;
         gravityFlash = 0f;

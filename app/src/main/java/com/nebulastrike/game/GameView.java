@@ -290,6 +290,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case BOUNTY_CLAIMED: haptics.bomb(); break;
                     // 连携点亮是一层"变强了"的确认，给一记轻震
                     case SYNERGY_ON: haptics.tick(); break;
+                    // 相位冲击波是"清场"动作：比普通冲刺重一档
+                    case PHASE_BURST: haptics.impact(); break;
                     case MIRAGE_REVEAL: haptics.tick(); break;
                     // EMP 放出去要"撞一下"，磁暴艇被打爆吞弹只是轻提示
                     case MAG_BURST:

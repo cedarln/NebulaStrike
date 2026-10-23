@@ -49,6 +49,12 @@ public class EnemyBullet {
         this.mine = true;
     }
 
+    /** Boss 布雷舱投下的漂流水雷：带横向速度，把下方的通道切成两半。 */
+    public void initDriftingMine(float x, float y, float vx, float vy) {
+        initRadius(x, y, vx, vy, 15f);
+        this.mine = true;
+    }
+
     public void update(float dt) {
         x += vx * dt;
         y += vy * dt;

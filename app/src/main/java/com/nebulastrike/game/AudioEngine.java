@@ -391,6 +391,11 @@ public class AudioEngine {
                     // code = 连携下标：越靠后的组合音色越亮，给"新组合"一点辨识度
                     play(SfxId.SYNERGY_ON, 0.8f, 1f + Math.min(0.18f, e.code * 0.035f), 0f);
                     break;
+                case PHASE_BURST:
+                    // code = 清掉的敌弹数：清得越多，音色越亮（但幅度克制）
+                    play(SfxId.PHASE_BURST, 0.72f,
+                            1f + Math.min(0.2f, e.code * 0.012f), 0f);
+                    break;
             }
         }
     }
@@ -568,6 +573,7 @@ public class AudioEngine {
             case BOUNTY_CLAIM: return 0L;            // 一单只兑现一次
             case BOUNTY_FAIL: return 0L;             // 同上
             case SYNERGY_ON: return 0L;              // 一次点亮只响一次
+            case PHASE_BURST: return 160_000_000L;   // 冲刺节奏快时别叠成一团
             case ACHIEVEMENT: return 500_000_000L;   // 一次结算连解两条时只吹一记号角
             default: return 0L;
         }

@@ -17,9 +17,13 @@ public enum Relic {
     /** 虹吸矩阵：每次擦弹额外充能冲刺能量。 */
     GRAZE_LEECH,
     /** 过载核心：过载时长翻倍，且过载期间所有武器多算一层。 */
-    OVERDRIVE_CORE;
+    OVERDRIVE_CORE,
+    /** 相位核心：冲刺充能更快，且冲刺瞬间释放一圈清弹冲击波。 */
+    PHASE_CORE,
+    /** 赏金执照：赏金连杀上限更高、赏金更值钱，脱逃只掉一连。 */
+    BOUNTY_LICENSE;
 
-    public static final int COUNT = 6;
+    public static final int COUNT = 8;
 
     /** 简短展示名（HUD 角标与横幅用）。 */
     public String label() {
@@ -29,7 +33,9 @@ public enum Relic {
             case MIRROR_LANCE: return "镜像枪";
             case AEGIS_FIELD: return "圣盾外壳";
             case GRAZE_LEECH: return "虹吸矩阵";
-            default: return "过载核心";
+            case OVERDRIVE_CORE: return "过载核心";
+            case PHASE_CORE: return "相位核心";
+            default: return "赏金执照";
         }
     }
 
@@ -41,7 +47,9 @@ public enum Relic {
             case MIRROR_LANCE: return "基础炮追加两路 25° 镜像弹";
             case AEGIS_FIELD: return "护盾上限 +1，每 18 秒自动补一层";
             case GRAZE_LEECH: return "擦弹额外充能冲刺能量";
-            default: return "过载时长翻倍，过载时火力再 +1 层";
+            case OVERDRIVE_CORE: return "过载时长翻倍，过载时火力再 +1 层";
+            case PHASE_CORE: return "冲刺充能 +70%，冲刺瞬间释放相位冲击波";
+            default: return "赏金连杀上限 +3，得分 ×1.5，脱逃只掉 1 连";
         }
     }
 
@@ -53,7 +61,9 @@ public enum Relic {
             case MIRROR_LANCE: return "M";
             case AEGIS_FIELD: return "S";
             case GRAZE_LEECH: return "G";
-            default: return "O";
+            case OVERDRIVE_CORE: return "O";
+            case PHASE_CORE: return "P";
+            default: return "L";
         }
     }
 
@@ -65,7 +75,9 @@ public enum Relic {
             case MIRROR_LANCE: return 0xFFD166;
             case AEGIS_FIELD: return 0x7CFF6B;
             case GRAZE_LEECH: return 0xB08FFF;
-            default: return 0xFFB03A;
+            case OVERDRIVE_CORE: return 0xFFB03A;
+            case PHASE_CORE: return 0x4DFFDF;
+            default: return 0xFFE066;
         }
     }
 

@@ -6,7 +6,7 @@ package com.nebulastrike.game.core;
  * so fights escalate from a small scout carrier to a screen-filling leviathan.
  */
 public class Boss {
-    public static final int MAX_PARTS = 14;
+    public static final int MAX_PARTS = 16;
     /** 三阶段召唤的棱镜数量（正反方向各一枚）。 */
     public static final int PRISM_COUNT = 2;
 
@@ -103,6 +103,7 @@ public class Boss {
         int lasers = tier >= 2 ? 2 : tier == 1 ? 1 : 0;
         int pods = tier >= 3 ? 2 : tier >= 1 ? 1 : 0;      // 分裂舱：投放僚机
         int shields = tier >= 3 ? 2 : tier >= 2 ? 1 : 0;   // 护盾发生器：削弱核心伤害
+        int mineBays = tier >= 2 ? 1 : 0;                  // 布雷舱：底部通道投放漂流水雷
         float[][] gunOffsets = {
                 {-0.92f, 0.06f}, {0.92f, 0.06f},
                 {-0.52f, 0.72f}, {0.52f, 0.72f},
@@ -139,6 +140,11 @@ public class Boss {
             parts[partCount].init(BossPart.Kind.SHIELD,
                     shieldOffsets[i][0] * r, shieldOffsets[i][1] * r,
                     pr * 1.05f, shieldHp, -1f);
+            partCount++;
+        }
+        for (int i = 0; i < mineBays; i++) {
+            parts[partCount].init(BossPart.Kind.MINE,
+                    0f, 0.86f * r, pr * 0.94f, 34f + 11f * level, 3.4f + i * 1.2f);
             partCount++;
         }
     }

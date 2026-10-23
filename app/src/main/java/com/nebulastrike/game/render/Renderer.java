@@ -108,6 +108,7 @@ public class Renderer {
         drawTurrets(c, w);
         drawGravityWells(c, w);
         drawAltar(c, w);
+        drawPhaseBurst(c, w);
         if (w.boss.active) {
             drawBoss(c, w);
             drawBossLasers(c, w);
@@ -1611,6 +1612,13 @@ public class Renderer {
                     c.drawLine(px + 5f, pipY - 5f, px - 5f, pipY + 5f, paint);
                     paint.setStyle(Paint.Style.FILL);
                     break;
+                case MINE:
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeWidth(2.5f);
+                    c.drawCircle(px, pipY, 5.5f, paint);
+                    paint.setStyle(Paint.Style.FILL);
+                    c.drawCircle(px, pipY, 2f, paint);
+                    break;
                 default:
                     c.drawCircle(px, pipY, 5.5f, paint);
             }
@@ -1684,6 +1692,9 @@ public class Renderer {
                 case PRISM:
                     bossPrism(c, px, py, p, color, w.timeAlive);
                     break;
+                case MINE:
+                    bossMineBay(c, px, py, p, color, w.timeAlive);
+                    break;
                 default: {
                     if (p.kind == BossPart.Kind.LASER) {
                         glow.setColor(0x557DF9FF);
@@ -1724,6 +1735,33 @@ public class Renderer {
         paint.setStyle(Paint.Style.FILL);
     }
 
+    /** 布雷舱：带齿的投放口，核心随倒计时明暗脉动，提示"马上又要洒雷了"。 */
+    private void bossMineBay(Canvas c, float px, float py, BossPart p, int color, float time) {
+        glow.setColor(0x55FF5E7A);
+        c.drawCircle(px, py, p.radius * 1.7f, glow);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xFF2A1A2A);
+        c.drawCircle(px, py, p.radius, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3f);
+        paint.setColor(color);
+        c.drawCircle(px, py, p.radius * 0.92f, paint);
+        paint.setStrokeWidth(3.5f);
+        for (int i = 0; i < 8; i++) {
+            double a = Math.PI * 2.0 / 8.0 * i + time * 0.6;
+            float r0 = p.radius * 1.02f, r1 = p.radius * 1.26f;
+            c.drawLine(px + (float) Math.cos(a) * r0, py + (float) Math.sin(a) * r0,
+                    px + (float) Math.cos(a) * r1, py + (float) Math.sin(a) * r1, paint);
+        }
+        float pulse = 0.5f + 0.5f * Math.abs((float) Math.sin(time * 3.2f));
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(((int) (pulse * 255) << 24) | (color & 0xFFFFFF));
+        c.drawCircle(px, py, p.radius * 0.42f, paint);
+        paint.setColor(0xFF0A0C18);
+        c.drawCircle(px, py + p.radius * 0.46f, p.radius * 0.3f, paint);
+        paint.setStyle(Paint.Style.FILL);
+    }
+
     /** 部件配色：机炮琥珀、激光青、护盾器淡蓝、分裂舱橙红、棱镜紫；受击时闪白。 */
     private static int partColor(BossPart p) {
         if (p.flash > 0f) return 0xFFFFFFFF;
@@ -1732,6 +1770,7 @@ public class Renderer {
             case SHIELD: return 0xFF9DE8FF;
             case POD: return 0xFFFF8A4D;
             case PRISM: return 0xFFC77DFF;
+            case MINE: return 0xFFFF5E7A;
             default: return 0xFFFFB84D;
         }
     }
@@ -1868,6 +1907,24 @@ public class Renderer {
                 c.drawCircle(l.x, l.y, 22f, glow);
             }
         }
+        paint.setStyle(Paint.Style.FILL);
+    }
+
+    /** 相位核心的冲刺冲击波：一圈向外扩到清弹半径的青绿色光环。 */
+    private void drawPhaseBurst(Canvas c, GameWorld w) {
+        if (w.phaseBurstFlash <= 0f) return;
+        float k = 1f - w.phaseBurstFlash;
+        float r = 26f + (GameWorld.PHASE_BURST_RADIUS - 26f) * k;
+        int alpha = (int) (150 * w.phaseBurstFlash);
+        glow.setColor(((alpha / 2) << 24) | 0x004DFFDF);
+        c.drawCircle(w.phaseBurstX, w.phaseBurstY, r, glow);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(1f + 6f * w.phaseBurstFlash);
+        paint.setColor((alpha << 24) | 0x004DFFDF);
+        c.drawCircle(w.phaseBurstX, w.phaseBurstY, r, paint);
+        paint.setStrokeWidth(2f);
+        paint.setColor(((alpha / 2) << 24) | 0x00B8FFF2);
+        c.drawCircle(w.phaseBurstX, w.phaseBurstY, r * 0.72f, paint);
         paint.setStyle(Paint.Style.FILL);
     }
 

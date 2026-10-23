@@ -7,9 +7,10 @@ package com.nebulastrike.game.core;
 public class BossPart {
     /**
      * GUN 瞄准炮塔 / LASER 激光吊舱 / SHIELD 护盾发生器（存活时削弱核心伤害）/
-     * POD 分裂舱（周期性投放僚机）/ PRISM 棱镜（后期召唤，环绕舰体并放出十字光束）。
+     * POD 分裂舱（周期性投放僚机）/ PRISM 棱镜（后期召唤，环绕舰体并放出十字光束）/
+     * MINE 布雷舱（向下方通道投放漂流水雷，逼玩家重新选路）。
      */
-    public enum Kind { GUN, LASER, SHIELD, POD, PRISM }
+    public enum Kind { GUN, LASER, SHIELD, POD, PRISM, MINE }
 
     public Kind kind;
     /** offset from the boss center, virtual units */
