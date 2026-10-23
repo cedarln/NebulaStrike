@@ -272,6 +272,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case DAILY_START: haptics.tick(); break;
                     case BOSS_RUSH_START: haptics.tick(); break;
                     case RAM_IMPACT: haptics.impact(); break;
+                    case PHASE_SHIFT: haptics.tick(); break;
                     case MIRAGE_REVEAL: haptics.tick(); break;
                     // EMP 放出去要"撞一下"，磁暴艇被打爆吞弹只是轻提示
                     case MAG_BURST:
@@ -283,6 +284,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                         if (e.code == EnemyType.MAGNETON.ordinal()) haptics.impact();
                         else if (e.code == EnemyType.QUEEN.ordinal()) haptics.bomb();
                         else if (e.code == EnemyType.RAMMER.ordinal()) haptics.impact();
+                        else if (e.code == EnemyType.PHASER.ordinal()) haptics.tick();
                         break;
                 }
             }

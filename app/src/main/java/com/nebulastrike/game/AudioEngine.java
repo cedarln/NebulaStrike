@@ -337,6 +337,11 @@ public class AudioEngine {
                     // 撞停是"该反打了"的听觉标记：闷、短、带碎石，别盖住身后的枪声
                     play(SfxId.RAM_IMPACT, 0.78f, vary(0.08f), panFor(e.x));
                     break;
+                case PHASE_SHIFT:
+                    // 进入相位音高下沉，重新实体化时上扬：同一段采样，靠 rate 区分方向
+                    play(SfxId.PHASE_SHIFT, 0.62f,
+                            e.code == 1 ? 0.90f : 1.16f, panFor(e.x));
+                    break;
             }
         }
     }
@@ -499,6 +504,7 @@ public class AudioEngine {
             case EMP_BURST: return 120_000_000L;
             case BROOD_CHIRP: return 150_000_000L;
             case RAM_IMPACT: return 180_000_000L;   // 同一波两只冲撞者撞停时别叠成一声
+            case PHASE_SHIFT: return 110_000_000L;  // 一群相位者同时换相时留一点层次
             case ACHIEVEMENT: return 500_000_000L;   // 一次结算连解两条时只吹一记号角
             default: return 0L;
         }

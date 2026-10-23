@@ -31,7 +31,9 @@ public enum EnemyType {
     /** 蜂后（v1.17）：在上空游走产卵，与你保持距离；击毁时她的幼机一并崩溃。 */
     QUEEN(52f, 16, 100f, 140, 13),
     /** 冲撞者（v1.21）：悬停瞄准后沿预警线俯冲，撞停后硬直，硬直期受击双倍。 */
-    RAMMER(40f, 7, 150f, 55, 14);
+    RAMMER(40f, 7, 150f, 55, 14),
+    /** 相位者（v1.22）：周期性相位化——无敌穿弹 0.7 秒，重新实体化的瞬间受击双倍。 */
+    PHASER(36f, 6, 155f, 70, 15);
 
     public final float radius;
     public final int hp;
@@ -39,7 +41,7 @@ public enum EnemyType {
     public final int score;
     /** Palette index used by the renderer (0 cyan, 1 green, 2 orange, 3 magenta, 4 yellow,
      *  5 lime, 6 rose, 7 violet, 8 mint, 9 crimson, 10 steel,
-     *  11 phantom rose, 12 storm blue, 13 brood amber, 14 impact ember). */
+     *  11 phantom rose, 12 storm blue, 13 brood amber, 14 impact ember, 15 shift violet). */
     public final int colorHint;
 
     EnemyType(float radius, int hp, float baseSpeed, int score, int colorHint) {
@@ -55,7 +57,7 @@ public enum EnemyType {
         switch (this) {
             case SUICIDER: case SPLITTER: case HEALER: case SNIPER:
             case MINER: case CARRIER: case SHIELDER:
-            case MIRAGE: case MAGNETON: case QUEEN: case RAMMER:
+            case MIRAGE: case MAGNETON: case QUEEN: case RAMMER: case PHASER:
                 return true;
             default:
                 return false;

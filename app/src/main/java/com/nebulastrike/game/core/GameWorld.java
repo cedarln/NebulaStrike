@@ -63,7 +63,9 @@ public class GameWorld {
         /** v1.20：BOSS RUSH 开局（code = 本局固定的命数） */
         BOSS_RUSH_START,
         /** v1.21：冲撞者撞停（硬直窗口开始，此时受击双倍） */
-        RAM_IMPACT
+        RAM_IMPACT,
+        /** v1.22：相位者切换相位（code 1 = 进入相位，0 = 重新实体化） */
+        PHASE_SHIFT
     }
     public static final class GameEvent {
         public final EventType type;
@@ -432,9 +434,10 @@ public class GameWorld {
      * 玩法再好也等于没做。这里按解锁窗口保底投放：到点就确保场上至少有一艘。
      */
     static final EnemyType[] V117_TYPES = {
-            EnemyType.MIRAGE, EnemyType.MAGNETON, EnemyType.QUEEN, EnemyType.RAMMER};
+            EnemyType.MIRAGE, EnemyType.MAGNETON, EnemyType.QUEEN,
+            EnemyType.RAMMER, EnemyType.PHASER};
     /** 与 V117_TYPES 对应的解锁 sim-time 窗口，和 pickEnemyType 里的出场时间一致。 */
-    static final float[] V117_WINDOWS = {115f, 150f, 180f, 125f};
+    static final float[] V117_WINDOWS = {115f, 150f, 180f, 125f, 145f};
     /** 保底遭遇倒计时（做成包级字段，测试可以直接拨快）。 */
     float v117EncounterTimer = 8f;
     /** 每种新舰型的保底遭遇次数，用于轮换——优先补最少出现的那一型。 */
@@ -1392,6 +1395,7 @@ public class GameWorld {
 
     private void tryEnemyFire(Enemy e, float dt) {
         if (e.fireCd <= 0f) return;
+        if (e.isPhased()) return;   // 相位期间不开火：这 0.7 秒是玩家的喘息窗口
         if (e.y < 60f || e.y > HEIGHT * 0.72f) return; // only fire while on-screen, not too close
         // 异变"铁雨"：冷却时间流逝更快，同样的开火表会变成双倍弹幕密度
         e.fireCd -= dt * fireScaleOf();
@@ -1452,6 +1456,24 @@ public class GameWorld {
                 }
                 spark(e.x, e.y, 6, 11);
                 e.fireCd = 3.4f + RNG.get().nextFloat() * 1.4f;
+                break;
+            }
+            case PHASER: {
+                // 相位者只在实体期开火：一对窄角瞄准弹，逼玩家在"能打"的窗口里走位；
+                // 相位期完全沉默，那 0.7 秒是玩家重新占位的时间
+                float px = ship.x - e.x, py = ship.y - e.y;
+                float pl = (float) Math.sqrt(px * px + py * py);
+                if (pl < 1f) { px = 0f; py = 1f; pl = 1f; }
+                for (int i = -1; i <= 1; i += 2) {
+                    EnemyBullet pb = freeEnemyBullet();
+                    if (pb == null) break;
+                    float ang = i * 0.13f;
+                    float ca = (float) Math.cos(ang), sa = (float) Math.sin(ang);
+                    pb.init(e.x, e.y + e.type.radius,
+                            (px / pl * ca - py / pl * sa) * 340f,
+                            (px / pl * sa + py / pl * ca) * 340f);
+                }
+                e.fireCd = 2.6f + RNG.get().nextFloat() * 0.8f;
                 break;
             }
             default:
@@ -2075,6 +2097,14 @@ public class GameWorld {
                 addShake(0.2f, 9f);
                 spark(e.x, e.y, 9, 14);
                 events.add(new GameEvent(EventType.RAM_IMPACT, e.x, e.y));
+                continue;
+            }
+            if (e.type == EnemyType.PHASER && e.phaseShifted) {
+                // 相位切换：音效按 code 区分"沉下去"和"浮上来"，粒子也换一层颜色
+                e.phaseShifted = false;
+                spark(e.x, e.y, e.phaseOut ? 8 : 6, 15);
+                events.add(new GameEvent(EventType.PHASE_SHIFT, e.x, e.y,
+                        e.phaseOut ? 1 : 0));
             }
         }
     }
@@ -2149,6 +2179,7 @@ public class GameWorld {
             case MAGNETON: return 12;
             case QUEEN: return 13;
             case RAMMER: return 14;
+            case PHASER: return 15;
             default: return 4;
         }
     }
@@ -2616,15 +2647,18 @@ public class GameWorld {
         // v1.21：冲撞者 125s 解锁——她不是"多一种靶子"，而是要求玩家在预警线亮起时
         // 主动让位；权重压低，避免满屏都是需要躲的俯冲
         float wRammer = t > 125f ? Math.min(0.08f, 0.04f + (t - 125f) / 1800f) : 0f;
+        // v1.22：相位者 145s 解锁——她不会加速、不会追人，只要求玩家读懂"现在打不到"
+        float wPhaser = t > 145f ? Math.min(0.07f, 0.035f + (t - 145f) / 2000f) : 0f;
         // 保留至少 15% 无人机当"炮灰"：非无人机权重整体归一
         float sum = wTank + wHunter + wWeaver + wSui + wSplit + wHeal + wSnipe
-                + wMiner + wShield + wCarrier + wMirage + wMagnet + wQueen + wRammer;
+                + wMiner + wShield + wCarrier + wMirage + wMagnet + wQueen + wRammer
+                + wPhaser;
         if (sum > 0.85f) {
             float k = 0.85f / sum;
             wTank *= k; wHunter *= k; wWeaver *= k;
             wSui *= k; wSplit *= k; wHeal *= k; wSnipe *= k;
             wMiner *= k; wShield *= k; wCarrier *= k;
-            wMirage *= k; wMagnet *= k; wQueen *= k; wRammer *= k;
+            wMirage *= k; wMagnet *= k; wQueen *= k; wRammer *= k; wPhaser *= k;
         }
         float c = 0f;
         if (r < (c += wTank)) return EnemyType.TANK;
@@ -2641,6 +2675,7 @@ public class GameWorld {
         if (r < (c += wMagnet)) return EnemyType.MAGNETON;
         if (r < (c += wQueen)) return EnemyType.QUEEN;
         if (r < (c += wRammer)) return EnemyType.RAMMER;
+        if (r < (c += wPhaser)) return EnemyType.PHASER;
         return EnemyType.DRONE;
     }
 
@@ -2912,6 +2947,9 @@ public class GameWorld {
         }
         for (Enemy e : enemies) {
             if (!e.active) continue;
+            // 相位态：子弹原样穿过（不消耗、不结算），也不与飞船碰撞——
+            // "打不到"不等于"白打"，火力会在实体化落点上继续生效
+            if (e.isPhased()) continue;
             // bullets vs enemies（穿透激光命中后继续飞行）
             for (Bullet b : bullets) {
                 if (!b.active || b.hitCooldown > 0f) continue;
@@ -3305,6 +3343,7 @@ public class GameWorld {
                 : type == EnemyType.QUEEN ? 0.75f
                 : type == EnemyType.MIRAGE ? 0.20f
                 : type == EnemyType.RAMMER ? 0.30f
+                : type == EnemyType.PHASER ? 0.34f
                 : type == EnemyType.HUNTER ? 0.12f
                 : type == EnemyType.SUICIDER ? 0.04f : 0.05f;
         chance = Math.min(1f, chance * dropRatePctOf() / 100f

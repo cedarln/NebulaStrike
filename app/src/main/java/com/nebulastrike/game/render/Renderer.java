@@ -979,6 +979,74 @@ public class Renderer {
                     }
                     break;
                 }
+                case PHASER: {
+                    boolean ghost = e.isPhased();
+                    if (e.isPhasing()) {
+                        // 相位前预警：四角收束框朝机身合拢，越接近相位越亮
+                        float p = 1f - Math.max(0f, e.phaseTimer) / Enemy.PHASER_TELL;
+                        float d = r * (2.6f - 0.9f * p);
+                        paint.setStyle(Paint.Style.STROKE);
+                        paint.setStrokeWidth(2f + 2f * p);
+                        paint.setColor(((int) (0x60 + 0x90 * p) << 24) | 0x009C7BFF);
+                        for (int i = 0; i < 4; i++) {
+                            float sx = e.x + (i < 2 ? -d : d);
+                            float sy = e.y + (i % 2 == 0 ? -d : d);
+                            c.drawLine(sx, sy, e.x + (sx - e.x) * 0.45f,
+                                    e.y + (sy - e.y) * 0.45f, paint);
+                        }
+                        paint.setStyle(Paint.Style.FILL);
+                    }
+                    if (ghost) {
+                        // 相位态：只剩半透明碎形 + 落点信标，明确"打不到，但马上会落在这里"
+                        float k = Math.min(1f, Math.max(0f, e.phaseTimer)) / Enemy.PHASER_GHOST;
+                        paint.setStyle(Paint.Style.STROKE);
+                        paint.setStrokeWidth(2f);
+                        paint.setColor(((int) (0x40 + 0x70 * (1f - k)) << 24) | 0x009C7BFF);
+                        float gx = e.phaseLandX;
+                        c.drawCircle(gx, e.y, r * (1.05f + 0.5f * (1f - k)), paint);
+                        c.drawLine(gx, e.y - r * 2.1f, gx, e.y - r * 1.35f, paint);
+                        paint.setColor(0x559C7BFF);
+                        shapePath.rewind();
+                        shapePath.moveTo(e.x, e.y + r);
+                        shapePath.lineTo(e.x + r * 0.85f, e.y - r * 0.3f);
+                        shapePath.lineTo(e.x, e.y - r * 0.9f);
+                        shapePath.lineTo(e.x - r * 0.85f, e.y - r * 0.3f);
+                        shapePath.close();
+                        c.drawPath(shapePath, paint);
+                        paint.setStyle(Paint.Style.FILL);
+                        break;
+                    }
+                    // 实体态：菱形舰体 + 中央相位缝，缝里的核心随节拍明灭
+                    float beat = 0.5f + 0.5f * (float) Math.sin(w.timeAlive * 6f + e.age);
+                    glow.setColor(((int) (0x26 + 0x3A * beat) << 24) | 0x009C7BFF);
+                    c.drawCircle(e.x, e.y, r * 1.15f, glow);
+                    paint.setColor(base);
+                    shapePath.rewind();
+                    shapePath.moveTo(e.x, e.y + r);
+                    shapePath.lineTo(e.x + r * 0.85f, e.y - r * 0.15f);
+                    shapePath.lineTo(e.x + r * 0.34f, e.y - r * 0.88f);
+                    shapePath.lineTo(e.x - r * 0.34f, e.y - r * 0.88f);
+                    shapePath.lineTo(e.x - r * 0.85f, e.y - r * 0.15f);
+                    shapePath.close();
+                    c.drawPath(shapePath, paint);
+                    paint.setColor(0xFF160F2A);
+                    c.drawRect(e.x - r * 0.16f, e.y - r * 0.7f,
+                            e.x + r * 0.16f, e.y + r * 0.5f, paint);
+                    paint.setColor(0xFFE6DFFF);
+                    c.drawCircle(e.x, e.y + r * 0.12f, r * (0.14f + 0.1f * beat), paint);
+                    if (e.isReentering()) {
+                        // 实体化弱点窗口：琥珀双环 = "现在打它双倍"
+                        float p = e.phaseReentry / Enemy.PHASER_REENTRY;
+                        paint.setStyle(Paint.Style.STROKE);
+                        paint.setStrokeWidth(2.5f);
+                        paint.setColor(((int) (0x80 + 0x70 * p) << 24) | 0x00FFD166);
+                        float rr2 = r * (1.2f + 0.35f * (1f - p));
+                        c.drawCircle(e.x, e.y, rr2, paint);
+                        c.drawCircle(e.x, e.y, rr2 + 7f, paint);
+                        paint.setStyle(Paint.Style.FILL);
+                    }
+                    break;
+                }
             }
         }
     }
@@ -2823,6 +2891,29 @@ public class Renderer {
                 paint.setStyle(Paint.Style.FILL);
                 break;
             }
+            case PHASER: {
+                // 菱形本体 + 中央相位缝 + 一层错位的残影：一眼看懂"会阶段性变虚"
+                paint.setColor(base);
+                shapePath.rewind();
+                shapePath.moveTo(x, y + r);
+                shapePath.lineTo(x + r * 0.85f, y - r * 0.15f);
+                shapePath.lineTo(x + r * 0.34f, y - r * 0.88f);
+                shapePath.lineTo(x - r * 0.34f, y - r * 0.88f);
+                shapePath.lineTo(x - r * 0.85f, y - r * 0.15f);
+                shapePath.close();
+                c.drawPath(shapePath, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2f);
+                paint.setColor(known ? 0x889C7BFF : 0x406B7A99);
+                c.drawCircle(x - r * 0.55f, y, r * 0.95f, paint);
+                paint.setColor(0xFF160F2A);
+                c.drawRect(x - r * 0.16f, y - r * 0.7f,
+                        x + r * 0.16f, y + r * 0.5f, paint);
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(known ? 0xFFE6DFFF : 0xFF6B7A99);
+                c.drawCircle(x, y + r * 0.12f, r * 0.16f, paint);
+                break;
+            }
             default:
                 break;
         }
@@ -2883,6 +2974,7 @@ public class Renderer {
             case MAGNETON: return "磁暴艇 MAGNETON";
             case QUEEN: return "集群蜂后 QUEEN";
             case RAMMER: return "冲撞者 RAMMER";
+            case PHASER: return "相位者 PHASER";
             default: return t.name();
         }
     }
@@ -2904,6 +2996,7 @@ public class Renderer {
             case MAGNETON: return "磁场弯折直射弹，换激光/追踪/长枪，击毁吞敌弹";
             case QUEEN: return "边飞边产幼机，越残血产得越快，击杀她幼机全崩";
             case RAMMER: return "预警线亮起后俯冲，撞停硬直 1.4 秒且受击双倍";
+            case PHASER: return "每 3 秒相位化 0.7 秒：无敌穿弹，实体化瞬间受击双倍";
             default: return "未知机型";
         }
     }
@@ -3503,6 +3596,7 @@ public class Renderer {
             case 12: rgb = 0x4DA6FF; break;   // 磁暴艇：风暴蓝
             case 13: rgb = 0xFFAE3A; break;   // 蜂后：孕育琥珀
             case 14: rgb = 0xFF7A5C; break;   // 冲撞者：撞击赤
+            case 15: rgb = 0x9C7BFF; break;   // 相位者：相位紫
             default: rgb = 0x5CE1FF; break;
         }
         return (alpha << 24) | rgb;

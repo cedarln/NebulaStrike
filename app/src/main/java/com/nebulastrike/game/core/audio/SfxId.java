@@ -77,5 +77,7 @@ public enum SfxId {
     /** v1.20：BOSS RUSH 开局（低音铜管上行 + 定音鼓重击，擂台开场的感觉） */
     BOSS_RUSH,
     /** v1.21：冲撞者撞停的闷响（低频塌陷 + 碎石噪声，提示"现在是双倍伤害窗口"） */
-    RAM_IMPACT
+    RAM_IMPACT,
+    /** v1.22：相位者切换相位的空灵扫频（code 1 下沉，code 0 上浮） */
+    PHASE_SHIFT
 }

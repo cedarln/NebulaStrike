@@ -69,6 +69,7 @@ public final class SfxBank {
         put(SfxId.DAILY_START, dailyStart(), 0.6f);
         put(SfxId.BOSS_RUSH, bossRushStart(), 0.78f);
         put(SfxId.RAM_IMPACT, ramImpact(), 0.72f);
+        put(SfxId.PHASE_SHIFT, phaseShift(), 0.60f);
     }
 
     public static SfxBank create() {
@@ -1241,6 +1242,27 @@ public final class SfxBank {
                     * env(t, 0.55, 0.003, 1.4));
         }
         echo(x, 0.09, 0.20);
+        return x;
+    }
+
+    /** 相位切换：一层快速下坠的玻璃质扫频 + 高频闪砂，干净但不刺耳。 */
+    private static float[] phaseShift() {
+        int n = frames(0.48);
+        float[] x = new float[n];
+        Random r = new Random(1618);
+        double ph = 0, shim = 0, lp = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double f = 180 + 720 * Math.exp(-t * 7);
+            ph += f / SAMPLE_RATE;
+            shim += (f * 2.02 + 26 * Math.sin(t * 44)) / SAMPLE_RATE;
+            lp += 0.22 * (noise(r) - lp);
+            double body = 0.52 * sine(ph) + 0.26 * sine(shim);
+            double air = lp * Math.exp(-t * 4.5) * 1.3;
+            x[i] = (float) ((body * Math.exp(-t * 5.2) + air)
+                    * env(t, 0.48, 0.015, 1.7));
+        }
+        echo(x, 0.12, 0.24);
         return x;
     }
 
