@@ -129,7 +129,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
         }
 
         Ui.Action a = Ui.hit(world.state, world.settingsOpen, world.cheatOpen,
-                world.codexOpen, world.achieveOpen, v[0], v[1]);
+                world.codexOpen, world.achieveOpen, world.careerOpen, v[0], v[1]);
         if (a != null) {
             world.handleUiAction(a);
             if (a == Ui.Action.CHECK_UPDATE) dispatchUpdateWork();

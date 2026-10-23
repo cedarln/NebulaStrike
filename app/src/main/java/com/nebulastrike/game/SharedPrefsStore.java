@@ -45,6 +45,9 @@ public class SharedPrefsStore implements SettingsStore {
             into.dailyScores[i] = prefs.getInt("dailyScore" + i, 0);
         }
         into.rushBest = prefs.getInt("rushBest", 0);
+        into.runsStarted = prefs.getInt("runsStarted", 0);
+        into.deaths = prefs.getInt("deaths", 0);
+        into.bestWave = prefs.getInt("bestWave", 0);
         into.sanitize();
     }
 
@@ -114,7 +117,10 @@ public class SharedPrefsStore implements SettingsStore {
             e.putInt("dailyKey" + i, s.dailyKeys[i]);
             e.putInt("dailyScore" + i, s.dailyScores[i]);
         }
-        e.putInt("rushBest", s.rushBest);
+        e.putInt("rushBest", s.rushBest)
+                .putInt("runsStarted", s.runsStarted)
+                .putInt("deaths", s.deaths)
+                .putInt("bestWave", s.bestWave);
         e.apply();
     }
 }

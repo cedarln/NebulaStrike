@@ -28,9 +28,13 @@ public final class Ui {
     public static final Rect START_RUSH = new Rect(GameWorld.WIDTH / 2f + 80f, 462f, 140f, 76f);
     public static final Rect SETTINGS = new Rect(GameWorld.WIDTH / 2f - 220f, 552f, 210f, 64f);
     public static final Rect CHEATS = new Rect(GameWorld.WIDTH / 2f + 10f, 552f, 210f, 64f);
-    /** CODEX 与成就入口共用一行（v1.18 成就系统上线后菜单不再有三个整行按钮的空间）。 */
-    public static final Rect CODEX = new Rect(GameWorld.WIDTH / 2f - 220f, 632f, 210f, 64f);
-    public static final Rect ACHIEVEMENTS = new Rect(GameWorld.WIDTH / 2f + 10f, 632f, 210f, 64f);
+    /**
+     * CODEX / 成就 / 生涯三入口并排（v1.30 加入生涯面板后沿用模式行的三格宽度），
+     * 菜单在 632 这一行放不下三个 210 宽按钮，统一收窄成 140 宽。
+     */
+    public static final Rect CODEX = new Rect(GameWorld.WIDTH / 2f - 220f, 632f, 140f, 64f);
+    public static final Rect ACHIEVEMENTS = new Rect(GameWorld.WIDTH / 2f - 70f, 632f, 140f, 64f);
+    public static final Rect CAREER = new Rect(GameWorld.WIDTH / 2f + 80f, 632f, 140f, 64f);
     public static final Rect CHECK_UPDATE = new Rect(GameWorld.WIDTH / 2f - 220f, 712f, 440f, 56f);
 
     // playing: floating joystick is position-free (handled by GameView);
@@ -102,6 +106,9 @@ public final class Ui {
     public static final Rect ACH_TAB_RUN = new Rect(110f, 300f, 330f, 64f);
     public static final Rect ACH_TAB_CUM = new Rect(460f, 300f, 330f, 64f);
     public static final Rect ACHIEVEMENTS_BACK = new Rect(GameWorld.WIDTH / 2f - 140f, 1420f, 280f, 64f);
+
+    // 生涯面板（v1.30）：单页卡片墙，只保留一个返回键
+    public static final Rect CAREER_BACK = new Rect(GameWorld.WIDTH / 2f - 140f, 1420f, 280f, 64f);
     public static final float ACH_ROW_Y = 372f;
     public static final float ACH_ROW_H = 56f;
 
@@ -128,6 +135,7 @@ public final class Ui {
         CHEAT_SPEED_DOWN, CHEAT_SPEED_UP, CHEAT_POWER_DOWN, CHEAT_POWER_UP,
         OPEN_CODEX, CODEX_BACK, CODEX_TAB,
         OPEN_ACHIEVEMENTS, ACHIEVEMENTS_BACK, ACHIEVEMENTS_TAB,
+        OPEN_CAREER, CAREER_BACK,
         SET_DIFF_CASUAL, SET_DIFF_STANDARD, SET_DIFF_HARDCORE
     }
 
@@ -153,6 +161,12 @@ public final class Ui {
 
     public static Action hit(GameWorld.State state, boolean settingsOpen, boolean cheatOpen,
                              boolean codexOpen, boolean achieveOpen, float x, float y) {
+        return hit(state, settingsOpen, cheatOpen, codexOpen, achieveOpen, false, x, y);
+    }
+
+    public static Action hit(GameWorld.State state, boolean settingsOpen, boolean cheatOpen,
+                             boolean codexOpen, boolean achieveOpen, boolean careerOpen,
+                             float x, float y) {
         switch (state) {
             case MENU:
                 if (codexOpen) {
@@ -167,6 +181,10 @@ public final class Ui {
                     if (ACH_TAB_RUN.contains(x, y) || ACH_TAB_CUM.contains(x, y)) {
                         return Action.ACHIEVEMENTS_TAB;
                     }
+                    return null;
+                }
+                if (careerOpen) {
+                    if (CAREER_BACK.contains(x, y)) return Action.CAREER_BACK;
                     return null;
                 }
                 if (cheatOpen) {
@@ -203,6 +221,7 @@ public final class Ui {
                 if (CHEATS.contains(x, y)) return Action.OPEN_CHEATS;
                 if (CODEX.contains(x, y)) return Action.OPEN_CODEX;
                 if (ACHIEVEMENTS.contains(x, y)) return Action.OPEN_ACHIEVEMENTS;
+                if (CAREER.contains(x, y)) return Action.OPEN_CAREER;
                 if (CHECK_UPDATE.contains(x, y)) return Action.CHECK_UPDATE;
                 return null;
             case PAUSED:

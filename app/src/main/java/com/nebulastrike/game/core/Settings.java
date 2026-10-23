@@ -62,6 +62,31 @@ public class Settings {
     /** 一次 BOSS RUSH 里连续击败的 Boss 数量纪录；0 = 还没打过。 */
     public volatile int rushBest;
 
+    // ---- 生涯账本（v1.30）：面板用的出勤 / 阵亡 / 最深波次 ----
+    /** 开局次数（含中途退出）。 */
+    public volatile int runsStarted;
+    /** 阵亡次数（最后一命掉光才算一次）。 */
+    public volatile int deaths;
+    /** 到达过的最深波次。 */
+    public volatile int bestWave;
+
+    /** 开新局记一次出勤。 */
+    public void countRunStart() {
+        if (runsStarted < Integer.MAX_VALUE) runsStarted++;
+    }
+
+    /** 最后一命掉光时记一次阵亡。 */
+    public void countDeath() {
+        if (deaths < Integer.MAX_VALUE) deaths++;
+    }
+
+    /** @return true 表示刷新了最深波次（调用方据此标记落盘）。 */
+    public boolean noteWave(int wave) {
+        if (wave <= bestWave) return false;
+        bestWave = wave;
+        return true;
+    }
+
     /** 某天的历史最佳分；没打过返回 0。 */
     public int dailyBest(int dateKey) {
         for (int i = 0; i < dailyKeys.length; i++) {
@@ -211,6 +236,9 @@ public class Settings {
             }
         }
         if (rushBest < 0) rushBest = 0;
+        if (runsStarted < 0) runsStarted = 0;
+        if (deaths < 0) deaths = 0;
+        if (bestWave < 0) bestWave = 0;
     }
 
     /** yyyyMMdd 形式的日期键合法性检查：年份合理、月份 1..12、日期 1..31。 */

@@ -125,17 +125,28 @@ public enum Achievement {
         return value >= target;
     }
 
+    /** 各军衔的解锁条数门槛，rank() 与生涯面板的"下一级还差几条"共用。 */
+    private static final int[] RANK_AT = {5, 10, 15, 20, 25, COUNT};
+    private static final String[] RANK_NAME = {
+            "列兵", "飞行员", "王牌", "舰队长", "提督", "元帅"
+    };
+
     /**
      * 按已解锁条数给出军衔称号（菜单与成就页都显示它，作为长线目标）。
      */
     public static String rank(int unlocked) {
         if (unlocked <= 0) return "未入册";
-        if (unlocked < 5) return "列兵";
-        if (unlocked < 10) return "飞行员";
-        if (unlocked < 15) return "王牌";
-        if (unlocked < 20) return "舰队长";
-        if (unlocked < 25) return "提督";
-        if (unlocked < COUNT) return "元帅";
+        for (int i = 0; i < RANK_AT.length; i++) {
+            if (unlocked < RANK_AT[i]) return RANK_NAME[i];
+        }
         return "星海传说";
+    }
+
+    /** 下一个军衔需要多少条；已到最高军衔返回 -1。 */
+    public static int nextRankAt(int unlocked) {
+        for (int at : RANK_AT) {
+            if (unlocked < at) return at;
+        }
+        return -1;
     }
 }

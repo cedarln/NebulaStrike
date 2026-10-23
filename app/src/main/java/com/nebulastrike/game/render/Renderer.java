@@ -14,6 +14,7 @@ import com.nebulastrike.game.core.Boss;
 import com.nebulastrike.game.core.BossLaser;
 import com.nebulastrike.game.core.BossPart;
 import com.nebulastrike.game.core.Bullet;
+import com.nebulastrike.game.core.Career;
 import com.nebulastrike.game.core.DailyChallenge;
 import com.nebulastrike.game.core.Difficulty;
 import com.nebulastrike.game.core.Enemy;
@@ -2140,6 +2141,7 @@ public class Renderer {
                 if (w.cheatOpen) drawCheats(c, w);
                 else if (w.codexOpen) drawCodex(c, w);
                 else if (w.achieveOpen) drawAchievements(c, w);
+                else if (w.careerOpen) drawCareer(c, w);
                 else if (w.settingsOpen) drawSettings(c, w);
                 else drawMenu(c, w);
                 return;
@@ -2860,10 +2862,12 @@ public class Renderer {
         button(c, Ui.SETTINGS, "SETTINGS", 0xFF182040, 0xFF8FA3C8, false, 30f);
         button(c, Ui.CHEATS, w.settings.cheatsActive() ? "LAB ON" : "LAB",
                 0xFF182040, 0xFFFF8FD1, false, 30f);
-        button(c, Ui.CODEX, "CODEX " + w.settings.codexCompletion()
-                + "/" + w.settings.codexTotal(), 0xFF182040, 0xFFAFF6FF, false, 26f);
-        button(c, Ui.ACHIEVEMENTS, "成就 " + w.settings.achievementsUnlocked()
-                + "/" + Achievement.COUNT, 0xFF182040, 0xFFFFD166, false, 26f);
+        menuEntry(c, Ui.CODEX, "CODEX",
+                w.settings.codexCompletion() + "/" + w.settings.codexTotal(), 0xFFAFF6FF);
+        menuEntry(c, Ui.ACHIEVEMENTS, "成就",
+                w.settings.achievementsUnlocked() + "/" + Achievement.COUNT, 0xFFFFD166);
+        menuEntry(c, Ui.CAREER, "生涯",
+                "出勤 " + Career.count(w.settings.runsStarted) + " 次", 0xFF6FE38B);
 
         paint.setTextSize(28f);
         paint.setColor(0xFFFFD166);
@@ -2950,6 +2954,29 @@ public class Renderer {
         paint.setTextSize(13f);
         paint.setColor(0x99C8D6F0);
         c.drawText(sub2, r.cx(), r.cy() + 35f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /** 140 宽的小入口（CODEX / 成就 / 生涯）：主标题 + 一行进度副标题。 */
+    private void menuEntry(Canvas c, Ui.Rect r, String title, String sub, int accent) {
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xFF182040);
+        c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 14f, 14f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(0x66000000 | accent);
+        c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 14f, 14f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setFakeBoldText(true);
+        paint.setTextSize(25f);
+        paint.setColor(0xFFE8F1FF);
+        c.drawText(title, r.cx(), r.y + 27f, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextSize(16f);
+        paint.setColor(accent);
+        c.drawText(sub, r.cx(), r.y + 50f, paint);
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
@@ -3237,6 +3264,222 @@ public class Renderer {
         paint.setColor(0x668FA3C8);
         paint.setTextAlign(Paint.Align.CENTER);
         c.drawText("成就进度只增不减 · 保存在本机", VW / 2f, 1520f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /**
+     * 生涯数据面板（v1.30）：三张主卡看总量，3×6 累计墙看细节，
+     * 单局纪录看个人上限，底部一排探索进度把图鉴 / 成就 / 连战 / 日常串起来。
+     * 全部读 {@link Settings} 的账本，只增不减。
+     */
+    private void drawCareer(Canvas c, GameWorld w) {
+        Settings s = w.settings;
+        int[] total = s.achieveTotal;
+        int[] best = s.achieveBest;
+
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xE60A1024);
+        c.drawRect(0, 0, VW, VH, paint);
+        paint.setColor(0xE60A0C18);
+        c.drawRoundRect(80f, 150f, 820f, 1380f, 26f, 26f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(0x666FE38B);
+        c.drawRoundRect(80f, 150f, 820f, 1380f, 26f, 26f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(56f);
+        paint.setFakeBoldText(true);
+        paint.setColor(0xFF6FE38B);
+        c.drawText("CAREER 生涯", VW / 2f, 226f, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextSize(24f);
+        paint.setColor(0xFF8FA3C8);
+        c.drawText("军衔 " + s.achievementRank() + "  ·  出勤 " + Career.count(s.runsStarted)
+                + " 次  ·  阵亡 " + Career.count(s.deaths) + " 次", VW / 2f, 268f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+
+        int time = total[Achievement.Metric.TIME.ordinal()];
+        int killed = total[Achievement.Metric.KILLS.ordinal()];
+        int scored = total[Achievement.Metric.SCORE.ordinal()];
+        careerHero(c, 110f, 292f, "生涯总分", Career.count(scored),
+                "每分钟 " + Career.count(Career.scorePerMinute(scored, time)), 0xFFFFD166);
+        careerHero(c, 343f, 292f, "生涯击坠", Career.count(killed),
+                "场均 " + Career.count(Career.perRun(killed, s.runsStarted)), 0xFFFF8FD1);
+        careerHero(c, 576f, 292f, "飞行时长", Career.duration(time),
+                "场均 " + Career.duration(Career.perRun(time, s.runsStarted)), 0xFF7DF9FF);
+
+        careerSection(c, "生涯累计", 436f, 0xFF6FE38B);
+        careerCell(c, 110f, 452f, "出勤", Career.count(s.runsStarted), 0xFF6FE38B);
+        careerCell(c, 343f, 452f, "阵亡", Career.count(s.deaths), 0xFFFF7089);
+        careerCell(c, 576f, 452f, "Boss 击破", Career.count(totalOf(total, Achievement.Metric.BOSSES)),
+                0xFFFFD166);
+        careerCell(c, 110f, 526f, "击坠", Career.count(killed), 0xFFFF8FD1);
+        careerCell(c, 343f, 526f, "擦弹", Career.count(totalOf(total, Achievement.Metric.GRAZE)),
+                0xFF7DF9FF);
+        careerCell(c, 576f, 526f, "弹反", Career.count(totalOf(total, Achievement.Metric.PARRY)),
+                0xFFB48FFF);
+        careerCell(c, 110f, 600f, "点爆", Career.count(totalOf(total, Achievement.Metric.BREAK)),
+                0xFFFFB03A);
+        careerCell(c, 343f, 600f, "冲刺", Career.count(totalOf(total, Achievement.Metric.DASH)),
+                0xFF7DF9FF);
+        careerCell(c, 576f, 600f, "重力吞弹", Career.count(totalOf(total, Achievement.Metric.GRAVITY)),
+                0xFFCFB8FF);
+        careerCell(c, 110f, 674f, "反弹敌弹",
+                Career.count(totalOf(total, Achievement.Metric.ULT_CONVERT)), 0xFF4DFFDF);
+        careerCell(c, 343f, 674f, "圣物拾取", Career.count(totalOf(total, Achievement.Metric.RELIC)),
+                0xFFFFD166);
+        careerCell(c, 576f, 674f, "武器融合", Career.count(totalOf(total, Achievement.Metric.FUSION)),
+                0xFF6BFFC8);
+        careerCell(c, 110f, 748f, "大招释放", Career.count(totalOf(total, Achievement.Metric.ULT_CASTS)),
+                0xFFFFD166);
+        careerCell(c, 343f, 748f, "突袭扛过", Career.count(totalOf(total, Achievement.Metric.RUSH)),
+                0xFFFFB03A);
+        careerCell(c, 576f, 748f, "识破伪装", Career.count(totalOf(total, Achievement.Metric.SPOT)),
+                0xFF7DF9FF);
+        careerCell(c, 110f, 822f, "异变经历", Career.count(totalOf(total, Achievement.Metric.MUTATORS)),
+                0xFFFF8FD1);
+        careerCell(c, 343f, 822f, "磁暴击毁",
+                Career.count(totalOf(total, Achievement.Metric.MAGNET_KILLS)), 0xFF9BE8FF);
+        careerCell(c, 576f, 822f, "蜂后击杀",
+                Career.count(totalOf(total, Achievement.Metric.QUEEN_KILLS)), 0xFFFFB03A);
+
+        careerSection(c, "单局纪录", 914f, 0xFFFFD166);
+        careerRecord(c, 110f, 930f, "最高分",
+                Career.count(Math.max(w.bestScore, best[Achievement.Metric.SCORE.ordinal()])),
+                0xFFFFD166);
+        careerRecord(c, 248f, 930f, "最多击坠", Career.count(best[Achievement.Metric.KILLS.ordinal()]),
+                0xFFFF8FD1);
+        careerRecord(c, 386f, 930f, "最长生存", Career.duration(best[Achievement.Metric.TIME.ordinal()]),
+                0xFF7DF9FF);
+        careerRecord(c, 524f, 930f, "最高连击", Career.count(best[Achievement.Metric.COMBO.ordinal()]),
+                0xFF6BFFC8);
+        careerRecord(c, 662f, 930f, "最深波次", Career.count(s.bestWave), 0xFFFFB03A);
+
+        careerSection(c, "探索进度", 1058f, 0xFFAFF6FF);
+        int today = w.todayKey();
+        int unlocked = s.achievementsUnlocked();
+        int nextRank = Achievement.nextRankAt(unlocked);
+        careerChip(c, 110f, 1074f, "图鉴",
+                s.codexCompletion() + "/" + s.codexTotal(), "已记录", 0xFFAFF6FF);
+        careerChip(c, 280f, 1074f, "成就", unlocked + "/" + Achievement.COUNT,
+                nextRank > 0 ? "升衔还差 " + (nextRank - unlocked) + " 条" : s.achievementRank(),
+                0xFFFFD166);
+        careerChip(c, 450f, 1074f, "连战",
+                "深入 " + Career.count(s.rushBest), "BOSS RUSH 最深", 0xFFFFB03A);
+        careerChip(c, 620f, 1074f, "每日",
+                s.dailyPlayed() + " 天", "连胜 " + s.dailyStreak(today) + " 天", 0xFF6FE38B);
+
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(19f);
+        paint.setColor(0x668FA3C8);
+        c.drawText("生涯账本只增不减 · 数据全部保存在本机", VW / 2f, 1204f, paint);
+        c.drawText("出勤 / 阵亡 / 最深波次从 v1.30 开始记录", VW / 2f, 1234f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+
+        button(c, Ui.CAREER_BACK, "BACK", 0xFF182040, 0xFFE8F1FF, false, 30f);
+    }
+
+    private static int totalOf(int[] totals, Achievement.Metric m) {
+        return totals[m.ordinal()];
+    }
+
+    /** 面板分节标题：左侧文字 + 一条延伸到底的细线。 */
+    private void careerSection(Canvas c, String label, float y, int accent) {
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setTextSize(22f);
+        paint.setFakeBoldText(true);
+        paint.setColor(accent);
+        c.drawText(label, 110f, y, paint);
+        paint.setFakeBoldText(false);
+        paint.setColor(0x22FFFFFF);
+        c.drawRect(110f + paint.measureText(label) + 16f, y - 8f, 790f, y - 6f, paint);
+    }
+
+    /** 顶部主卡：小标题、大数字、一句补充说明。 */
+    private void careerHero(Canvas c, float x, float y, String label, String value,
+                            String sub, int accent) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xCC0C1629);
+        c.drawRoundRect(x, y, x + 214f, y + 104f, 16f, 16f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor((0x66 << 24) | (accent & 0x00FFFFFF));
+        c.drawRoundRect(x, y, x + 214f, y + 104f, 16f, 16f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(18f);
+        paint.setColor(0xFF8FA3C8);
+        c.drawText(label, x + 107f, y + 27f, paint);
+        paint.setTextSize(36f);
+        paint.setFakeBoldText(true);
+        paint.setColor(accent);
+        c.drawText(value, x + 107f, y + 70f, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextSize(16f);
+        paint.setColor(0x99C8D6F0);
+        c.drawText(sub, x + 107f, y + 94f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /** 累计墙的一格：左上小标签 + 大字数值。 */
+    private void careerCell(Canvas c, float x, float y, String label, String value, int accent) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0x88101C30);
+        c.drawRoundRect(x, y, x + 214f, y + 64f, 12f, 12f, paint);
+        paint.setTextSize(16f);
+        paint.setColor(0xFF8FA3C8);
+        c.drawText(label, x + 14f, y + 23f, paint);
+        paint.setTextSize(26f);
+        paint.setFakeBoldText(true);
+        paint.setColor(accent);
+        c.drawText(value, x + 14f, y + 51f, paint);
+        paint.setFakeBoldText(false);
+    }
+
+    /** 单局纪录卡：128 宽，五张并排。 */
+    private void careerRecord(Canvas c, float x, float y, String label, String value, int accent) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0x88101C30);
+        c.drawRoundRect(x, y, x + 128f, y + 96f, 12f, 12f, paint);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(16f);
+        paint.setColor(0xFF8FA3C8);
+        c.drawText(label, x + 64f, y + 27f, paint);
+        paint.setTextSize(25f);
+        paint.setFakeBoldText(true);
+        paint.setColor(accent);
+        c.drawText(value, x + 64f, y + 64f, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /** 探索进度卡：三行（分类 / 数字 / 补充）。 */
+    private void careerChip(Canvas c, float x, float y, String label, String value,
+                            String sub, int accent) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xCC0C1629);
+        c.drawRoundRect(x, y, x + 160f, y + 86f, 14f, 14f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(1.5f);
+        paint.setColor((0x44 << 24) | (accent & 0x00FFFFFF));
+        c.drawRoundRect(x, y, x + 160f, y + 86f, 14f, 14f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(16f);
+        paint.setColor(0xFF8FA3C8);
+        c.drawText(label, x + 80f, y + 22f, paint);
+        paint.setTextSize(24f);
+        paint.setFakeBoldText(true);
+        paint.setColor(accent);
+        c.drawText(value, x + 80f, y + 51f, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextSize(14f);
+        paint.setColor(0x99C8D6F0);
+        c.drawText(sub, x + 80f, y + 73f, paint);
         paint.setTextAlign(Paint.Align.LEFT);
     }
 

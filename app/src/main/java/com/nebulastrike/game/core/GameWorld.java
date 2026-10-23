@@ -481,6 +481,8 @@ public class GameWorld {
     public volatile boolean achieveOpen;
     /** 成就页签：0 = 单局最佳，1 = 生涯累计。 */
     public volatile int achieveTab;
+    /** 生涯数据面板（菜单内，v1.30）。 */
+    public volatile boolean careerOpen;
     private SettingsStore store;
 
     // ---- 应用内升级检测（状态机；网络 IO 由 app 层异步执行，这里只存状态） ----
@@ -841,7 +843,11 @@ public class GameWorld {
         }
         // 成就判定排在碰撞之后：本帧的击坠/擦弹/点弹都已经入账，读数是完整的
         if (state == State.PLAYING) updateAchievements(dt);
-        if (score - pacingExemptScore > wave * 500) wave++;
+        if (score - pacingExemptScore > wave * 500) {
+            wave++;
+            // 生涯面板的"最深波次"：只记不回溯，和成就一样只增不减
+            if (settings.noteWave(wave)) codexDirty = true;
+        }
     }
 
     // ---- boss battle ----
@@ -3099,7 +3105,7 @@ public class GameWorld {
                 handleUiAction(Ui.Action.QUIT_TO_MENU);
                 return true;
             default:
-                if (settingsOpen || cheatOpen || codexOpen || achieveOpen) {
+                if (settingsOpen || cheatOpen || codexOpen || achieveOpen || careerOpen) {
                     closePanels();
                     return true;
                 }
@@ -4147,18 +4153,21 @@ public class GameWorld {
                 cheatOpen = false;
                 codexOpen = false;
                 achieveOpen = false;
+                careerOpen = false;
                 break;
             case OPEN_CHEATS:
                 cheatOpen = true;
                 settingsOpen = false;
                 codexOpen = false;
                 achieveOpen = false;
+                careerOpen = false;
                 break;
             case OPEN_CODEX:
                 codexOpen = true;
                 settingsOpen = false;
                 cheatOpen = false;
                 achieveOpen = false;
+                careerOpen = false;
                 flushCodex();
                 break;
             case CODEX_BACK:
@@ -4172,12 +4181,26 @@ public class GameWorld {
                 settingsOpen = false;
                 cheatOpen = false;
                 codexOpen = false;
+                careerOpen = false;
                 // 打开成就页前先把账结算干净：页面显示的进度要和真实进度一致
                 commitAchievements();
                 flushCodex();
                 break;
             case ACHIEVEMENTS_BACK:
                 achieveOpen = false;
+                break;
+            case OPEN_CAREER:
+                careerOpen = true;
+                settingsOpen = false;
+                cheatOpen = false;
+                codexOpen = false;
+                achieveOpen = false;
+                // 生涯面板读的是同一本账，打开前先结算并落盘
+                commitAchievements();
+                flushCodex();
+                break;
+            case CAREER_BACK:
+                careerOpen = false;
                 break;
             case ACHIEVEMENTS_TAB:
                 achieveTab = achieveTab == 0 ? 1 : 0;
@@ -4291,12 +4314,13 @@ public class GameWorld {
         if (store != null) store.save(settings);
     }
 
-    /** 菜单里的设置/LAB/图鉴/成就面板互斥；返回键统一关闭。 */
+    /** 菜单里的设置/LAB/图鉴/成就/生涯面板互斥；返回键统一关闭。 */
     public void closePanels() {
         settingsOpen = false;
         cheatOpen = false;
         codexOpen = false;
         achieveOpen = false;
+        careerOpen = false;
     }
 
     /** 图鉴进度只在有变化时落盘，避免每帧写 SharedPreferences。 */
@@ -4338,6 +4362,9 @@ public class GameWorld {
         events.add(new GameEvent(EventType.PLAYER_HIT, ship.x, ship.y));
         if (lives <= 0) {
             lives = 0;
+            // 生涯账本：最后一命掉光才算一次阵亡，中途挨打有护盾/残机兜着
+            settings.countDeath();
+            codexDirty = true;
             state = State.GAME_OVER;
             stateTimer = 0f;
             clearShipInput();
@@ -4433,6 +4460,9 @@ public class GameWorld {
         // 开新局前先把上一局的增量入账：中途退出、坠机后立刻重开都不会白打
         commitAchievements();
         achievements.beginRun();
+        // 生涯账本：每次开局都记一次出勤，落盘沿用图鉴那条通道
+        settings.countRunStart();
+        codexDirty = true;
         mode = m;
         applyDailyRules(m);
         // v1.20：连战局每场都从第一位 Boss 重来，深潜纪录只涨不跌
@@ -4470,6 +4500,7 @@ public class GameWorld {
         timeAlive = 0f;
         stateTimer = 0f;
         wave = 1;
+        settings.noteWave(wave);   // 哪怕开局即退，波次纪录也至少是 1
         newBest = false;
         scoreRank = -1;
         comboKills = 0;
