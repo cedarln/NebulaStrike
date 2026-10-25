@@ -550,6 +550,11 @@ public class GameWorld {
     /** 刚解锁剧情的横幅倒计时（秒）与章节号。 */
     public float storyBanner;
     public int storyBannerChapter;
+    /** 进入新一段航程的开场横幅倒计时（秒）。只做提示，不暂停刷新。 */
+    public float stageIntroTimer;
+    /** 开场横幅对应的关卡编号（1 起）。 */
+    public int stageIntroStage = 1;
+    public static final float STAGE_INTRO_TIME = 2.6f;
     private SettingsStore store;
 
     // ---- 应用内升级检测（状态机；网络 IO 由 app 层异步执行，这里只存状态） ----
@@ -969,7 +974,15 @@ public class GameWorld {
         if (!boss.active) {
             for (BossLaser l : bossLasers) l.active = false;
             if (bossGapTimer > 0f) bossGapTimer = Math.max(0f, bossGapTimer - dt);
-            if (stageClearTimer > 0f) stageClearTimer = Math.max(0f, stageClearTimer - dt);
+            if (stageClearTimer > 0f) {
+                stageClearTimer = Math.max(0f, stageClearTimer - dt);
+                // 肃清横幅收起的同一刻接上下一段航程的开场：编号+路段名，
+                // 不暂停刷新，只是把"下一关"从背景数字变成一次可见的换段。
+                if (stageClearTimer <= 0f && !bossRush()) {
+                    stageIntroTimer = STAGE_INTRO_TIME;
+                    stageIntroStage = stageNumber();
+                }
+            }
             // trigger at wave milestones when the screen is calm-ish
             // BOSS RUSH：不看 wave，喘息一结束下一位立刻入场（连战没有普通节拍）
             boolean due = bossRush() ? bossGapTimer <= 0f
@@ -1773,6 +1786,7 @@ public class GameWorld {
         }
         if (debutBanner > 0f) debutBanner = Math.max(0f, debutBanner - dt);
         if (storyBanner > 0f) storyBanner = Math.max(0f, storyBanner - dt);
+        if (stageIntroTimer > 0f) stageIntroTimer = Math.max(0f, stageIntroTimer - dt);
         if (extraLifeBanner > 0f) extraLifeBanner = Math.max(0f, extraLifeBanner - dt);
     }
 
@@ -4939,6 +4953,9 @@ public class GameWorld {
         debutBannerType = null;
         storyBanner = 0f;
         storyBannerChapter = 0;
+        // 开局即从第一段航程的标题进场；连战局有自己的入场横幅，不叠两层
+        stageIntroTimer = bossRush() ? 0f : STAGE_INTRO_TIME;
+        stageIntroStage = 1;
         for (int i = 0; i < v117EncounterCounts.length; i++) v117EncounterCounts[i] = 0;
         // v1.18：本局成就读数归零（Settings 里的历史最佳与累计账本不动）
         for (int i = 0; i < typeKills.length; i++) typeKills[i] = 0;

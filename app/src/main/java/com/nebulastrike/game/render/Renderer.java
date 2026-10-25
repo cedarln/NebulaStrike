@@ -2450,6 +2450,13 @@ public class Renderer {
                     VW / 2f - 70f, 60f, paint);
         }
 
+        // 航段常驻标识（v1.39）：右上一个短标签，战斗再乱也能确认自己飞到哪一段
+        paint.setTextSize(20f);
+        paint.setColor(0xFF8FA3C8);
+        paint.setTextAlign(Paint.Align.RIGHT);
+        c.drawText(Story.sectorShort(w.stageNumber()), VW - 40f, 88f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+
         // 异变波芯片：名字 + 剩余时间条，最后 3 秒闪烁提示"窗口快关了，抓紧刷"
         if (w.mutator.isActive()) {
             float frac = Math.max(0f, Math.min(1f, w.mutatorTimer / GameWorld.MUTATOR_DURATION));
@@ -2992,11 +2999,11 @@ public class Renderer {
             c.drawText("WARNING", VW / 2f, 556f, paint);
             paint.setTextSize(30f);
             paint.setColor(((int) (0xF0 * k) << 24) | 0x00FFC8D0);
-            c.drawText("强敌接近 · " + w.boss.title(), VW / 2f, 600f, paint);
+            c.drawText("强敌接近 · " + Story.bossName(w.stageNumber()), VW / 2f, 600f, paint);
             paint.setFakeBoldText(false);
             paint.setTextSize(24f);
             paint.setColor(((int) (0xD8 * k) << 24) | 0xFFC8D6F0);
-            c.drawText("第 " + w.stageNumber() + " 关 · 炮口已锁定",
+            c.drawText(Story.sectorTag(w.stageNumber()) + " · 炮口已锁定",
                     VW / 2f, 634f, paint);
             float barW = 360f;
             float frac = Math.max(0f, Math.min(1f,
@@ -3014,19 +3021,48 @@ public class Renderer {
             float k = Math.min(1f, w.stageClearTimer / 0.5f);
             float in = Math.min(1f, (GameWorld.STAGE_CLEAR_TIME - w.stageClearTimer) / 0.35f);
             float s = 0.8f + 0.2f * in;
+            int cleared = Math.min(w.stageNumber() - 1, Story.SECTOR_COUNT);
             paint.setTextAlign(Paint.Align.CENTER);
             paint.setTextSize(56f * s);
             paint.setFakeBoldText(true);
             paint.setColor(((int) (0xFF * k) << 24) | 0x00FFD166);
-            c.drawText("SECTOR " + (w.stageNumber() - 1) + " CLEAR", VW / 2f, 764f, paint);
+            c.drawText("SECTOR " + cleared + "/" + Story.SECTOR_COUNT + " CLEAR",
+                    VW / 2f, 764f, paint);
             paint.setTextSize(26f * s);
             paint.setColor(((int) (0xE8 * k) << 24) | 0x00E8F1FF);
             c.drawText("空域肃清 · 残骸与补给都已回收", VW / 2f, 804f, paint);
             paint.setFakeBoldText(false);
             paint.setTextSize(23f * s);
             paint.setColor(((int) (0xC8 * k) << 24) | 0xFFC8D6F0);
-            c.drawText("下一段航程：第 " + w.stageNumber() + " 关",
+            c.drawText(w.stageNumber() <= Story.SECTOR_COUNT
+                            ? "下一段航程 · " + Story.sectorTag(w.stageNumber())
+                            : "航线已闭环 · 回声仍在重放",
                     VW / 2f, 838f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+        // v1.39：换段开场。肃清横幅收掉后接管画面中段，报出新的航段编号与名字；
+        // 不暂停刷新，所以这几秒依然可以走位、捡补给，只是抬头能看见"换段了"。
+        if (w.stageIntroTimer > 0f) {
+            int sector = Story.sectorIndex(w.stageIntroStage) + 1;
+            float k = Math.min(1f, w.stageIntroTimer / 0.45f);
+            float in = Math.min(1f, (GameWorld.STAGE_INTRO_TIME - w.stageIntroTimer) / 0.5f);
+            float s = 0.88f + 0.12f * in;
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(26f * s);
+            paint.setFakeBoldText(true);
+            paint.setColor(((int) (0xFF * k) << 24) | 0x00B08FFF);
+            c.drawText("SECTOR " + sector + "/" + Story.SECTOR_COUNT, VW / 2f, 686f, paint);
+            paint.setTextSize(42f * s);
+            paint.setColor(((int) (0xFF * k) << 24) | 0x00E8F1FF);
+            c.drawText(Story.sectorName(w.stageIntroStage), VW / 2f, 730f, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextSize(20f * s);
+            paint.setColor(((int) (0xC8 * k) << 24) | 0xFF8FA3C8);
+            c.drawText("航程继续 · 航标已更新", VW / 2f, 764f, paint);
+            // 两道向外的细线：视觉上像"航线被拉直"
+            paint.setColor(((int) (0x66 * k) << 24) | 0x00B08FFF);
+            c.drawRect(VW / 2f - 270f, 700f, VW / 2f - 100f, 702f, paint);
+            c.drawRect(VW / 2f + 100f, 700f, VW / 2f + 270f, 702f, paint);
             paint.setTextAlign(Paint.Align.LEFT);
         }
         // 剧情解密横幅：和过场横幅错开一档，安静地出现在战场中段
@@ -3260,7 +3296,8 @@ public class Renderer {
         menuEntry(c, Ui.CAREER, "生涯",
                 "出勤 " + Career.count(w.settings.runsStarted) + " 次", 0xFF6FE38B);
         menuEntry(c, Ui.STORY, "剧情档案",
-                w.settings.storyUnlocked + "/" + Story.CHAPTER_COUNT + " 章", 0xFFB08FFF);
+                Story.SECTOR_COUNT + " 段航程 · " + w.settings.storyUnlocked
+                        + "/" + Story.CHAPTER_COUNT + " 章", 0xFFB08FFF);
 
         paint.setTextSize(28f);
         paint.setColor(0xFFFFD166);

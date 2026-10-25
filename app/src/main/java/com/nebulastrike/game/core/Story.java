@@ -8,6 +8,8 @@ package com.nebulastrike.game.core;
  */
 public final class Story {
     public static final int CHAPTER_COUNT = 9;
+    /** 主线共 8 段航程（8 位旗舰）；第 9 章是结局档案，不是一段可重复飞行的关卡。 */
+    public static final int SECTOR_COUNT = 8;
 
     private static final String[] TITLES = {
             "序章 · 静默轨道",
@@ -31,6 +33,26 @@ public final class Story {
             "SECTOR 7 · 倒影",
             "SECTOR 8 · 摇篮",
             "ENDING · 返航"
+    };
+
+    /**
+     * 每段航程的短关键词：HUD 常驻标识用。
+     * 章节标题太长，会和左侧的模式 / 波次标签挤在一起。
+     */
+    private static final String[] SECTOR_KEYWORDS = {
+            "唤醒", "残响", "复制", "节点", "干涉", "漩涡", "倒影", "摇篮"
+    };
+
+    /** 每段航程旗舰的代号：Boss 预警横幅用。 */
+    private static final String[] BOSS_NAMES = {
+            "回声 · 静默旗舰",
+            "回声 · 灰烬旗舰",
+            "回声 · 船坞旗舰",
+            "回声 · 蜂巢旗舰",
+            "回声 · 裂谷旗舰",
+            "回声 · 磁暴旗舰",
+            "回声 · 镜面旗舰",
+            "回声 · 星核守卫"
     };
 
     private static final String[][] BODIES = {
@@ -130,6 +152,34 @@ public final class Story {
     public static String sectorTitle(int sector) {
         int chapter = chaptersForSector(sector) - 1;
         return title(chapter);
+    }
+
+    /** 关卡编号（1 起）→ 航程下标（0 起）。飞过第八段后停在最后一段。 */
+    public static int sectorIndex(int stage) {
+        int s = stage < 1 ? 1 : stage;
+        return (s > SECTOR_COUNT ? SECTOR_COUNT : s) - 1;
+    }
+
+    /** 该段航程的标题；越界停在最后一段，不会跳进结局档案。 */
+    public static String sectorName(int stage) {
+        return title(sectorIndex(stage));
+    }
+
+    /** HUD 右上角的常驻标识，如 "SECTOR 3/8 · 复制"。 */
+    public static String sectorShort(int stage) {
+        int i = sectorIndex(stage);
+        return "SECTOR " + (i + 1) + "/" + SECTOR_COUNT + " · " + SECTOR_KEYWORDS[i];
+    }
+
+    /** 过场横幅用的完整标识，如 "SECTOR 3/8 · 断链船坞"。 */
+    public static String sectorTag(int stage) {
+        int i = sectorIndex(stage);
+        return "SECTOR " + (i + 1) + "/" + SECTOR_COUNT + " · " + TITLES[i];
+    }
+
+    /** 该段航程旗舰的代号；越界沿用最后一位。 */
+    public static String bossName(int stage) {
+        return BOSS_NAMES[sectorIndex(stage)];
     }
 
     public static String total() {
