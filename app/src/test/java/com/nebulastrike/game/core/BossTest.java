@@ -199,6 +199,8 @@ public class BossTest {
     @Test
     public void bossDiesAndRewards() {
         triggerBoss();
+        // 这条只验证击破与掉落：v1.37 的换段增援会让 3 条命的测试机在弹幕里先倒下
+        world.lives = 999_999;
         GameWorld.State s = world.state;
         world.boss.hp = 2;
         world.boss.x = world.ship.x;

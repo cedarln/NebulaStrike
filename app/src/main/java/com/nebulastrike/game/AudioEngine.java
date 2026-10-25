@@ -184,6 +184,10 @@ public class AudioEngine {
                     play(SfxId.BOSS_PHASE, 0.75f,
                             1f + Math.max(0, e.code - 1) * 0.06f, 0f);
                     break;
+                case BOSS_REINFORCE:
+                    // 增援入场：压低的警报，给"先清小怪"一个听觉起点
+                    play(SfxId.ALARM, 0.45f, 0.82f, 0f);
+                    break;
                 case BOSS_PART_DESTROYED:
                     play(SfxId.PART_BREAK, 0.80f, vary(0.10f), panFor(e.x));
                     break;

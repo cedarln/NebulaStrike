@@ -283,6 +283,9 @@ public class ParryTest {
 
     @Test
     public void repeatedDashParriesDoNotLeakPools() {
+        // v1.37 的 Boss 换段会清空敌弹，会把某一轮还没弹反的测试弹一并收走；
+        // 这组只验证池子回收，直接关掉 Boss 入场
+        world.nextBossWave = 10_000;
         for (int i = 0; i < 200; i++) {
             EnemyBullet eb = enemyBulletAt(450f, 850f, 0f, 260f);
             world.ship.dashTimer = 0f;   // 上一轮冲刺可能还没走完

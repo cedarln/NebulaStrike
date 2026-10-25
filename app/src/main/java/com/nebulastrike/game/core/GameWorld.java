@@ -103,7 +103,9 @@ public class GameWorld {
         /** v1.35：螺旋炮台开始一轮螺旋（code = 弹臂数） */
         SPIRAL_BURST,
         /** v1.36：分数跨过阈值奖励生命（code 1 = 生命，2 = 炸弹，3 = 折算分数） */
-        EXTRA_LIFE
+        EXTRA_LIFE,
+        /** v1.37：Boss 换段过场，增援入场（code = 本次增援数） */
+        BOSS_REINFORCE
     }
     public static final class GameEvent {
         public final EventType type;
@@ -586,6 +588,11 @@ public class GameWorld {
     public float bossWarningTimer;
     /** 关卡肃清后的喘息剩余秒数（>0 时暂停常规刷新）。 */
     public float stageClearTimer;
+    /** Boss 换段过场剩余秒数（>0 时 Boss 与部件停火，玩家清理增援）。 */
+    public float bossPhaseBreakTimer;
+    /** 换段过场对应的新阶段（1..3），HUD 横幅用。 */
+    public int bossPhaseBreakPhase;
+    public static final float BOSS_PHASE_BREAK = 1.6f;
     /** Boss 刚打完时的冷却倒计时（包级可见，测试可直接清零来强制触发下一场）。 */
     float bossGapTimer;
     /** boss dead-flash timer for the renderer */
@@ -952,6 +959,11 @@ public class GameWorld {
             // 预警结束后重新给一轮开火间隔：玩家刚看完横幅，不该迎脸吃一发
             if (bossWarningTimer <= 0f) boss.resetAttack();
         }
+        if (bossPhaseBreakTimer > 0f) {
+            bossPhaseBreakTimer = Math.max(0f, bossPhaseBreakTimer - dt);
+            // 换段结束时同样重给开火间隔，别让玩家在清完增援的一瞬间被贴脸
+            if (bossPhaseBreakTimer <= 0f) boss.resetAttack();
+        }
         if (!boss.active) {
             for (BossLaser l : bossLasers) l.active = false;
             if (bossGapTimer > 0f) bossGapTimer = Math.max(0f, bossGapTimer - dt);
@@ -979,11 +991,12 @@ public class GameWorld {
         if (boss.phase != before) {
             events.add(new GameEvent(EventType.BOSS_PHASE, boss.x, boss.y, boss.phase));
             addShake(0.3f, 8f);
+            beginBossPhaseBreak();
         }
         updateBossParts(dt);
         updateBossLasers(dt);
         updateBossRam(dt);
-        boolean armed = bossWarningTimer <= 0f;
+        boolean armed = bossWarningTimer <= 0f && bossPhaseBreakTimer <= 0f;
         if (armed && boss.readyToAttack()) {
             bossAttack();
             boss.resetAttack();
@@ -1008,6 +1021,7 @@ public class GameWorld {
             boss.active = false;
             bossActive = false;
             bossWarningTimer = 0f;
+            bossPhaseBreakTimer = 0f;
             stageClearTimer = bossRush() ? RUSH_STAGE_CLEAR_TIME : STAGE_CLEAR_TIME;
             clearBattlefieldForInterlude();
             // 打完立刻上表：下一场至少等这段喘息，别让高分把 Boss 战连成一片
@@ -1068,9 +1082,9 @@ public class GameWorld {
         return bossesDefeated + 1;
     }
 
-    /** 是否处于"关卡 → Boss"或"Boss → 下一关"的过场里（刷新暂停）。 */
+    /** 是否处于"关卡 → Boss""Boss → 下一关"或"Boss 换段"的过场里（刷新暂停）。 */
     public boolean inInterlude() {
-        return bossWarningTimer > 0f || stageClearTimer > 0f;
+        return bossWarningTimer > 0f || stageClearTimer > 0f || bossPhaseBreakTimer > 0f;
     }
 
     /**
@@ -1086,11 +1100,45 @@ public class GameWorld {
         for (EnemyBullet b : enemyBullets) b.active = false;
     }
 
+    /**
+     * Boss 换段：清掉上一阶段的残留弹幕、放一队增援、Boss 停火 1.6 秒。
+     * 这一段的意义是"给玩家一个换段信号"——不是继续加难度，而是把已经织满的弹幕收走，
+     * 让人有机会看清场上多了什么、该先打谁。
+     */
+    private void beginBossPhaseBreak() {
+        if (boss.hp <= 0f) return;   // 同帧被打死时不再安排增援，交给肃清过场
+        bossPhaseBreakTimer = BOSS_PHASE_BREAK;
+        bossPhaseBreakPhase = boss.phase;
+        for (EnemyBullet b : enemyBullets) {
+            if (!b.active) continue;
+            b.active = false;
+            spark(b.x, b.y, 2, 4);
+        }
+        int n = boss.phase >= 3 ? 3 : 2;
+        EnemyType[] escort = {EnemyType.HUNTER, EnemyType.SPLITTER, EnemyType.HUNTER};
+        int made = 0;
+        for (int i = 0; i < n; i++) {
+            EnemyType type = escort[i];
+            Enemy e = freeEnemy();
+            if (e == null) break;
+            float xs = boss.x + (i - (n - 1) / 2f) * 150f;
+            e.init(type, clamp(xs, type.radius + 20f, WIDTH - type.radius - 20f),
+                    boss.y + 70f, enemySpeedScale);
+            applyMutatorToEnemy(e);
+            spawnedCount++;
+            spark(e.x, e.y, 5, 6);
+            made++;
+        }
+        events.add(new GameEvent(EventType.BOSS_REINFORCE, boss.x, boss.y, made));
+        addShake(0.35f, 10f);
+    }
+
     public boolean bossActive;
 
     /** Boss 部件开火：炮塔打瞄准弹，激光部件进入预警->光束流程。 */
     private void updateBossParts(float dt) {
-        if (boss.y < 60f || boss.staggerTimer > 0f || bossWarningTimer > 0f) return;
+        if (boss.y < 60f || boss.staggerTimer > 0f || bossWarningTimer > 0f
+                || bossPhaseBreakTimer > 0f) return;
         for (int i = 0; i < boss.partCount; i++) {
             BossPart p = boss.parts[i];
             if (!p.active || p.fireCd > 0f) continue;
@@ -4927,6 +4975,8 @@ public class GameWorld {
         bossActive = false;
         bossWarningTimer = 0f;
         stageClearTimer = 0f;
+        bossPhaseBreakTimer = 0f;
+        bossPhaseBreakPhase = 0;
         bossFlash = 0f;
         for (BossLaser l : bossLasers) l.active = false;
         for (int i = 0; i < weaponCd.length; i++) weaponCd[i] = 0f;

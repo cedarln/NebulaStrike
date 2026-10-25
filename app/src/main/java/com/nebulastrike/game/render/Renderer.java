@@ -2486,6 +2486,24 @@ public class Renderer {
             paint.setTextAlign(Paint.Align.LEFT);
         }
 
+        // Boss 换段横幅：弹幕刚被收走、增援正在压下来，这一刻要让玩家知道"换段了"
+        if (w.bossActive && w.bossPhaseBreakTimer > 0f) {
+            float k = Math.min(1f, w.bossPhaseBreakTimer / 0.4f);
+            float in = Math.min(1f,
+                    (GameWorld.BOSS_PHASE_BREAK - w.bossPhaseBreakTimer) / 0.18f);
+            float y = 560f + 12f * (1f - in);
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setFakeBoldText(true);
+            paint.setTextSize(50f);
+            paint.setColor(((int) (0xFF * k) << 24) | 0xFFFFB03A);
+            c.drawText("PHASE " + w.bossPhaseBreakPhase, VW / 2f, y, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextSize(24f);
+            paint.setColor(((int) (0xD8 * k) << 24) | 0xFFE8F1FF);
+            c.drawText("换段 · 增援入场", VW / 2f, y + 34f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+
         // weapon loadout: 基础武器可叠 3 种，融合武器额外叠加（最多 6 行）
         float statusY = 112f;
         for (WeaponType type : WeaponType.values()) {

@@ -427,6 +427,9 @@ public class NewEnemiesRushAndCodexTest {
     @Test
     public void bossPodLaunchesSuicideMinions() {
         spawnBoss(1);
+        // v1.37：血量已落到二阶段，先让换段过场结算完，再观察部件本身
+        world.update(1f / 60f);
+        world.bossPhaseBreakTimer = 0f;
         BossPart pod = null;
         for (int i = 0; i < world.boss.partCount; i++) {
             if (world.boss.parts[i].kind == BossPart.Kind.POD) pod = world.boss.parts[i];

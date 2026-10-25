@@ -286,6 +286,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case ARC_CHAIN: haptics.tick(); break;
                     // 弹幕网展开：整屏压下来的感觉，给一次中等震动
                     case BOSS_NET: haptics.impact(); break;
+                    // 换段增援：和预警同档，提示"现在场上是新的一轮"
+                    case BOSS_REINFORCE: haptics.impact(); break;
                     // 棱镜召唤：比横冲轻，像"多了两个东西在绕圈"
                     case BOSS_PRISM: haptics.tick(); break;
                     // 祭坛降临只是提示；吸弹太频繁不给震，免得整场都在嗡嗡
