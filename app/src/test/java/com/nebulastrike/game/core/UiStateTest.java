@@ -267,11 +267,13 @@ public class UiStateTest {
                 assertFalse("菜单按钮重叠", overlap(menu[i], menu[j]));
             }
         }
-        Ui.Rect[] codex = new Ui.Rect[Ui.CODEX_MAX_ROWS + 3];
+        Ui.Rect[] codex = new Ui.Rect[Ui.CODEX_MAX_ROWS + 5];
         codex[0] = Ui.CODEX_TAB_ENEMIES;
         codex[1] = Ui.CODEX_TAB_BOSSES;
         codex[2] = Ui.CODEX_BACK;
-        for (int i = 0; i < Ui.CODEX_MAX_ROWS; i++) codex[3 + i] = Ui.codexRow(i);
+        codex[3] = Ui.CODEX_PREV;
+        codex[4] = Ui.CODEX_NEXT;
+        for (int i = 0; i < Ui.CODEX_MAX_ROWS; i++) codex[5 + i] = Ui.codexRow(i);
         for (int i = 0; i < codex.length; i++) {
             for (int j = i + 1; j < codex.length; j++) {
                 assertFalse("图鉴行/按钮重叠", overlap(codex[i], codex[j]));

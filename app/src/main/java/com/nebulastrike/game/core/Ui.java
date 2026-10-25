@@ -93,11 +93,19 @@ public final class Ui {
     public static final Rect CODEX_TAB_ENEMIES = new Rect(110f, 300f, 330f, 64f);
     public static final Rect CODEX_TAB_BOSSES = new Rect(460f, 300f, 330f, 64f);
     public static final Rect CODEX_BACK = new Rect(GameWorld.WIDTH / 2f - 140f, 1420f, 280f, 64f);
-    /** 图鉴行高与首行 Y（渲染与命中共用；v1.10 敌机增至 11 种，行高相应压缩）。 */
+    /** 敌机图鉴分页（v1.33）：每页 12 条，新增兵种只增页、不再挤压返回键。 */
+    public static final Rect CODEX_PREV = new Rect(110f, 1196f, 200f, 72f);
+    public static final Rect CODEX_NEXT = new Rect(590f, 1196f, 200f, 72f);
+    /** 图鉴行高与首行 Y（渲染与命中共用）。 */
     // v1.17 敌机图鉴涨到 14 条：行高 86 -> 72；v1.21 到 15 条再压到 64，整页才不压到 BACK
     public static final float CODEX_ROW_Y = 372f;
     public static final float CODEX_ROW_H = 64f;
-    public static final int CODEX_MAX_ROWS = EnemyType.values().length;
+    public static final int CODEX_MAX_ROWS = 12;
+
+    /** 敌机图鉴总页数（至少 1 页）。 */
+    public static int codexPageCount(int entries) {
+        return Math.max(1, (entries + CODEX_MAX_ROWS - 1) / CODEX_MAX_ROWS);
+    }
 
     /** 图鉴某一行（0 起）的命中矩形。 */
     public static Rect codexRow(int index) {
@@ -140,7 +148,7 @@ public final class Ui {
         OPEN_CHEATS, CHEATS_BACK, TOGGLE_GOD, CHEAT_RESET,
         CHEAT_LIVES_DOWN, CHEAT_LIVES_UP, CHEAT_DROP_DOWN, CHEAT_DROP_UP,
         CHEAT_SPEED_DOWN, CHEAT_SPEED_UP, CHEAT_POWER_DOWN, CHEAT_POWER_UP,
-        OPEN_CODEX, CODEX_BACK, CODEX_TAB,
+        OPEN_CODEX, CODEX_BACK, CODEX_TAB, CODEX_PREV, CODEX_NEXT,
         OPEN_ACHIEVEMENTS, ACHIEVEMENTS_BACK, ACHIEVEMENTS_TAB,
         OPEN_CAREER, CAREER_BACK,
         OPEN_STORY, STORY_BACK, STORY_PREV, STORY_NEXT,
@@ -194,6 +202,8 @@ public final class Ui {
                     if (CODEX_TAB_ENEMIES.contains(x, y) || CODEX_TAB_BOSSES.contains(x, y)) {
                         return Action.CODEX_TAB;
                     }
+                    if (CODEX_PREV.contains(x, y)) return Action.CODEX_PREV;
+                    if (CODEX_NEXT.contains(x, y)) return Action.CODEX_NEXT;
                     return null;
                 }
                 if (achieveOpen) {

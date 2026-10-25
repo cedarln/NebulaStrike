@@ -530,6 +530,10 @@ public class Renderer {
                 drawNetNode(c, b, w.timeAlive);
                 continue;
             }
+            if (b.homing) {
+                drawHomingMissile(c, b, w.timeAlive);
+                continue;
+            }
             // fading trail
             glow.setColor(0x55FF7A4D);
             c.drawCircle(b.x - b.vx * 0.02f, b.y - b.vy * 0.02f, b.radius * 0.8f, glow);
@@ -539,6 +543,40 @@ public class Renderer {
             paint.setColor(0xFFFFE08A);
             c.drawCircle(b.x, b.y, b.radius * 0.45f, paint);
         }
+    }
+
+    /** 追踪弹：沿速度方向拉长的箭头 + 脉动锁定环，一眼分清"它会拐弯"。 */
+    private void drawHomingMissile(Canvas c, com.nebulastrike.game.core.EnemyBullet b, float time) {
+        float ang = (float) Math.atan2(b.vy, b.vx);
+        float pulse = 0.5f + 0.5f * (float) Math.sin(time * 12f + b.x * 0.02f);
+        glow.setColor(((int) (0x50 + 0x50 * pulse) << 24) | 0x00FF7089);
+        c.drawCircle(b.x, b.y, b.radius * 1.7f, glow);
+        // 尾焰
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0x66FFB84D);
+        c.drawCircle(b.x - (float) Math.cos(ang) * b.radius * 1.6f,
+                b.y - (float) Math.sin(ang) * b.radius * 1.6f, b.radius * 0.65f, paint);
+        // 弹体：指向飞行方向的短箭头
+        c.save();
+        c.translate(b.x, b.y);
+        c.rotate((float) Math.toDegrees(ang) + 90f);
+        shapePath.rewind();
+        shapePath.moveTo(0f, b.radius * 1.7f);
+        shapePath.lineTo(b.radius * 0.85f, -b.radius * 0.9f);
+        shapePath.lineTo(0f, -b.radius * 0.35f);
+        shapePath.lineTo(-b.radius * 0.85f, -b.radius * 0.9f);
+        shapePath.close();
+        paint.setColor(0xFFFF9A6B);
+        c.drawPath(shapePath, paint);
+        paint.setColor(0xFFFFE08A);
+        c.drawCircle(0f, -b.radius * 0.1f, b.radius * 0.3f, paint);
+        c.restore();
+        // 锁定环：告诉玩家"它还在跟"
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(1.5f);
+        paint.setColor(((int) (0x50 + 0x60 * pulse) << 24) | 0x00FF7089);
+        c.drawCircle(b.x, b.y, b.radius * (2.1f + 0.35f * pulse), paint);
+        paint.setStyle(Paint.Style.FILL);
     }
 
     /** 弹幕网节点：青白色方框 + 十字芯，像一张正在合拢的电网。 */
@@ -1132,6 +1170,51 @@ public class Renderer {
                         float rr2 = r * (1.2f + 0.35f * (1f - p));
                         c.drawCircle(e.x, e.y, rr2, paint);
                         c.drawCircle(e.x, e.y, rr2 + 7f, paint);
+                        paint.setStyle(Paint.Style.FILL);
+                    }
+                    break;
+                }
+                case SEEKER: {
+                    // 追猎者：宽体舰身 + 两侧发射管 + 顶部雷达眼。
+                    // 锁定期的两条淡线直接指向飞船：玩家能提前横移，而不是等导弹拐过来才反应。
+                    float lock = e.fireCd > 0f && e.fireCd < 0.7f
+                            ? 1f - e.fireCd / 0.7f : 0f;
+                    if (lock > 0f) {
+                        paint.setStyle(Paint.Style.STROKE);
+                        paint.setStrokeWidth(1f + 1.5f * lock);
+                        paint.setColor(((int) (0x30 + 0x70 * lock) << 24) | 0x00FF7089);
+                        for (int i = -1; i <= 1; i += 2) {
+                            float px = e.x + i * r * 0.55f;
+                            float py = e.y + r * 0.7f;
+                            float dx = w.ship.x - px, dy = w.ship.y - py;
+                            float dl = (float) Math.sqrt(dx * dx + dy * dy);
+                            if (dl > 1f) {
+                                c.drawLine(px, py, px + dx / dl * 620f, py + dy / dl * 620f, paint);
+                            }
+                        }
+                        paint.setStyle(Paint.Style.FILL);
+                    }
+                    hexagon(c, e.x, e.y, r * 0.92f, base);
+                    paint.setColor(0xFF101528);
+                    c.drawCircle(e.x, e.y, r * 0.44f, paint);
+                    paint.setColor(base);
+                    for (int i = -1; i <= 1; i += 2) {
+                        float px = e.x + i * r * 0.72f;
+                        c.drawRoundRect(px - r * 0.2f, e.y - r * 0.1f,
+                                px + r * 0.2f, e.y + r * 0.82f, 5f, 5f, paint);
+                    }
+                    // 雷达眼：从暗蓝扫到亮红，锁定越近越红
+                    paint.setColor(0xFF121A30);
+                    c.drawCircle(e.x, e.y, r * 0.3f, paint);
+                    int eye = (int) (0x80 + 0x7F * lock);
+                    paint.setColor((0xFF << 24) | ((0x50 + (int) (0x9F * lock)) << 16)
+                            | ((0x60 + (int) (0x10 * lock)) << 8) | (0x80 + (int) (0x60 * lock)));
+                    c.drawCircle(e.x, e.y, r * (0.14f + 0.1f * lock), paint);
+                    if (lock > 0f) {
+                        paint.setStyle(Paint.Style.STROKE);
+                        paint.setStrokeWidth(2f);
+                        paint.setColor((eye << 24) | 0x00FF7089);
+                        c.drawCircle(e.x, e.y, r * (1.15f + 0.3f * lock), paint);
                         paint.setStyle(Paint.Style.FILL);
                     }
                     break;
@@ -3228,8 +3311,11 @@ public class Renderer {
         paint.setTextAlign(Paint.Align.LEFT);
         if (enemiesTab) {
             EnemyType[] types = EnemyType.values();
-            for (int i = 0; i < types.length && i < Ui.CODEX_MAX_ROWS; i++) {
-                EnemyType t = types[i];
+            int pages = Ui.codexPageCount(types.length);
+            int page = Math.max(0, Math.min(pages - 1, w.codexPage));
+            int start = page * Ui.CODEX_MAX_ROWS;
+            for (int i = 0; i < Ui.CODEX_MAX_ROWS && start + i < types.length; i++) {
+                EnemyType t = types[start + i];
                 boolean known = w.settings.enemySeen(t);
                 codexRowFrame(c, i, known);
                 float y = Ui.CODEX_ROW_Y + i * Ui.CODEX_ROW_H;
@@ -3241,6 +3327,17 @@ public class Renderer {
                 } else {
                     codexText(c, 250f, y, "？？？", "遭遇后自动记录", "未在战场上出现过", 0xFF5A647F);
                 }
+            }
+            if (pages > 1) {
+                button(c, Ui.CODEX_PREV, "上一页", page > 0 ? 0xFF182040 : 0xFF101526,
+                        page > 0 ? 0xFF8FA3C8 : 0xFF3A4260, false, 26f);
+                button(c, Ui.CODEX_NEXT, "下一页", page < pages - 1 ? 0xFF182040 : 0xFF101526,
+                        page < pages - 1 ? 0xFF8FA3C8 : 0xFF3A4260, false, 26f);
+                paint.setTextAlign(Paint.Align.CENTER);
+                paint.setTextSize(24f);
+                paint.setColor(0xFF8FA3C8);
+                c.drawText((page + 1) + " / " + pages, VW / 2f, 1240f, paint);
+                paint.setTextAlign(Paint.Align.LEFT);
             }
         } else {
             for (int tier = 0; tier < 4; tier++) {
@@ -3891,6 +3988,21 @@ public class Renderer {
                 c.drawCircle(x, y + r * 0.12f, r * 0.16f, paint);
                 break;
             }
+            case SEEKER: {
+                // 六边形舰身 + 两侧发射管 + 雷达眼：图鉴里就能看出"它会放追踪弹"
+                hexagon(c, x, y, r * 0.9f, base);
+                paint.setColor(known ? 0xFF101528 : 0x336B7A99);
+                c.drawCircle(x, y, r * 0.4f, paint);
+                paint.setColor(base);
+                for (int i = -1; i <= 1; i += 2) {
+                    float px = x + i * r * 0.7f;
+                    c.drawRoundRect(px - r * 0.18f, y - r * 0.1f,
+                            px + r * 0.18f, y + r * 0.8f, 4f, 4f, paint);
+                }
+                paint.setColor(known ? 0xFFFF7089 : 0x406B7A99);
+                c.drawCircle(x, y, r * 0.18f, paint);
+                break;
+            }
             default:
                 break;
         }
@@ -3952,6 +4064,7 @@ public class Renderer {
             case QUEEN: return "集群蜂后 QUEEN";
             case RAMMER: return "冲撞者 RAMMER";
             case PHASER: return "相位者 PHASER";
+            case SEEKER: return "追猎者 SEEKER";
             default: return t.name();
         }
     }
@@ -3974,6 +4087,7 @@ public class Renderer {
             case QUEEN: return "边飞边产幼机，越残血产得越快，击杀她幼机全崩";
             case RAMMER: return "预警线亮起后俯冲，撞停硬直 1.4 秒且受击双倍";
             case PHASER: return "每 3 秒相位化 0.7 秒：无敌穿弹，实体化瞬间受击双倍";
+            case SEEKER: return "双发追踪弹，转向有限、寿命有限，横移或冲刺可甩掉";
             default: return "未知机型";
         }
     }
@@ -4574,6 +4688,7 @@ public class Renderer {
             case 13: rgb = 0xFFAE3A; break;   // 蜂后：孕育琥珀
             case 14: rgb = 0xFF7A5C; break;   // 冲撞者：撞击赤
             case 15: rgb = 0x9C7BFF; break;   // 相位者：相位紫
+            case 16: rgb = 0x8FA8FF; break;   // 追猎者：追踪蓝紫
             default: rgb = 0x5CE1FF; break;
         }
         return (alpha << 24) | rgb;

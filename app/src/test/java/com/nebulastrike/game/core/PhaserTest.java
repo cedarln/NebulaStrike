@@ -215,11 +215,14 @@ public class PhaserTest {
 
     @Test
     public void codexStillFitsAboveTheBackButton() {
-        int last = EnemyType.values().length - 1;
-        Ui.Rect row = Ui.codexRow(last);
-        assertTrue("第 " + (last + 1) + " 行压到了 BACK 按钮",
-                row.y + row.h < Ui.CODEX_BACK.y);
-        assertEquals(EnemyType.values().length, Ui.CODEX_MAX_ROWS);
+        Ui.Rect lastOnPage = Ui.codexRow(Ui.CODEX_MAX_ROWS - 1);
+        assertTrue("末行压到了翻页按钮",
+                lastOnPage.y + lastOnPage.h < Ui.CODEX_PREV.y);
+        assertTrue("末行压到了 BACK 按钮",
+                lastOnPage.y + lastOnPage.h < Ui.CODEX_BACK.y);
+        assertTrue("分页装不下全部敌机",
+                Ui.codexPageCount(EnemyType.values().length) * Ui.CODEX_MAX_ROWS
+                        >= EnemyType.values().length);
     }
 
     private void clearEnemies() {

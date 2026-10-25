@@ -95,7 +95,9 @@ public class GameWorld {
         /** v1.31：关卡肃清，进入过场喘息（code = 刚打完的关卡编号） */
         STAGE_CLEAR,
         /** v1.32：解锁剧情章节（code = 章节序号，1 起） */
-        STORY_UNLOCK
+        STORY_UNLOCK,
+        /** v1.33：追猎者发射追踪弹（code = 本次发射数） */
+        HOMING_LAUNCH
     }
     public static final class GameEvent {
         public final EventType type;
@@ -357,6 +359,13 @@ public class GameWorld {
     public static final float MIRAGE_BURST_SPEED = 300f;
     /** 识破伪装（现形前击毁）的额外分数：奖励"看得仔细"而不是"手快"。 */
     public static final int MIRAGE_SPOT_BONUS = 25;
+    // ---- v1.33：追猎者与追踪弹 ----
+    /** 追踪弹初速：比瞄准弹慢，但会一路修正。 */
+    public static final float HOMING_SPEED = 235f;
+    /** 追踪弹转向率（弧度/秒）：约 120°/s，横向拉开或冲刺就能甩掉。 */
+    public static final float HOMING_TURN_RATE = 2.1f;
+    /** 追踪弹寿命：到点自毁，不会永远追着玩家绕圈。 */
+    public static final float HOMING_LIFE = 4.2f;
     /** 蜂后单次产卵的幼机数上限（受伤后从 2 涨到 3，节奏更紧）。 */
     public static final int QUEEN_BROOD_MIN = 2;
     public static final int QUEEN_BROOD_MAX = 3;
@@ -483,6 +492,8 @@ public class GameWorld {
     public volatile boolean codexOpen;
     /** 图鉴当前页签：0 = 敌机，1 = Boss。 */
     public volatile int codexTab;
+    /** 敌机图鉴当前页（0 起，v1.33 起每页 12 条）。 */
+    public volatile int codexPage;
     /** 成就面板（菜单内，v1.18）。 */
     public volatile boolean achieveOpen;
     /** 成就页签：0 = 单局最佳，1 = 生涯累计。 */
@@ -843,7 +854,14 @@ public class GameWorld {
         updateArcs(dt);
         for (EnemyBullet b : enemyBullets) {
             if (!b.active) continue;
-            b.update(dt * timeScale);
+            boolean alive = b.homing
+                    ? b.updateHoming(dt * timeScale, ship.x, ship.y)
+                    : true;
+            if (!alive) {
+                b.active = false;
+                continue;
+            }
+            if (!b.homing) b.update(dt * timeScale);
             if (b.offscreen(WIDTH, HEIGHT)) b.active = false;
         }
         for (Particle p : particles) if (p.active) p.update(dt);
@@ -1816,6 +1834,32 @@ public class GameWorld {
                 }
                 spark(e.x, e.y, 6, 11);
                 e.fireCd = 3.4f + RNG.get().nextFloat() * 1.4f;
+                break;
+            }
+            case SEEKER: {
+                // 追猎者：两侧发射管各放一枚追踪弹。初速朝飞船，之后按有限转向率修正；
+                // 寿命 4.2 秒、转向率 120°/秒——横向拉开或冲刺都能把它们甩到身后。
+                float hx = ship.x - e.x, hy = ship.y - e.y;
+                float hl = (float) Math.sqrt(hx * hx + hy * hy);
+                if (hl < 1f) { hx = 0f; hy = 1f; hl = 1f; }
+                int made = 0;
+                for (int i = -1; i <= 1; i += 2) {
+                    EnemyBullet hb = freeEnemyBullet();
+                    if (hb == null) break;
+                    float ca = (float) Math.cos(i * 0.22f);
+                    float sa = (float) Math.sin(i * 0.22f);
+                    hb.initHoming(e.x + i * e.type.radius * 0.55f,
+                            e.y + e.type.radius * 0.7f,
+                            (hx / hl * ca - hy / hl * sa) * HOMING_SPEED,
+                            (hx / hl * sa + hy / hl * ca) * HOMING_SPEED,
+                            HOMING_TURN_RATE, HOMING_LIFE);
+                    made++;
+                }
+                if (made > 0) {
+                    events.add(new GameEvent(EventType.HOMING_LAUNCH, e.x, e.y, made));
+                    spark(e.x, e.y + e.type.radius, 4, 5);
+                }
+                e.fireCd = 3.0f + RNG.get().nextFloat() * 0.7f;
                 break;
             }
             case PHASER: {
@@ -2811,6 +2855,7 @@ public class GameWorld {
             case QUEEN: return 13;
             case RAMMER: return 14;
             case PHASER: return 15;
+            case SEEKER: return 16;
             default: return 4;
         }
     }
@@ -3254,6 +3299,11 @@ public class GameWorld {
 
     private static final float ELITE_BASE_CHANCE = 0.055f;
 
+    /** 敌机图鉴总页数（每页 {@link Ui#CODEX_MAX_ROWS} 条）。 */
+    public int codexPageCount() {
+        return Ui.codexPageCount(EnemyType.values().length);
+    }
+
     /** 敌机一旦登场就解锁图鉴条目（不要求击杀）。 */
     private void recordEnemyInCodex(EnemyType type) {
         int bit = 1 << type.ordinal();
@@ -3287,16 +3337,20 @@ public class GameWorld {
         float wRammer = t > 125f ? Math.min(0.08f, 0.04f + (t - 125f) / 1800f) : 0f;
         // v1.22：相位者 145s 解锁——她不会加速、不会追人，只要求玩家读懂"现在打不到"
         float wPhaser = t > 145f ? Math.min(0.07f, 0.035f + (t - 145f) / 2000f) : 0f;
+        // v1.33：追猎者 100s 解锁——不逼你停枪，只逼你持续横向移动；权重压低，
+        // 同时两艘追猎者已经足够让屏幕布满追踪弹
+        float wSeeker = t > 100f ? Math.min(0.09f, 0.04f + (t - 100f) / 2000f) : 0f;
         // 保留至少 15% 无人机当"炮灰"：非无人机权重整体归一
         float sum = wTank + wHunter + wWeaver + wSui + wSplit + wHeal + wSnipe
                 + wMiner + wShield + wCarrier + wMirage + wMagnet + wQueen + wRammer
-                + wPhaser;
+                + wPhaser + wSeeker;
         if (sum > 0.85f) {
             float k = 0.85f / sum;
             wTank *= k; wHunter *= k; wWeaver *= k;
             wSui *= k; wSplit *= k; wHeal *= k; wSnipe *= k;
             wMiner *= k; wShield *= k; wCarrier *= k;
             wMirage *= k; wMagnet *= k; wQueen *= k; wRammer *= k; wPhaser *= k;
+            wSeeker *= k;
         }
         float c = 0f;
         if (r < (c += wTank)) return EnemyType.TANK;
@@ -3314,6 +3368,7 @@ public class GameWorld {
         if (r < (c += wQueen)) return EnemyType.QUEEN;
         if (r < (c += wRammer)) return EnemyType.RAMMER;
         if (r < (c += wPhaser)) return EnemyType.PHASER;
+        if (r < (c += wSeeker)) return EnemyType.SEEKER;
         return EnemyType.DRONE;
     }
 
@@ -4250,6 +4305,7 @@ public class GameWorld {
                 achieveOpen = false;
                 careerOpen = false;
                 storyOpen = false;
+                codexPage = Math.max(0, Math.min(codexPageCount() - 1, codexPage));
                 flushCodex();
                 break;
             case CODEX_BACK:
@@ -4257,6 +4313,14 @@ public class GameWorld {
                 break;
             case CODEX_TAB:
                 codexTab = codexTab == 0 ? 1 : 0;
+                break;
+            case CODEX_PREV:
+                codexTab = 0;   // 翻页只属于敌机页：从 Boss 页按翻页直接切回来
+                if (codexPage > 0) codexPage--;
+                break;
+            case CODEX_NEXT:
+                codexTab = 0;
+                if (codexPage < codexPageCount() - 1) codexPage++;
                 break;
             case OPEN_ACHIEVEMENTS:
                 achieveOpen = true;

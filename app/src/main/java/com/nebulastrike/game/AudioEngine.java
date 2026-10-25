@@ -404,6 +404,10 @@ public class AudioEngine {
                     // 解密一节档案：短促明亮，像通讯频道被接通
                     play(SfxId.RELIC, 0.34f, 1.12f, 0f);
                     break;
+                case HOMING_LAUNCH:
+                    // 追踪弹离架：低沉的出膛声，提醒"该横移了"
+                    play(SfxId.SHOOT_MISSILE, 0.3f, 0.72f, 0f);
+                    break;
             }
         }
     }

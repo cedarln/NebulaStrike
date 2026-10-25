@@ -142,6 +142,14 @@ public class Enemy {
     public static final float PHASER_HOVER_Y = 380f;
     public static final float PHASER_HOVER = 12f;
 
+    // ---- v1.33 追猎者 ----
+    /** 悬停高度：在弹幕层上方，玩家能清楚看到两侧发射管亮起。 */
+    public static final float SEEKER_HOVER_Y = 340f;
+    /** 驻留时长：够放 3~4 轮追踪弹，然后俯冲让位。 */
+    public static final float SEEKER_HOVER = 13f;
+    /** 横向跟船速度：比玩家慢，绕圈就能把它甩到屏幕边缘。 */
+    public static final float SEEKER_TRACK = 120f;
+
     public void init(EnemyType type, float x, float y, float speedScale) {
         this.type = type;
         this.x = x;
@@ -160,7 +168,8 @@ public class Enemy {
                 : type == EnemyType.CARRIER ? 12f
                 : type == EnemyType.MAGNETON ? MAGNETON_HOVER
                 : type == EnemyType.QUEEN ? QUEEN_HOVER
-                : type == EnemyType.PHASER ? PHASER_HOVER : 0f;
+                : type == EnemyType.PHASER ? PHASER_HOVER
+                : type == EnemyType.SEEKER ? SEEKER_HOVER : 0f;
         this.splitDepth = 0;
         this.mineCd = type == EnemyType.MINER ? 1.2f : 0f;
         this.droneCd = type == EnemyType.CARRIER ? 1.6f : 0f;
@@ -196,6 +205,7 @@ public class Enemy {
             case MAGNETON: fireCd = 2.6f + GameWorld.RNG.get().nextFloat() * 0.9f; break;
             case MIRAGE: fireCd = -1f; break;   // 现形后才开始开火
             case PHASER: fireCd = 2.2f + GameWorld.RNG.get().nextFloat() * 0.7f; break;
+            case SEEKER: fireCd = 2.4f + GameWorld.RNG.get().nextFloat() * 0.6f; break;
             default: fireCd = -1f; // does not fire
         }
     }
@@ -436,6 +446,27 @@ public class Enemy {
                     break;
                 }
                 y += speed() * 1.35f * dt;
+                break;
+            }
+            case SEEKER: {
+                // 追猎者：压到悬停高度后就横向跟着飞船走，但追得比玩家慢；
+                // 驻留到期俯冲离场，把坑位让给下一波
+                if (y < SEEKER_HOVER_Y) {
+                    y += speed() * dt;
+                    x = originX + (float) Math.sin(age * 0.8f) * 55f;
+                    break;
+                }
+                if (hoverCd <= 0f) {
+                    y += speed() * 1.4f * dt;
+                    x = originX + (float) Math.sin(age * 0.7f) * 40f;
+                    break;
+                }
+                hoverCd -= dt;
+                if (!Float.isNaN(shipX)) {
+                    float dx = shipX - x;
+                    x += (dx > 0f ? 1f : -1f) * Math.min(Math.abs(dx), SEEKER_TRACK * dt);
+                }
+                x = clamp(x, type.radius + 20f, worldW - type.radius - 20f);
                 break;
             }
             case PHASER: {
