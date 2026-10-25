@@ -534,6 +534,10 @@ public class Renderer {
                 drawHomingMissile(c, b, w.timeAlive);
                 continue;
             }
+            if (b.web) {
+                drawWebOrb(c, b, w.timeAlive);
+                continue;
+            }
             // fading trail
             glow.setColor(0x55FF7A4D);
             c.drawCircle(b.x - b.vx * 0.02f, b.y - b.vy * 0.02f, b.radius * 0.8f, glow);
@@ -543,6 +547,31 @@ public class Renderer {
             paint.setColor(0xFFFFE08A);
             c.drawCircle(b.x, b.y, b.radius * 0.45f, paint);
         }
+    }
+
+    /** 减速网弹：缓慢旋转的网笼 + 中心紫色核心，和致命红弹明确区分。 */
+    private void drawWebOrb(Canvas c, com.nebulastrike.game.core.EnemyBullet b, float time) {
+        float spin = time * 55f + b.x * 0.05f;
+        glow.setColor(0x448F7BFF);
+        c.drawCircle(b.x, b.y, b.radius * 1.9f, glow);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(0xCC8F7BFF);
+        c.save();
+        c.rotate(spin, b.x, b.y);
+        for (int i = 0; i < 3; i++) {
+            float a = (float) (Math.PI / 3.0 * i);
+            float dx = (float) Math.cos(a) * b.radius * 1.15f;
+            float dy = (float) Math.sin(a) * b.radius * 1.15f;
+            c.drawLine(b.x - dx, b.y - dy, b.x + dx, b.y + dy, paint);
+        }
+        c.drawCircle(b.x, b.y, b.radius * 1.15f, paint);
+        c.restore();
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xFF2B1A4A);
+        c.drawCircle(b.x, b.y, b.radius * 0.62f, paint);
+        paint.setColor(0xFFC6B4FF);
+        c.drawCircle(b.x, b.y, b.radius * 0.28f, paint);
     }
 
     /** 追踪弹：沿速度方向拉长的箭头 + 脉动锁定环，一眼分清"它会拐弯"。 */
@@ -1216,6 +1245,32 @@ public class Renderer {
                         paint.setColor((eye << 24) | 0x00FF7089);
                         c.drawCircle(e.x, e.y, r * (1.15f + 0.3f * lock), paint);
                         paint.setStyle(Paint.Style.FILL);
+                    }
+                    break;
+                }
+                case SNARER: {
+                    // 缚网者：八边形网笼本体 + 放射锚丝；开火前核心收亮、外环收紧
+                    float charge = e.fireCd > 0f && e.fireCd < 0.55f
+                            ? 1f - e.fireCd / 0.55f : 0f;
+                    octagon(c, e.x, e.y, r * 0.9f, base);
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeWidth(1.5f);
+                    paint.setColor(0xAA8F7BFF);
+                    c.drawCircle(e.x, e.y, r * (1.15f + 0.3f * (1f - charge)), paint);
+                    for (int i = 0; i < 6; i++) {
+                        double a = Math.PI / 3.0 * i + 0.3;
+                        float px = e.x + (float) Math.cos(a) * r * 0.95f;
+                        float py = e.y + (float) Math.sin(a) * r * 0.95f;
+                        c.drawLine(e.x, e.y, px, py, paint);
+                    }
+                    paint.setStyle(Paint.Style.FILL);
+                    paint.setColor(0xFF1A1030);
+                    c.drawCircle(e.x, e.y, r * 0.4f, paint);
+                    paint.setColor(0xFFC6B4FF);
+                    c.drawCircle(e.x, e.y, r * (0.16f + 0.12f * charge), paint);
+                    if (charge > 0f) {
+                        glow.setColor(((int) (0x50 * charge) << 24) | 0x008F7BFF);
+                        c.drawCircle(e.x, e.y, r * 1.6f, glow);
                     }
                     break;
                 }
@@ -2130,6 +2185,25 @@ public class Renderer {
         paint.setColor(0xFFFF3355);
         c.drawCircle(s.x, s.y + 2f, 6f, paint);
 
+        // 缚网：六条向舰体收拢的丝线 + 紫色脉冲环；最后 0.5 秒闪烁提示即将挣脱
+        if (s.webTimer > 0f) {
+            float blink = s.webTimer < 0.5f && (int) (w.timeAlive * 12f) % 2 == 0 ? 0.35f : 1f;
+            float rr = Ship.RADIUS * (2.15f + 0.12f * (float) Math.sin(w.timeAlive * 9f));
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2f);
+            paint.setColor(((int) (0xB0 * blink) << 24) | 0x00B98BFF);
+            c.drawCircle(s.x, s.y, rr, paint);
+            for (int i = 0; i < 6; i++) {
+                double a = Math.PI / 3.0 * i + w.timeAlive * 0.6;
+                float px = s.x + (float) Math.cos(a) * rr;
+                float py = s.y + (float) Math.sin(a) * rr;
+                c.drawLine(px, py,
+                        s.x + (float) Math.cos(a) * Ship.RADIUS * 0.9f,
+                        s.y + (float) Math.sin(a) * Ship.RADIUS * 0.9f, paint);
+            }
+            paint.setStyle(Paint.Style.FILL);
+        }
+
         // 僚机：两翼小型无人机 + 能量连线，剩余 2 秒开始闪烁提醒
         if (s.wingmanTimer > 0f) {
             boolean expiring = s.wingmanTimer < 2f && (int) (w.timeAlive * 8f) % 2 == 0;
@@ -2410,6 +2484,11 @@ public class Renderer {
         if (w.ship.nanoTimer > 0f) {
             statusBar(c, "NANITE", 0xFF5CFFB8,
                     w.ship.nanoTimer / Ship.NANITE_DURATION, statusY);
+            statusY += 38f;
+        }
+        if (w.ship.webTimer > 0f) {
+            statusBar(c, "WEB SLOW", 0xFFB98BFF,
+                    w.ship.webTimer / GameWorld.WEB_SNARE_TIME, statusY);
             statusY += 38f;
         }
         int turretCount = 0;
@@ -4003,6 +4082,24 @@ public class Renderer {
                 c.drawCircle(x, y, r * 0.18f, paint);
                 break;
             }
+            case SNARER: {
+                // 八边形网笼 + 放射锚丝：图鉴里就能看出"它撒的是一张网"
+                octagon(c, x, y, r * 0.88f, base);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(1.5f);
+                paint.setColor(known ? 0xCC8F7BFF : 0x406B7A99);
+                for (int i = 0; i < 4; i++) {
+                    double a = Math.PI / 2.0 * i + Math.PI / 4.0;
+                    float px = x + (float) Math.cos(a) * r * 0.9f;
+                    float py = y + (float) Math.sin(a) * r * 0.9f;
+                    c.drawLine(x, y, px, py, paint);
+                }
+                c.drawCircle(x, y, r * 0.42f, paint);
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(known ? 0xFFC6B4FF : 0x406B7A99);
+                c.drawCircle(x, y, r * 0.18f, paint);
+                break;
+            }
             default:
                 break;
         }
@@ -4065,6 +4162,7 @@ public class Renderer {
             case RAMMER: return "冲撞者 RAMMER";
             case PHASER: return "相位者 PHASER";
             case SEEKER: return "追猎者 SEEKER";
+            case SNARER: return "缚网者 SNARER";
             default: return t.name();
         }
     }
@@ -4088,6 +4186,7 @@ public class Renderer {
             case RAMMER: return "预警线亮起后俯冲，撞停硬直 1.4 秒且受击双倍";
             case PHASER: return "每 3 秒相位化 0.7 秒：无敌穿弹，实体化瞬间受击双倍";
             case SEEKER: return "双发追踪弹，转向有限、寿命有限，横移或冲刺可甩掉";
+            case SNARER: return "缓慢网弹命中不扣命，但减速 2 秒并封锁冲刺，可被击碎";
             default: return "未知机型";
         }
     }
@@ -4689,6 +4788,7 @@ public class Renderer {
             case 14: rgb = 0xFF7A5C; break;   // 冲撞者：撞击赤
             case 15: rgb = 0x9C7BFF; break;   // 相位者：相位紫
             case 16: rgb = 0x8FA8FF; break;   // 追猎者：追踪蓝紫
+            case 17: rgb = 0xB98BFF; break;   // 缚网者：网缚紫
             default: rgb = 0x5CE1FF; break;
         }
         return (alpha << 24) | rgb;

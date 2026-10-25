@@ -408,6 +408,10 @@ public class AudioEngine {
                     // 追踪弹离架：低沉的出膛声，提醒"该横移了"
                     play(SfxId.SHOOT_MISSILE, 0.3f, 0.72f, 0f);
                     break;
+                case WEB_SNARE:
+                    // 网兜住飞船：闷响，比受伤轻，不要吓到玩家
+                    play(SfxId.MINE, 0.28f, 0.6f, 0f);
+                    break;
             }
         }
     }

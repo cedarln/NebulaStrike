@@ -142,6 +142,14 @@ public class Enemy {
     public static final float PHASER_HOVER_Y = 380f;
     public static final float PHASER_HOVER = 12f;
 
+    // ---- v1.34 缚网者 ----
+    /** 悬停高度：比追猎者更低，网弹落下来时正好穿过玩家的常用走位层。 */
+    public static final float SNARER_HOVER_Y = 430f;
+    /** 驻留时长：约 3 轮网弹后离场。 */
+    public static final float SNARER_HOVER = 12f;
+    /** 悬停时的横向摆渡幅度：全程可预测，玩家能绕着它走。 */
+    public static final float SNARER_SWING = 95f;
+
     // ---- v1.33 追猎者 ----
     /** 悬停高度：在弹幕层上方，玩家能清楚看到两侧发射管亮起。 */
     public static final float SEEKER_HOVER_Y = 340f;
@@ -169,7 +177,8 @@ public class Enemy {
                 : type == EnemyType.MAGNETON ? MAGNETON_HOVER
                 : type == EnemyType.QUEEN ? QUEEN_HOVER
                 : type == EnemyType.PHASER ? PHASER_HOVER
-                : type == EnemyType.SEEKER ? SEEKER_HOVER : 0f;
+                : type == EnemyType.SEEKER ? SEEKER_HOVER
+                : type == EnemyType.SNARER ? SNARER_HOVER : 0f;
         this.splitDepth = 0;
         this.mineCd = type == EnemyType.MINER ? 1.2f : 0f;
         this.droneCd = type == EnemyType.CARRIER ? 1.6f : 0f;
@@ -206,6 +215,7 @@ public class Enemy {
             case MIRAGE: fireCd = -1f; break;   // 现形后才开始开火
             case PHASER: fireCd = 2.2f + GameWorld.RNG.get().nextFloat() * 0.7f; break;
             case SEEKER: fireCd = 2.4f + GameWorld.RNG.get().nextFloat() * 0.6f; break;
+            case SNARER: fireCd = 2.9f + GameWorld.RNG.get().nextFloat() * 0.8f; break;
             default: fireCd = -1f; // does not fire
         }
     }
@@ -467,6 +477,21 @@ public class Enemy {
                     x += (dx > 0f ? 1f : -1f) * Math.min(Math.abs(dx), SEEKER_TRACK * dt);
                 }
                 x = clamp(x, type.radius + 20f, worldW - type.radius - 20f);
+                break;
+            }
+            case SNARER: {
+                // 缚网者：压到中场后做定幅摆渡，像一张慢慢横移的网；驻留到期离场
+                if (y < SNARER_HOVER_Y) {
+                    y += speed() * dt;
+                    break;
+                }
+                if (hoverCd <= 0f) {
+                    y += speed() * 1.4f * dt;
+                    x = originX + (float) Math.sin(age * 0.7f) * 40f;
+                    break;
+                }
+                hoverCd -= dt;
+                x = originX + (float) Math.sin(age * 0.9f) * SNARER_SWING;
                 break;
             }
             case PHASER: {

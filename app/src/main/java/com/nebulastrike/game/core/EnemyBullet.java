@@ -12,7 +12,9 @@ public class EnemyBullet {
     public boolean net;
     /** v1.33：追踪弹。转向速率有限、寿命有限，靠转向就能甩掉。 */
     public boolean homing;
-    /** 追踪弹剩余寿命（秒）；非追踪弹为 0。 */
+    /** v1.34：减速网弹。命中不扣命，只给飞船挂上减速；可以被击碎。 */
+    public boolean web;
+    /** 追踪弹 / 网弹剩余寿命（秒）；普通弹为 0。 */
     public float life;
     /** 追踪弹每秒最大转向角（弧度）。 */
     public float turnRate;
@@ -28,6 +30,7 @@ public class EnemyBullet {
         this.mine = false;
         this.net = false;
         this.homing = false;
+        this.web = false;
         this.life = 0f;
         this.turnRate = 0f;
     }
@@ -61,6 +64,13 @@ public class EnemyBullet {
         initRadius(x, y, vx, vy, 10f);
         this.homing = true;
         this.turnRate = turnRate;
+        this.life = life;
+    }
+
+    /** v1.34：减速网弹。命中只挂减速、不扣命；life 到点自动消散。 */
+    public void initWeb(float x, float y, float vx, float vy, float life) {
+        initRadius(x, y, vx, vy, 16f);
+        this.web = true;
         this.life = life;
     }
 

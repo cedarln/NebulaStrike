@@ -97,7 +97,9 @@ public class GameWorld {
         /** v1.32：解锁剧情章节（code = 章节序号，1 起） */
         STORY_UNLOCK,
         /** v1.33：追猎者发射追踪弹（code = 本次发射数） */
-        HOMING_LAUNCH
+        HOMING_LAUNCH,
+        /** v1.34：减速网弹命中飞船（code = 减速时长，百分之一秒） */
+        WEB_SNARE
     }
     public static final class GameEvent {
         public final EventType type;
@@ -366,6 +368,13 @@ public class GameWorld {
     public static final float HOMING_TURN_RATE = 2.1f;
     /** 追踪弹寿命：到点自毁，不会永远追着玩家绕圈。 */
     public static final float HOMING_LIFE = 4.2f;
+    // ---- v1.34：缚网者与减速网弹 ----
+    /** 网弹速度：很慢，能看清、也能点掉。 */
+    public static final float WEB_ORB_SPEED = 165f;
+    /** 网弹在空中停留的最长时间，落空后自行消散，不会堆在场上。 */
+    public static final float WEB_ORB_LIFE = 6.5f;
+    /** 被网缠住的持续时间：速度降到 45%，且无法冲刺。 */
+    public static final float WEB_SNARE_TIME = 2.0f;
     /** 蜂后单次产卵的幼机数上限（受伤后从 2 涨到 3，节奏更紧）。 */
     public static final int QUEEN_BROOD_MIN = 2;
     public static final int QUEEN_BROOD_MAX = 3;
@@ -854,6 +863,13 @@ public class GameWorld {
         updateArcs(dt);
         for (EnemyBullet b : enemyBullets) {
             if (!b.active) continue;
+            if (b.web) {
+                b.life -= dt * timeScale;
+                if (b.life <= 0f) {
+                    b.active = false;
+                    continue;
+                }
+            }
             boolean alive = b.homing
                     ? b.updateHoming(dt * timeScale, ship.x, ship.y)
                     : true;
@@ -1862,6 +1878,26 @@ public class GameWorld {
                 e.fireCd = 3.0f + RNG.get().nextFloat() * 0.7f;
                 break;
             }
+            case SNARER: {
+                // 缚网者：左右各抛一枚缓慢的网弹，落点覆盖飞船两侧；
+                // 不致死，但被缠住 2 秒——这 2 秒里速度只剩 45%，也冲不出去
+                float wx = ship.x - e.x, wy = ship.y - e.y;
+                float wl = (float) Math.sqrt(wx * wx + wy * wy);
+                if (wl < 1f) { wx = 0f; wy = 1f; wl = 1f; }
+                for (int i = -1; i <= 1; i += 2) {
+                    EnemyBullet wb = freeEnemyBullet();
+                    if (wb == null) break;
+                    float ca = (float) Math.cos(i * 0.22f);
+                    float sa = (float) Math.sin(i * 0.22f);
+                    wb.initWeb(e.x, e.y + e.type.radius * 0.6f,
+                            (wx / wl * ca - wy / wl * sa) * WEB_ORB_SPEED,
+                            (wx / wl * sa + wy / wl * ca) * WEB_ORB_SPEED,
+                            WEB_ORB_LIFE);
+                }
+                spark(e.x, e.y + e.type.radius, 4, 3);
+                e.fireCd = 3.2f + RNG.get().nextFloat() * 0.7f;
+                break;
+            }
             case PHASER: {
                 // 相位者只在实体期开火：一对窄角瞄准弹，逼玩家在"能打"的窗口里走位；
                 // 相位期完全沉默，那 0.7 秒是玩家重新占位的时间
@@ -2856,6 +2892,7 @@ public class GameWorld {
             case RAMMER: return 14;
             case PHASER: return 15;
             case SEEKER: return 16;
+            case SNARER: return 17;
             default: return 4;
         }
     }
@@ -3340,10 +3377,13 @@ public class GameWorld {
         // v1.33：追猎者 100s 解锁——不逼你停枪，只逼你持续横向移动；权重压低，
         // 同时两艘追猎者已经足够让屏幕布满追踪弹
         float wSeeker = t > 100f ? Math.min(0.09f, 0.04f + (t - 100f) / 2000f) : 0f;
+        // v1.34：缚网者 115s 解锁——网弹不致死，出现得比追猎者晚一点，
+        // 让玩家先学会"被减速"这件事，再让它和追杀型敌机同时在场
+        float wSnarer = t > 115f ? Math.min(0.06f, 0.03f + (t - 115f) / 2400f) : 0f;
         // 保留至少 15% 无人机当"炮灰"：非无人机权重整体归一
         float sum = wTank + wHunter + wWeaver + wSui + wSplit + wHeal + wSnipe
                 + wMiner + wShield + wCarrier + wMirage + wMagnet + wQueen + wRammer
-                + wPhaser + wSeeker;
+                + wPhaser + wSeeker + wSnarer;
         if (sum > 0.85f) {
             float k = 0.85f / sum;
             wTank *= k; wHunter *= k; wWeaver *= k;
@@ -3351,6 +3391,7 @@ public class GameWorld {
             wMiner *= k; wShield *= k; wCarrier *= k;
             wMirage *= k; wMagnet *= k; wQueen *= k; wRammer *= k; wPhaser *= k;
             wSeeker *= k;
+            wSnarer *= k;
         }
         float c = 0f;
         if (r < (c += wTank)) return EnemyType.TANK;
@@ -3369,6 +3410,7 @@ public class GameWorld {
         if (r < (c += wRammer)) return EnemyType.RAMMER;
         if (r < (c += wPhaser)) return EnemyType.PHASER;
         if (r < (c += wSeeker)) return EnemyType.SEEKER;
+        if (r < (c += wSnarer)) return EnemyType.SNARER;
         return EnemyType.DRONE;
     }
 
@@ -3813,6 +3855,17 @@ public class GameWorld {
                 float rr = Ship.RADIUS + b.radius;
                 if (distToSegment(b.x, b.y,
                         ship.prevX, ship.prevY, ship.x, ship.y) <= rr) {
+                    // 减速网弹不致死：挂上减速并封锁冲刺，给玩家一个"变钝"的窗口；
+                    // 反射护罩只处理有伤害的弹，网弹直接生效（否则等于白嫖一层反射）
+                    if (b.web) {
+                        b.active = false;
+                        ship.applyWeb(WEB_SNARE_TIME);
+                        events.add(new GameEvent(EventType.WEB_SNARE, b.x, b.y,
+                                (int) (WEB_SNARE_TIME * 100f)));
+                        spark(b.x, b.y, 7, 9);
+                        addShake(0.06f, 2f);
+                        continue;
+                    }
                     // 反射护罩优先于护盾：把这一发直接翻面，层数不消耗（只进充能）
                     if (ship.consumeReflect()) {
                         reflectEnemyBullet(b);
@@ -3828,7 +3881,7 @@ public class GameWorld {
         // 擦弹：同一颗敌弹只充能一次；命中判定优先，过近直接算命中
         boolean grazedThisFrame = false;
         for (EnemyBullet b : enemyBullets) {
-            if (!b.active || b.grazed) continue;
+            if (!b.active || b.grazed || b.web) continue;
             float rr = Ship.RADIUS + b.radius;
             float d = distToSegment(b.x, b.y, ship.prevX, ship.prevY, ship.x, ship.y);
             if (d > rr && d <= rr + GRAZE_BAND) {
@@ -5165,7 +5218,7 @@ public class GameWorld {
      */
     private void parryEnemyBullets() {
         for (EnemyBullet b : enemyBullets) {
-            if (!b.active) continue;
+            if (!b.active || b.web) continue;
             float rr = Ship.RADIUS + b.radius + PARRY_BAND;
             if (distToSegment(b.x, b.y,
                     ship.prevX, ship.prevY, ship.x, ship.y) > rr) continue;

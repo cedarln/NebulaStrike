@@ -102,6 +102,11 @@ public class Ship {
     public final float[] dashTrailY = new float[6];
     public int dashTrailCount;
 
+    /** v1.34：缚网减速——拖动速度乘这个系数，且期间无法冲刺。 */
+    public static final float WEB_SLOW = 0.45f;
+    /** 剩余减速时间（秒）；>0 表示正被网缠住。 */
+    public float webTimer;
+
     public float dashCharge = DASH_MAX_CHARGE;
     /** >0 = 正在相位位移。 */
     public float dashTimer;
@@ -146,6 +151,7 @@ public class Ship {
         orbitAngle = 0f;
         nanoTimer = 0f;
         dashCharge = DASH_MAX_CHARGE;
+        webTimer = 0f;
         dashTimer = 0f;
         dashGrace = 0f;
         dashDirX = 0f;
@@ -164,7 +170,7 @@ public class Ship {
      * @return true 表示能量足够并成功触发
      */
     public boolean tryDash() {
-        if (dashCharge < DASH_COST || dashTimer > 0f) return false;
+        if (webTimer > 0f || dashCharge < DASH_COST || dashTimer > 0f) return false;
         float dx = targetX - x, dy = targetY - y;
         float d = (float) Math.sqrt(dx * dx + dy * dy);
         if (d < 12f) {
@@ -188,9 +194,18 @@ public class Ship {
         return invulnerable || dashTimer > 0f || dashGrace > 0f;
     }
 
+    /** 被减速网缠住：取较长的剩余时间，重复命中不会缩短控制。 */
+    public void applyWeb(float seconds) {
+        webTimer = Math.max(webTimer, seconds);
+    }
+
+    public boolean isWebbed() {
+        return webTimer > 0f;
+    }
+
     /** 冲刺能量是否足够（HUD 提示与输入层判断用）。 */
     public boolean canDash() {
-        return dashCharge >= DASH_COST && dashTimer <= 0f;
+        return webTimer <= 0f && dashCharge >= DASH_COST && dashTimer <= 0f;
     }
 
     /** 环绕轨道球当前位置；未激活时返回 false。 */
@@ -299,6 +314,7 @@ public class Ship {
     public void update(float dt, float worldW, float worldH) {
         prevX = x;
         prevY = y;
+        if (webTimer > 0f) webTimer = Math.max(0f, webTimer - dt);
         if (dashTimer > 0f) {
             // 相位位移：直线高速穿过，落点即新目标，不会被拉回拖动前的位置
             dashTimer -= dt;
@@ -331,7 +347,8 @@ public class Ship {
             } else {
                 // 指数逼近给出"贴手"的小位移跟随，速度上限保证快速甩动不瞬移
                 float k = 1f - (float) Math.exp(-24f * dt);
-                float step = Math.min(MAX_DRAG_SPEED * dt, dist * k);
+                float speedCap = MAX_DRAG_SPEED * (webTimer > 0f ? WEB_SLOW : 1f);
+                float step = Math.min(speedCap * dt, dist * k);
                 x += dx / dist * step;
                 y += dy / dist * step;
                 lastMoveX = dx;

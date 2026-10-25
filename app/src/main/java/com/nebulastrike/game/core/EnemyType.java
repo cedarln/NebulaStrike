@@ -35,7 +35,9 @@ public enum EnemyType {
     /** 相位者（v1.22）：周期性相位化——无敌穿弹 0.7 秒，重新实体化的瞬间受击双倍。 */
     PHASER(36f, 6, 155f, 70, 15),
     /** 追猎者（v1.33）：悬停跟踪玩家横向位置，发射双发追踪弹；转向有限，可以甩掉。 */
-    SEEKER(38f, 6, 140f, 75, 16);
+    SEEKER(38f, 6, 140f, 75, 16),
+    /** 缚网者（v1.34）：在中场横向摆渡，投下减速网弹；命中不扣命，但会减速并封锁冲刺。 */
+    SNARER(40f, 7, 145f, 80, 17);
 
     public final float radius;
     public final int hp;
@@ -44,7 +46,7 @@ public enum EnemyType {
     /** Palette index used by the renderer (0 cyan, 1 green, 2 orange, 3 magenta, 4 yellow,
      *  5 lime, 6 rose, 7 violet, 8 mint, 9 crimson, 10 steel,
      *  11 phantom rose, 12 storm blue, 13 brood amber, 14 impact ember, 15 shift violet,
-     *  16 tracker periwinkle). */
+     *  16 tracker periwinkle, 17 snare violet). */
     public final int colorHint;
 
     EnemyType(float radius, int hp, float baseSpeed, int score, int colorHint) {
@@ -61,6 +63,7 @@ public enum EnemyType {
             case SUICIDER: case SPLITTER: case HEALER: case SNIPER:
             case MINER: case CARRIER: case SHIELDER:
             case MIRAGE: case MAGNETON: case QUEEN: case RAMMER: case PHASER: case SEEKER:
+            case SNARER:
                 return true;
             default:
                 return false;
