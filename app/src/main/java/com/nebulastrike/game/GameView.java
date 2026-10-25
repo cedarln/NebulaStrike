@@ -300,6 +300,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     // 相位冲击波是"清场"动作：比普通冲刺重一档
                     case PHASE_BURST: haptics.impact(); break;
                     case MIRAGE_REVEAL: haptics.tick(); break;
+                    // 分数奖励命：和大招同档的长震，让"跨过阈值"这件事被身体记住
+                    case EXTRA_LIFE: haptics.bomb(); break;
                     // EMP 放出去要"撞一下"，磁暴艇被打爆吞弹只是轻提示
                     case MAG_BURST:
                         if (e.code > 0) haptics.impact(); else haptics.tick();

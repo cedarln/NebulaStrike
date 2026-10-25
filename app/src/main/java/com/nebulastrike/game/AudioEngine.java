@@ -416,6 +416,10 @@ public class AudioEngine {
                     // 螺旋起转：短促的电流声，只在一轮开始时响一次，避免连发噪声
                     play(SfxId.CHAIN_ZAP, 0.16f, 0.62f, 0f);
                     break;
+                case EXTRA_LIFE:
+                    // 分数奖励：命数 / 炸弹 / 折分都用同一段上扬音，区别只体现在横幅文案上
+                    play(SfxId.EXTRA_LIFE, 0.9f, 1f, 0f);
+                    break;
             }
         }
     }

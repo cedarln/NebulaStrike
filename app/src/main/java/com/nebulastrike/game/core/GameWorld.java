@@ -101,7 +101,9 @@ public class GameWorld {
         /** v1.34：减速网弹命中飞船（code = 减速时长，百分之一秒） */
         WEB_SNARE,
         /** v1.35：螺旋炮台开始一轮螺旋（code = 弹臂数） */
-        SPIRAL_BURST
+        SPIRAL_BURST,
+        /** v1.36：分数跨过阈值奖励生命（code 1 = 生命，2 = 炸弹，3 = 折算分数） */
+        EXTRA_LIFE
     }
     public static final class GameEvent {
         public final EventType type;
@@ -458,6 +460,20 @@ public class GameWorld {
     public float x2Timer;
     public static final float X2_DURATION = 8f;
     public static final int MAX_LIVES = 4;
+
+    // ---- v1.36：分数奖励生命 ----
+    /** 每一档阈值 = 5000 × 档号²（5 000 / 20 000 / 45 000 / 80 000 …）。 */
+    public static final int LIFE_SCORE_UNIT = 5000;
+    /** 本局已拿到的分数奖励档数。 */
+    public int scoreLives;
+    /** 下一档奖励生命的分数阈值（HUD 进度用）。 */
+    public int nextLifeScore = LIFE_SCORE_UNIT;
+    /** 奖励横幅剩余时间与档位类型（1 生命 / 2 炸弹 / 3 折分）。 */
+    public float extraLifeBanner;
+    public int extraLifeBannerKind;
+    public static final float EXTRA_LIFE_BANNER_TIME = 2.6f;
+    /** 命数满时折成炸弹；炸弹也满再折成分数。 */
+    public static final int EXTRA_LIFE_OVERFLOW_SCORE = 500;
     /** 缓时道具剩余时间；>0 时敌人/敌弹/Boss 以 45% 速度运行 */
     public float slowTimer;
     public static final float SLOW_DURATION = 6f;
@@ -1707,6 +1723,7 @@ public class GameWorld {
         }
         if (debutBanner > 0f) debutBanner = Math.max(0f, debutBanner - dt);
         if (storyBanner > 0f) storyBanner = Math.max(0f, storyBanner - dt);
+        if (extraLifeBanner > 0f) extraLifeBanner = Math.max(0f, extraLifeBanner - dt);
     }
 
     /** hit-stop：只在比当前剩余更长时接管，避免小事件截断大事件。 */
@@ -4115,7 +4132,34 @@ public class GameWorld {
         score += gained;
         int idx = source >= 0 && source < SCORE_SOURCES ? source : SCORE_OTHER;
         scoreBySource[idx] += gained;
+        if (state == State.PLAYING) checkScoreLife();
         return gained;
+    }
+
+    /**
+     * 分数奖励生命：跨过 5 000 / 20 000 / 45 000 … 各发一档。
+     * 命数已满先折成炸弹，炸弹也满再折 500 分——永远不会"跨过阈值却什么都没拿到"。
+     */
+    private void checkScoreLife() {
+        while (score >= nextLifeScore) {
+            scoreLives++;
+            nextLifeScore = LIFE_SCORE_UNIT * (scoreLives + 1) * (scoreLives + 1);
+            int kind;
+            if (lives < Math.max(MAX_LIVES, startLivesOf())) {
+                lives++;
+                kind = 1;
+            } else if (ship.bombs < Ship.MAX_BOMBS) {
+                ship.bombs++;
+                kind = 2;
+            } else {
+                score += EXTRA_LIFE_OVERFLOW_SCORE;
+                scoreBySource[SCORE_PICKUP] += EXTRA_LIFE_OVERFLOW_SCORE;
+                kind = 3;
+            }
+            extraLifeBanner = EXTRA_LIFE_BANNER_TIME;
+            extraLifeBannerKind = kind;
+            events.add(new GameEvent(EventType.EXTRA_LIFE, ship.x, ship.y, kind));
+        }
     }
 
     /** Second-finger tap: clears bullets, damages everything, huge shake. */
@@ -4870,6 +4914,11 @@ public class GameWorld {
         bulletsBent = 0;
         magnetCount = 0;
         for (int i = 0; i < SCORE_SOURCES; i++) scoreBySource[i] = 0;
+        // v1.36：分数奖励生命从第一档重新计数
+        scoreLives = 0;
+        nextLifeScore = LIFE_SCORE_UNIT;
+        extraLifeBanner = 0f;
+        extraLifeBannerKind = 0;
         for (int i = 0; i < MAX_ARCS; i++) arcAge[i] = 0f;
         for (int i = 0; i < orbitCd.length; i++) orbitCd[i] = 0f;
         joyActive = false;

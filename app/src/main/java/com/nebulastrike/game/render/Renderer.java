@@ -2377,6 +2377,17 @@ public class Renderer {
         paint.setTextSize(44f);
         c.drawText(String.valueOf(w.score), 40f, 70f, paint);
 
+        // 分数奖励生命：分数下方一条细进度条，右侧直接写下一档阈值
+        float lifeFrac = w.nextLifeScore > 0
+                ? Math.min(1f, w.score / (float) w.nextLifeScore) : 0f;
+        paint.setColor(0x33FFD166);
+        c.drawRect(40f, 78f, 240f, 84f, paint);
+        paint.setColor(0xFFFFD166);
+        c.drawRect(40f, 78f, 40f + 200f * lifeFrac, 84f, paint);
+        paint.setTextSize(18f);
+        paint.setColor(0xB0FFD166);
+        c.drawText("+1 LIFE " + w.nextLifeScore, 248f, 84f, paint);
+
         paint.setTextSize(30f);
         if (w.daily()) {
             // 日常局的顶部标签就是"今天的规则"：常驻、不闪烁，和随机异变波区分开
@@ -2448,6 +2459,30 @@ public class Renderer {
             paint.setColor(mult >= 3 ? 0xFFFFD166 : 0xFF7DF9FF);
             paint.setTextAlign(Paint.Align.CENTER);
             c.drawText("COMBO x" + mult + "  (" + w.comboKills + ")", VW / 2f, 100f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+
+        // 分数奖励命横幅：跨过阈值的那一下要够醒目，同时把"下一档"顺势报出来
+        if (w.extraLifeBanner > 0f) {
+            float fade = Math.min(1f, w.extraLifeBanner / 0.4f);
+            float in = Math.min(1f,
+                    (GameWorld.EXTRA_LIFE_BANNER_TIME - w.extraLifeBanner) / 0.22f);
+            float y = 330f + 14f * (1f - in);
+            String title = w.extraLifeBannerKind == 1 ? "EXTRA LIFE +1"
+                    : w.extraLifeBannerKind == 2 ? "EXTRA BOMB +1"
+                    : "BONUS +" + GameWorld.EXTRA_LIFE_OVERFLOW_SCORE;
+            String sub = w.extraLifeBannerKind == 1 ? "分数奖励 · 下一档 "
+                    + w.nextLifeScore : w.extraLifeBannerKind == 2
+                    ? "命数已满 · 转成炸弹" : "命数与炸弹已满 · 折成分数";
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setFakeBoldText(true);
+            paint.setTextSize(52f);
+            paint.setColor(((int) (0xFF * fade) << 24) | 0xFFFFD166);
+            c.drawText(title, VW / 2f, y, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextSize(24f);
+            paint.setColor(((int) (0xD8 * fade) << 24) | 0xFFE8F1FF);
+            c.drawText(sub, VW / 2f, y + 34f, paint);
             paint.setTextAlign(Paint.Align.LEFT);
         }
 
