@@ -538,6 +538,10 @@ public class Renderer {
                 drawWebOrb(c, b, w.timeAlive);
                 continue;
             }
+            if (b.spiral) {
+                drawSpiralBullet(c, b);
+                continue;
+            }
             // fading trail
             glow.setColor(0x55FF7A4D);
             c.drawCircle(b.x - b.vx * 0.02f, b.y - b.vy * 0.02f, b.radius * 0.8f, glow);
@@ -547,6 +551,28 @@ public class Renderer {
             paint.setColor(0xFFFFE08A);
             c.drawCircle(b.x, b.y, b.radius * 0.45f, paint);
         }
+    }
+
+    /** 螺旋弹：沿飞行方向拉长的菱形青光弹，旋臂铺开后一眼看出是"转出来的"。 */
+    private void drawSpiralBullet(Canvas c, com.nebulastrike.game.core.EnemyBullet b) {
+        float ang = (float) Math.atan2(b.vy, b.vx);
+        glow.setColor(0x447DF9FF);
+        c.drawCircle(b.x, b.y, b.radius * 1.9f, glow);
+        c.save();
+        c.translate(b.x, b.y);
+        c.rotate((float) Math.toDegrees(ang));
+        shapePath.rewind();
+        shapePath.moveTo(b.radius * 1.6f, 0f);
+        shapePath.lineTo(0f, b.radius * 0.75f);
+        shapePath.lineTo(-b.radius * 0.9f, 0f);
+        shapePath.lineTo(0f, -b.radius * 0.75f);
+        shapePath.close();
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xFF7DF9FF);
+        c.drawPath(shapePath, paint);
+        paint.setColor(0xFFFFFFFF);
+        c.drawCircle(0f, 0f, b.radius * 0.28f, paint);
+        c.restore();
     }
 
     /** 减速网弹：缓慢旋转的网笼 + 中心紫色核心，和致命红弹明确区分。 */
@@ -1271,6 +1297,34 @@ public class Renderer {
                     if (charge > 0f) {
                         glow.setColor(((int) (0x50 * charge) << 24) | 0x008F7BFF);
                         c.drawCircle(e.x, e.y, r * 1.6f, glow);
+                    }
+                    break;
+                }
+                case HELIX: {
+                    // 螺旋炮台：环形核心 + 三根随开火旋转的炮臂；连吐期间核心亮起
+                    boolean firing = e.burstCount > 0;
+                    paint.setStyle(Paint.Style.FILL);
+                    paint.setColor(0xFF101A2E);
+                    c.drawCircle(e.x, e.y, r * 0.8f, paint);
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeWidth(firing ? 3.5f : 2.5f);
+                    paint.setColor(firing ? 0xFFB9FBFF : 0xFF7DF9FF);
+                    c.drawCircle(e.x, e.y, r * 0.8f, paint);
+                    for (int i = 0; i < 3; i++) {
+                        double a = e.spiralAngle + Math.PI * 2 * i / 3;
+                        float px = e.x + (float) Math.cos(a) * r * 1.35f;
+                        float py = e.y + (float) Math.sin(a) * r * 1.35f;
+                        c.drawLine(e.x, e.y, px, py, paint);
+                        paint.setStyle(Paint.Style.FILL);
+                        c.drawCircle(px, py, r * 0.24f, paint);
+                        paint.setStyle(Paint.Style.STROKE);
+                    }
+                    paint.setStyle(Paint.Style.FILL);
+                    paint.setColor(firing ? 0xFFE8FEFF : 0xFF7DF9FF);
+                    c.drawCircle(e.x, e.y, r * 0.26f, paint);
+                    if (firing) {
+                        glow.setColor(0x557DF9FF);
+                        c.drawCircle(e.x, e.y, r * 1.5f, glow);
                     }
                     break;
                 }
@@ -4100,6 +4154,29 @@ public class Renderer {
                 c.drawCircle(x, y, r * 0.18f, paint);
                 break;
             }
+            case HELIX: {
+                // 环形核心 + 三根炮臂：图鉴里能看出"弹幕是转着出来的"
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(0xFF101A2E);
+                c.drawCircle(x, y, r * 0.78f, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2f);
+                paint.setColor(known ? 0xFF7DF9FF : 0x406B7A99);
+                c.drawCircle(x, y, r * 0.78f, paint);
+                for (int i = 0; i < 3; i++) {
+                    double a = Math.PI / 2 + Math.PI * 2 * i / 3;
+                    float px = x + (float) Math.cos(a) * r * 1.2f;
+                    float py = y + (float) Math.sin(a) * r * 1.2f;
+                    c.drawLine(x, y, px, py, paint);
+                    paint.setStyle(Paint.Style.FILL);
+                    c.drawCircle(px, py, r * 0.2f, paint);
+                    paint.setStyle(Paint.Style.STROKE);
+                }
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(known ? 0xFFE8FEFF : 0x406B7A99);
+                c.drawCircle(x, y, r * 0.24f, paint);
+                break;
+            }
             default:
                 break;
         }
@@ -4163,6 +4240,7 @@ public class Renderer {
             case PHASER: return "相位者 PHASER";
             case SEEKER: return "追猎者 SEEKER";
             case SNARER: return "缚网者 SNARER";
+            case HELIX: return "螺旋炮台 HELIX";
             default: return t.name();
         }
     }
@@ -4187,6 +4265,7 @@ public class Renderer {
             case PHASER: return "每 3 秒相位化 0.7 秒：无敌穿弹，实体化瞬间受击双倍";
             case SEEKER: return "双发追踪弹，转向有限、寿命有限，横移或冲刺可甩掉";
             case SNARER: return "缓慢网弹命中不扣命，但减速 2 秒并封锁冲刺，可被击碎";
+            case HELIX: return "三臂螺旋连吐 9 拍，缺口随旋臂移动；每轮之间歇 2 秒";
             default: return "未知机型";
         }
     }
@@ -4789,6 +4868,7 @@ public class Renderer {
             case 15: rgb = 0x9C7BFF; break;   // 相位者：相位紫
             case 16: rgb = 0x8FA8FF; break;   // 追猎者：追踪蓝紫
             case 17: rgb = 0xB98BFF; break;   // 缚网者：网缚紫
+            case 18: rgb = 0x7DF9FF; break;   // 螺旋炮台：旋臂青
             default: rgb = 0x5CE1FF; break;
         }
         return (alpha << 24) | rgb;

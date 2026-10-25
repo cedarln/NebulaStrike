@@ -99,7 +99,9 @@ public class GameWorld {
         /** v1.33：追猎者发射追踪弹（code = 本次发射数） */
         HOMING_LAUNCH,
         /** v1.34：减速网弹命中飞船（code = 减速时长，百分之一秒） */
-        WEB_SNARE
+        WEB_SNARE,
+        /** v1.35：螺旋炮台开始一轮螺旋（code = 弹臂数） */
+        SPIRAL_BURST
     }
     public static final class GameEvent {
         public final EventType type;
@@ -375,6 +377,18 @@ public class GameWorld {
     public static final float WEB_ORB_LIFE = 6.5f;
     /** 被网缠住的持续时间：速度降到 45%，且无法冲刺。 */
     public static final float WEB_SNARE_TIME = 2.0f;
+    // ---- v1.35：螺旋炮台与扇形扫射 ----
+    /** 螺旋弹速度：比普通直落弹慢，旋臂展开后缝隙看得清。 */
+    public static final float SPIRAL_SPEED = 230f;
+    /** 每条旋臂的弹数。 */
+    public static final int SPIRAL_ARMS = 3;
+    /** 一轮螺旋连吐几拍。 */
+    public static final int SPIRAL_VOLLEYS = 9;
+    /** 每拍旋臂前进的角度（弧度）。 */
+    public static final float SPIRAL_STEP = 0.5f;
+    /** 螺旋拍的间隔与一轮打完后的歇口气时间。 */
+    public static final float SPIRAL_INTERVAL = 0.18f;
+    public static final float SPIRAL_REST = 2.0f;
     /** 蜂后单次产卵的幼机数上限（受伤后从 2 涨到 3，节奏更紧）。 */
     public static final int QUEEN_BROOD_MIN = 2;
     public static final int QUEEN_BROOD_MAX = 3;
@@ -1795,14 +1809,28 @@ public class GameWorld {
         e.fireCd -= dt * fireScaleOf();
         if (e.fireCd > 0f) return;
         switch (e.type) {
-            case TANK: // slow triple spread straight down
-                for (int i = -1; i <= 1; i++) {
-                    EnemyBullet b = freeEnemyBullet();
-                    if (b == null) break;
-                    b.init(e.x, e.y + e.type.radius, i * 90f, 300f);
+            case TANK: {
+                // 每第 3 轮改成五连扇形扫射：整体左右摆动的缺口逼玩家跟着横移
+                e.volley++;
+                if (e.volley % 3 == 0) {
+                    float skew = (float) Math.sin(e.volley * 0.65f) * 150f;
+                    for (int i = -2; i <= 2; i++) {
+                        EnemyBullet b = freeEnemyBullet();
+                        if (b == null) break;
+                        b.init(e.x, e.y + e.type.radius, i * 70f + skew, 300f);
+                    }
+                    e.fireCd = 2.2f + RNG.get().nextFloat() * 0.5f;
+                } else {
+                    // slow triple spread straight down
+                    for (int i = -1; i <= 1; i++) {
+                        EnemyBullet b = freeEnemyBullet();
+                        if (b == null) break;
+                        b.init(e.x, e.y + e.type.radius, i * 90f, 300f);
+                    }
+                    e.fireCd = 1.9f + RNG.get().nextFloat() * 0.5f;
                 }
-                e.fireCd = 1.6f + RNG.get().nextFloat() * 0.5f;
                 break;
+            }
             case HUNTER: // aimed shot
                 float dx = ship.x - e.x, dy = ship.y - e.y;
                 float len = (float) Math.sqrt(dx * dx + dy * dy);
@@ -1896,6 +1924,28 @@ public class GameWorld {
                 }
                 spark(e.x, e.y + e.type.radius, 4, 3);
                 e.fireCd = 3.2f + RNG.get().nextFloat() * 0.7f;
+                break;
+            }
+            case HELIX: {
+                // 螺旋炮台：三臂同时吐弹，每拍整体转 0.5 弧度；连吐 9 拍后歇 2 秒。
+                // 缝隙始终存在，但会随旋臂一起移动——站着不动一定被扫到
+                if (e.burstCount <= 0) {
+                    e.burstCount = SPIRAL_VOLLEYS;
+                    events.add(new GameEvent(EventType.SPIRAL_BURST, e.x, e.y, SPIRAL_ARMS));
+                }
+                for (int i = 0; i < SPIRAL_ARMS; i++) {
+                    EnemyBullet spb = freeEnemyBullet();
+                    if (spb == null) break;
+                    float ang = e.spiralAngle + (float) (Math.PI * 2 * i / SPIRAL_ARMS);
+                    spb.initSpiral(e.x, e.y,
+                            (float) Math.cos(ang) * SPIRAL_SPEED,
+                            (float) Math.sin(ang) * SPIRAL_SPEED);
+                }
+                e.spiralAngle += SPIRAL_STEP;
+                e.burstCount--;
+                e.fireCd = e.burstCount > 0
+                        ? SPIRAL_INTERVAL
+                        : SPIRAL_REST + RNG.get().nextFloat() * 0.5f;
                 break;
             }
             case PHASER: {
@@ -2893,6 +2943,7 @@ public class GameWorld {
             case PHASER: return 15;
             case SEEKER: return 16;
             case SNARER: return 17;
+            case HELIX: return 18;
             default: return 4;
         }
     }
@@ -3380,10 +3431,12 @@ public class GameWorld {
         // v1.34：缚网者 115s 解锁——网弹不致死，出现得比追猎者晚一点，
         // 让玩家先学会"被减速"这件事，再让它和追杀型敌机同时在场
         float wSnarer = t > 115f ? Math.min(0.06f, 0.03f + (t - 115f) / 2400f) : 0f;
+        // v1.35：螺旋炮台 130s 解锁——弹幕密度最高的一型，权重压到 5% 以下
+        float wHelix = t > 130f ? Math.min(0.05f, 0.025f + (t - 130f) / 3000f) : 0f;
         // 保留至少 15% 无人机当"炮灰"：非无人机权重整体归一
         float sum = wTank + wHunter + wWeaver + wSui + wSplit + wHeal + wSnipe
                 + wMiner + wShield + wCarrier + wMirage + wMagnet + wQueen + wRammer
-                + wPhaser + wSeeker + wSnarer;
+                + wPhaser + wSeeker + wSnarer + wHelix;
         if (sum > 0.85f) {
             float k = 0.85f / sum;
             wTank *= k; wHunter *= k; wWeaver *= k;
@@ -3392,6 +3445,7 @@ public class GameWorld {
             wMirage *= k; wMagnet *= k; wQueen *= k; wRammer *= k; wPhaser *= k;
             wSeeker *= k;
             wSnarer *= k;
+            wHelix *= k;
         }
         float c = 0f;
         if (r < (c += wTank)) return EnemyType.TANK;
@@ -3411,6 +3465,7 @@ public class GameWorld {
         if (r < (c += wPhaser)) return EnemyType.PHASER;
         if (r < (c += wSeeker)) return EnemyType.SEEKER;
         if (r < (c += wSnarer)) return EnemyType.SNARER;
+        if (r < (c += wHelix)) return EnemyType.HELIX;
         return EnemyType.DRONE;
     }
 

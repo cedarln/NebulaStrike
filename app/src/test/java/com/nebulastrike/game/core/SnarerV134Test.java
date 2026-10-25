@@ -206,11 +206,12 @@ public class SnarerV134Test {
 
     @Test
     public void snarerJoinsTheCodexWithoutOpeningANewPage() {
-        assertEquals(EnemyType.SNARER, EnemyType.values()[EnemyType.values().length - 1]);
         assertTrue("缚网者应当算后期兵种", EnemyType.SNARER.isAdvanced());
         assertTrue(EnemyType.SNARER.hp > 0 && EnemyType.SNARER.score > 0);
+        assertTrue("缚网者应当排在图鉴靠后的位置",
+                EnemyType.SNARER.ordinal() >= Ui.CODEX_MAX_ROWS);
         int types = EnemyType.values().length;
-        assertEquals("18 种敌机仍应在两页内", 2, Ui.codexPageCount(types));
+        assertEquals("全部敌机仍应在两页内", 2, Ui.codexPageCount(types));
         assertTrue(Ui.codexPageCount(types) * Ui.CODEX_MAX_ROWS >= types);
     }
 }

@@ -412,6 +412,10 @@ public class AudioEngine {
                     // 网兜住飞船：闷响，比受伤轻，不要吓到玩家
                     play(SfxId.MINE, 0.28f, 0.6f, 0f);
                     break;
+                case SPIRAL_BURST:
+                    // 螺旋起转：短促的电流声，只在一轮开始时响一次，避免连发噪声
+                    play(SfxId.CHAIN_ZAP, 0.16f, 0.62f, 0f);
+                    break;
             }
         }
     }

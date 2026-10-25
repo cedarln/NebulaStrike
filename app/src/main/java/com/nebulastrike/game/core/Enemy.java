@@ -22,6 +22,12 @@ public class Enemy {
     public float healCd;
     /** 狙击塔悬停剩余时间，耗尽后继续俯冲离场。 */
     public float hoverCd;
+    /** 螺旋炮台当前旋臂角度；每吐一轮转 0.5 弧度。 */
+    public float spiralAngle;
+    /** 螺旋炮台本轮剩余的连发轮数（0 = 下一发开始新的一轮）。 */
+    public int burstCount;
+    /** 坦克的齐射计数：每第 3 轮改成五连扇形扫射。 */
+    public int volley;
     /** 分裂舱被击毁时生成的子机层数（防止无限分裂）。 */
     public int splitDepth;
     /** 自杀机锁定强度：越接近飞船加速越猛。 */
@@ -150,6 +156,12 @@ public class Enemy {
     /** 悬停时的横向摆渡幅度：全程可预测，玩家能绕着它走。 */
     public static final float SNARER_SWING = 95f;
 
+    // ---- v1.35 螺旋炮台 ----
+    /** 悬停高度：留在高位，螺旋弹有足够距离展开成可读的旋臂。 */
+    public static final float HELIX_HOVER_Y = 300f;
+    /** 驻留时长：约 7 轮螺旋后离场。 */
+    public static final float HELIX_HOVER = 15f;
+
     // ---- v1.33 追猎者 ----
     /** 悬停高度：在弹幕层上方，玩家能清楚看到两侧发射管亮起。 */
     public static final float SEEKER_HOVER_Y = 340f;
@@ -178,7 +190,11 @@ public class Enemy {
                 : type == EnemyType.QUEEN ? QUEEN_HOVER
                 : type == EnemyType.PHASER ? PHASER_HOVER
                 : type == EnemyType.SEEKER ? SEEKER_HOVER
-                : type == EnemyType.SNARER ? SNARER_HOVER : 0f;
+                : type == EnemyType.SNARER ? SNARER_HOVER
+                : type == EnemyType.HELIX ? HELIX_HOVER : 0f;
+        this.spiralAngle = 0f;
+        this.burstCount = 0;
+        this.volley = 0;
         this.splitDepth = 0;
         this.mineCd = type == EnemyType.MINER ? 1.2f : 0f;
         this.droneCd = type == EnemyType.CARRIER ? 1.6f : 0f;
@@ -216,6 +232,7 @@ public class Enemy {
             case PHASER: fireCd = 2.2f + GameWorld.RNG.get().nextFloat() * 0.7f; break;
             case SEEKER: fireCd = 2.4f + GameWorld.RNG.get().nextFloat() * 0.6f; break;
             case SNARER: fireCd = 2.9f + GameWorld.RNG.get().nextFloat() * 0.8f; break;
+            case HELIX: fireCd = 1.8f + GameWorld.RNG.get().nextFloat() * 0.5f; break;
             default: fireCd = -1f; // does not fire
         }
     }
@@ -492,6 +509,20 @@ public class Enemy {
                 }
                 hoverCd -= dt;
                 x = originX + (float) Math.sin(age * 0.9f) * SNARER_SWING;
+                break;
+            }
+            case HELIX: {
+                // 螺旋炮台：压到高位后原地悬停，机体缓慢自转；驻留到期俯冲离场
+                if (y < HELIX_HOVER_Y) {
+                    y += speed() * dt;
+                    break;
+                }
+                if (hoverCd <= 0f) {
+                    y += speed() * 1.4f * dt;
+                    break;
+                }
+                hoverCd -= dt;
+                x = originX + (float) Math.sin(age * 0.5f) * 60f;
                 break;
             }
             case PHASER: {

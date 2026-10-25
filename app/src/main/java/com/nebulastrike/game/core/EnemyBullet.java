@@ -14,6 +14,8 @@ public class EnemyBullet {
     public boolean homing;
     /** v1.34：减速网弹。命中不扣命，只给飞船挂上减速；可以被击碎。 */
     public boolean web;
+    /** v1.35：螺旋弹。只是视觉标签，让旋臂弹幕和普通直落弹一眼可分。 */
+    public boolean spiral;
     /** 追踪弹 / 网弹剩余寿命（秒）；普通弹为 0。 */
     public float life;
     /** 追踪弹每秒最大转向角（弧度）。 */
@@ -31,6 +33,7 @@ public class EnemyBullet {
         this.net = false;
         this.homing = false;
         this.web = false;
+        this.spiral = false;
         this.life = 0f;
         this.turnRate = 0f;
     }
@@ -72,6 +75,12 @@ public class EnemyBullet {
         initRadius(x, y, vx, vy, 16f);
         this.web = true;
         this.life = life;
+    }
+
+    /** v1.35：螺旋弹。速度和方向随旋臂走，标记只用于选择外观。 */
+    public void initSpiral(float x, float y, float vx, float vy) {
+        initRadius(x, y, vx, vy, 8f);
+        this.spiral = true;
     }
 
     public void update(float dt) {
