@@ -105,7 +105,9 @@ public class GameWorld {
         /** v1.36：分数跨过阈值奖励生命（code 1 = 生命，2 = 炸弹，3 = 折算分数） */
         EXTRA_LIFE,
         /** v1.37：Boss 换段过场，增援入场（code = 本次增援数） */
-        BOSS_REINFORCE
+        BOSS_REINFORCE,
+        /** v1.38：切割者落下贯穿全场的光束（code = 光束半宽） */
+        ENEMY_BEAM
     }
     public static final class GameEvent {
         public final EventType type;
@@ -2013,6 +2015,21 @@ public class GameWorld {
                         : SPIRAL_REST + RNG.get().nextFloat() * 0.5f;
                 break;
             }
+            case CUTTER: {
+                // 切割者：先进入 0.95 秒瞄准（前段慢速跟船、最后 0.28 秒锁死），
+                // 然后切下一道贯穿全场的竖光束。它不吃点弹 / 弹反 / 反射，
+                // 唯一解法是横向离开那一列——所以预警必须足够长、足够显眼
+                if (e.beamPhase != 0) break;
+                if (e.y < Enemy.CUTTER_HOVER_Y) {
+                    e.fireCd = 0.25f;   // 还在下降：到了悬停位再开始瞄准
+                    break;
+                }
+                e.beamPhase = 1;
+                e.beamTimer = Enemy.CUTTER_TELL;
+                e.fireCd = 4.6f + RNG.get().nextFloat() * 0.8f;
+                spark(e.x, e.y + e.type.radius, 5, 19);
+                break;
+            }
             case PHASER: {
                 // 相位者只在实体期开火：一对窄角瞄准弹，逼玩家在"能打"的窗口里走位；
                 // 相位期完全沉默，那 0.7 秒是玩家重新占位的时间
@@ -2930,6 +2947,15 @@ public class GameWorld {
                 spark(e.x, e.y, e.phaseOut ? 8 : 6, 15);
                 events.add(new GameEvent(EventType.PHASE_SHIFT, e.x, e.y,
                         e.phaseOut ? 1 : 0));
+                continue;
+            }
+            if (e.type == EnemyType.CUTTER && e.beamJustFired) {
+                // 竖切光束落下：震屏 + 枪口火花，音效由 AudioEngine 按事件播放
+                e.beamJustFired = false;
+                addShake(0.18f, 7f);
+                spark(e.x, e.y + e.type.radius, 7, 19);
+                events.add(new GameEvent(EventType.ENEMY_BEAM, e.x, e.y,
+                        (int) Enemy.CUTTER_HALF_WIDTH));
             }
         }
     }
@@ -3009,6 +3035,7 @@ public class GameWorld {
             case SEEKER: return 16;
             case SNARER: return 17;
             case HELIX: return 18;
+            case CUTTER: return 19;
             default: return 4;
         }
     }
@@ -3498,10 +3525,13 @@ public class GameWorld {
         float wSnarer = t > 115f ? Math.min(0.06f, 0.03f + (t - 115f) / 2400f) : 0f;
         // v1.35：螺旋炮台 130s 解锁——弹幕密度最高的一型，权重压到 5% 以下
         float wHelix = t > 130f ? Math.min(0.05f, 0.025f + (t - 130f) / 3000f) : 0f;
+        // v1.38：切割者 155s 解锁——一道需要整列让开的光束，权重低于螺旋炮台：
+        // 它的压力来自"这一列不能站"，两艘同场就已经逼得玩家满场跑
+        float wCutter = t > 155f ? Math.min(0.045f, 0.022f + (t - 155f) / 3400f) : 0f;
         // 保留至少 15% 无人机当"炮灰"：非无人机权重整体归一
         float sum = wTank + wHunter + wWeaver + wSui + wSplit + wHeal + wSnipe
                 + wMiner + wShield + wCarrier + wMirage + wMagnet + wQueen + wRammer
-                + wPhaser + wSeeker + wSnarer + wHelix;
+                + wPhaser + wSeeker + wSnarer + wHelix + wCutter;
         if (sum > 0.85f) {
             float k = 0.85f / sum;
             wTank *= k; wHunter *= k; wWeaver *= k;
@@ -3511,6 +3541,7 @@ public class GameWorld {
             wSeeker *= k;
             wSnarer *= k;
             wHelix *= k;
+            wCutter *= k;
         }
         float c = 0f;
         if (r < (c += wTank)) return EnemyType.TANK;
@@ -3531,6 +3562,7 @@ public class GameWorld {
         if (r < (c += wSeeker)) return EnemyType.SEEKER;
         if (r < (c += wSnarer)) return EnemyType.SNARER;
         if (r < (c += wHelix)) return EnemyType.HELIX;
+        if (r < (c += wCutter)) return EnemyType.CUTTER;
         return EnemyType.DRONE;
     }
 
@@ -3840,6 +3872,20 @@ public class GameWorld {
                     onPlayerHit();
                     break;
                 }
+            }
+        }
+        // v1.38：切割者的竖切光束——一条从舰体直落屏幕底的伤害列，一发只判定一次
+        if (!ship.isSafe()) {
+            for (Enemy e : enemies) {
+                if (!e.active || !e.isBeamFiring() || e.beamHit) continue;
+                if (ship.y < e.y + e.type.radius * 0.8f) continue;
+                if (Math.abs(ship.x - e.x) > Enemy.CUTTER_HALF_WIDTH + Ship.RADIUS * 0.5f) {
+                    continue;
+                }
+                e.beamHit = true;
+                spark(ship.x, ship.y, 8, 19);
+                onPlayerHit();
+                break;
             }
         }
         // 祭坛核心吃子弹并转化为充能：不打它就只能靠站桩吸弹，两种投入都算数

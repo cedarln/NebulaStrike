@@ -424,6 +424,11 @@ public class AudioEngine {
                     // 分数奖励：命数 / 炸弹 / 折分都用同一段上扬音，区别只体现在横幅文案上
                     play(SfxId.EXTRA_LIFE, 0.9f, 1f, 0f);
                     break;
+                case ENEMY_BEAM:
+                    // 切割者的竖切：比 Boss 光束更高更薄，音量压一档——
+                    // 它是常驻敌机招式，不该抢 Boss 招式的声音位置
+                    play(SfxId.BOSS_LASER, 0.58f, 1.18f, panFor(e.x));
+                    break;
             }
         }
     }

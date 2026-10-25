@@ -1328,6 +1328,52 @@ public class Renderer {
                     }
                     break;
                 }
+                case CUTTER: {
+                    // 切割者：横向刀座 + 中央下压的发射口。
+                    // 充能期画一条细预警线并标出底部切口；开火时换成三层光柱，
+                    // 宽度随剩余时间收细——玩家看到的是"这一列正在被切过去"
+                    float top = e.y + r * 0.85f;
+                    if (e.isBeamCharging()) {
+                        float p = e.beamCharge();
+                        paint.setStyle(Paint.Style.STROKE);
+                        paint.setStrokeWidth(1.5f + 3f * p);
+                        paint.setColor(((int) (0x40 + 0xB0 * p) << 24) | 0x008CFFC1);
+                        c.drawLine(e.x, top, e.x, VH, paint);
+                        paint.setStrokeWidth(2f + 2f * p);
+                        paint.setColor(((int) (0x50 + 0x90 * p) << 24) | 0x00C8FFE6);
+                        c.drawLine(e.x - Enemy.CUTTER_HALF_WIDTH, VH - 8f,
+                                e.x + Enemy.CUTTER_HALF_WIDTH, VH - 8f, paint);
+                        paint.setStyle(Paint.Style.FILL);
+                    } else if (e.isBeamFiring()) {
+                        float k = Math.max(0f, e.beamTimer) / Enemy.CUTTER_FIRE;
+                        float flick = 0.88f + 0.12f * (float) Math.sin(w.timeAlive * 70f);
+                        float half = Enemy.CUTTER_HALF_WIDTH * (0.78f + 0.22f * k) * flick;
+                        paint.setColor(0x558CFFC1);
+                        c.drawRect(e.x - half * 1.7f, top, e.x + half * 1.7f, VH, paint);
+                        paint.setColor(0xCC8CFFC1);
+                        c.drawRect(e.x - half, top, e.x + half, VH, paint);
+                        paint.setColor(0xFFEFFFF8);
+                        c.drawRect(e.x - half * 0.42f, top, e.x + half * 0.42f, VH, paint);
+                    }
+                    paint.setColor(base);
+                    shapePath.rewind();
+                    shapePath.moveTo(e.x - r * 1.15f, e.y - r * 0.35f);
+                    shapePath.lineTo(e.x - r * 0.45f, e.y + r * 0.75f);
+                    shapePath.lineTo(e.x + r * 0.45f, e.y + r * 0.75f);
+                    shapePath.lineTo(e.x + r * 1.15f, e.y - r * 0.35f);
+                    shapePath.lineTo(e.x + r * 0.55f, e.y - r * 0.8f);
+                    shapePath.lineTo(e.x - r * 0.55f, e.y - r * 0.8f);
+                    shapePath.close();
+                    c.drawPath(shapePath, paint);
+                    paint.setColor(0xFF0E1B16);
+                    c.drawRect(e.x - r * 0.22f, e.y + r * 0.15f,
+                            e.x + r * 0.22f, e.y + r * 0.9f, paint);
+                    paint.setColor(e.isBeamFiring() ? 0xFFEFFFF8
+                            : 0xFF6BE6A8);
+                    c.drawCircle(e.x, e.y + r * 0.55f,
+                            r * (0.16f + 0.2f * e.beamCharge()), paint);
+                    break;
+                }
             }
             if (e.bounty) drawBountyMark(c, w, e);
         }
@@ -4230,6 +4276,30 @@ public class Renderer {
                 c.drawCircle(x, y, r * 0.24f, paint);
                 break;
             }
+            case CUTTER: {
+                // 横向刀座 + 下压发射口 + 一条竖直切痕：图鉴里就是"它会切一列"
+                paint.setColor(base);
+                shapePath.rewind();
+                shapePath.moveTo(x - r * 1.1f, y - r * 0.3f);
+                shapePath.lineTo(x - r * 0.42f, y + r * 0.7f);
+                shapePath.lineTo(x + r * 0.42f, y + r * 0.7f);
+                shapePath.lineTo(x + r * 1.1f, y - r * 0.3f);
+                shapePath.lineTo(x + r * 0.5f, y - r * 0.75f);
+                shapePath.lineTo(x - r * 0.5f, y - r * 0.75f);
+                shapePath.close();
+                c.drawPath(shapePath, paint);
+                paint.setColor(known ? 0xFF0E1B16 : 0x306B7A99);
+                c.drawRect(x - r * 0.2f, y + r * 0.1f,
+                        x + r * 0.2f, y + r * 0.85f, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2f);
+                paint.setColor(known ? 0xFF8CFFC1 : 0x406B7A99);
+                c.drawLine(x, y + r * 0.9f, x, y + r * 1.5f, paint);
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(known ? 0xFFEFFFF8 : 0x406B7A99);
+                c.drawCircle(x, y + r * 0.55f, r * 0.2f, paint);
+                break;
+            }
             default:
                 break;
         }
@@ -4294,6 +4364,7 @@ public class Renderer {
             case SEEKER: return "追猎者 SEEKER";
             case SNARER: return "缚网者 SNARER";
             case HELIX: return "螺旋炮台 HELIX";
+            case CUTTER: return "切割者 CUTTER";
             default: return t.name();
         }
     }
@@ -4319,6 +4390,7 @@ public class Renderer {
             case SEEKER: return "双发追踪弹，转向有限、寿命有限，横移或冲刺可甩掉";
             case SNARER: return "缓慢网弹命中不扣命，但减速 2 秒并封锁冲刺，可被击碎";
             case HELIX: return "三臂螺旋连吐 9 拍，缺口随旋臂移动；每轮之间歇 2 秒";
+            case CUTTER: return "锁定一列后切下贯穿光柱，点弹/弹反/反射都挡不住，只能让开";
             default: return "未知机型";
         }
     }
@@ -4922,6 +4994,7 @@ public class Renderer {
             case 16: rgb = 0x8FA8FF; break;   // 追猎者：追踪蓝紫
             case 17: rgb = 0xB98BFF; break;   // 缚网者：网缚紫
             case 18: rgb = 0x7DF9FF; break;   // 螺旋炮台：旋臂青
+            case 19: rgb = 0x8CFFC1; break;   // 切割者：切痕薄荷
             default: rgb = 0x5CE1FF; break;
         }
         return (alpha << 24) | rgb;

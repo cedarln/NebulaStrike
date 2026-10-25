@@ -198,12 +198,11 @@ public class BarrageV135Test {
 
     @Test
     public void helixJoinsTheCodexWithoutOpeningANewPage() {
-        assertEquals(EnemyType.HELIX, EnemyType.values()[EnemyType.values().length - 1]);
         assertTrue("螺旋炮台应当算后期兵种", EnemyType.HELIX.isAdvanced());
+        assertTrue("螺旋炮台应当排在图鉴靠后的位置",
+                EnemyType.HELIX.ordinal() >= Ui.CODEX_MAX_ROWS);
         int types = EnemyType.values().length;
-        assertEquals("19 种敌机仍应在两页内", 2, Ui.codexPageCount(types));
+        assertEquals("全部敌机仍应在两页内", 2, Ui.codexPageCount(types));
         assertTrue(Ui.codexPageCount(types) * Ui.CODEX_MAX_ROWS >= types);
-        int lastOnSecondPage = types - Ui.CODEX_MAX_ROWS - 1;
-        assertTrue("末条应当落在第二页的有效行内", lastOnSecondPage < Ui.CODEX_MAX_ROWS);
     }
 }

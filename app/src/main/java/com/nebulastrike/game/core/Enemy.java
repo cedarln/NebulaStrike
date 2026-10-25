@@ -26,6 +26,14 @@ public class Enemy {
     public float spiralAngle;
     /** 螺旋炮台本轮剩余的连发轮数（0 = 下一发开始新的一轮）。 */
     public int burstCount;
+    /** v1.38 切割者的光束阶段：0 巡航 1 瞄准充能 2 切割中。 */
+    public int beamPhase;
+    /** 充能 / 切割的剩余时间。 */
+    public float beamTimer;
+    /** 本次光束是否已经命中过（一发只算一次伤害）。 */
+    public boolean beamHit;
+    /** 光束刚切下去（一次性标记，由 GameWorld 消费并播表现）。 */
+    public boolean beamJustFired;
     /** 坦克的齐射计数：每第 3 轮改成五连扇形扫射。 */
     public int volley;
     /** 分裂舱被击毁时生成的子机层数（防止无限分裂）。 */
@@ -162,6 +170,21 @@ public class Enemy {
     /** 驻留时长：约 7 轮螺旋后离场。 */
     public static final float HELIX_HOVER = 15f;
 
+    // ---- v1.38 切割者 ----
+    /** 悬停高度：贴着上沿，竖切光束从敌方一路切到屏幕底。 */
+    public static final float CUTTER_HOVER_Y = 280f;
+    /** 驻留时长：约三次切割后离场。 */
+    public static final float CUTTER_HOVER = 14f;
+    /** 充能时长：足够从屏幕任一侧走到光束之外。 */
+    public static final float CUTTER_TELL = 0.95f;
+    /** 最后这段时间不再追踪：光束落点提前锁死，玩家能读出"该往哪边让"。 */
+    public static final float CUTTER_LOCK = 0.28f;
+    /** 开火时长与光束半宽（伤害判定用）。 */
+    public static final float CUTTER_FIRE = 0.5f;
+    public static final float CUTTER_HALF_WIDTH = 30f;
+    /** 瞄准期的横向跟船速度：每帧只追一点，横移就能把光束拖到身后。 */
+    public static final float CUTTER_TRACK = 240f;
+
     // ---- v1.33 追猎者 ----
     /** 悬停高度：在弹幕层上方，玩家能清楚看到两侧发射管亮起。 */
     public static final float SEEKER_HOVER_Y = 340f;
@@ -191,9 +214,14 @@ public class Enemy {
                 : type == EnemyType.PHASER ? PHASER_HOVER
                 : type == EnemyType.SEEKER ? SEEKER_HOVER
                 : type == EnemyType.SNARER ? SNARER_HOVER
-                : type == EnemyType.HELIX ? HELIX_HOVER : 0f;
+                : type == EnemyType.HELIX ? HELIX_HOVER
+                : type == EnemyType.CUTTER ? CUTTER_HOVER : 0f;
         this.spiralAngle = 0f;
         this.burstCount = 0;
+        this.beamPhase = 0;
+        this.beamTimer = 0f;
+        this.beamHit = false;
+        this.beamJustFired = false;
         this.volley = 0;
         this.splitDepth = 0;
         this.mineCd = type == EnemyType.MINER ? 1.2f : 0f;
@@ -233,6 +261,7 @@ public class Enemy {
             case SEEKER: fireCd = 2.4f + GameWorld.RNG.get().nextFloat() * 0.6f; break;
             case SNARER: fireCd = 2.9f + GameWorld.RNG.get().nextFloat() * 0.8f; break;
             case HELIX: fireCd = 1.8f + GameWorld.RNG.get().nextFloat() * 0.5f; break;
+            case CUTTER: fireCd = 1.6f + GameWorld.RNG.get().nextFloat() * 0.5f; break;
             default: fireCd = -1f; // does not fire
         }
     }
@@ -525,6 +554,51 @@ public class Enemy {
                 x = originX + (float) Math.sin(age * 0.5f) * 60f;
                 break;
             }
+            case CUTTER: {
+                // 切割者：压到上沿后小范围巡游；开火时先锁定一列——
+                // 充能前段慢慢跟船，最后 0.28 秒锁死，把"往哪边让"变成一个可读的决定
+                if (y < CUTTER_HOVER_Y) {
+                    y += speed() * dt;
+                    break;
+                }
+                if (hoverCd <= 0f) {
+                    beamPhase = 0;
+                    beamTimer = 0f;
+                    y += speed() * 1.4f * dt;
+                    break;
+                }
+                hoverCd -= dt;
+                if (beamPhase == 1) {
+                    beamTimer -= dt;
+                    if (beamTimer > CUTTER_LOCK && !Float.isNaN(shipX)) {
+                        float dxAim = shipX - x;
+                        float step = Math.min(Math.abs(dxAim), CUTTER_TRACK * dt);
+                        x += dxAim > 0f ? step : -step;
+                    }
+                    x = clamp(x, type.radius + 10f, worldW - type.radius - 10f);
+                    if (beamTimer <= 0f) {
+                        beamPhase = 2;
+                        beamTimer = CUTTER_FIRE;
+                        beamHit = false;
+                        beamJustFired = true;
+                    }
+                    break;
+                }
+                if (beamPhase == 2) {
+                    beamTimer -= dt;
+                    if (beamTimer <= 0f) {
+                        beamPhase = 0;
+                        beamTimer = 0f;
+                    }
+                    break;
+                }
+                x += dir * 46f * dt;
+                if (x < type.radius + 20f || x > worldW - type.radius - 20f) {
+                    dir = -dir;
+                    x = clamp(x, type.radius + 20f, worldW - type.radius - 20f);
+                }
+                break;
+            }
             case PHASER: {
                 // 相位者：压到中场后按固定节拍循环——实体 3.2s → 预警 0.9s → 相位 0.7s。
                 // 相位期子弹原样穿过（GameWorld 跳过碰撞），所以"打空"不会浪费火力；
@@ -588,6 +662,22 @@ public class Enemy {
     /** 狙击塔正在充能（渲染层据此画预警线）。 */
     public boolean isCharging() {
         return type == EnemyType.SNIPER && fireCd > 0f && fireCd < 0.7f;
+    }
+
+    /** 切割者正在瞄准充能（渲染层画细预警线）。 */
+    public boolean isBeamCharging() {
+        return type == EnemyType.CUTTER && beamPhase == 1;
+    }
+
+    /** 切割者的光束正在切割（渲染层画实心光柱，GameWorld 结算伤害）。 */
+    public boolean isBeamFiring() {
+        return type == EnemyType.CUTTER && beamPhase == 2;
+    }
+
+    /** 充能进度 0..1，预警线随它变亮变粗。 */
+    public float beamCharge() {
+        if (!isBeamCharging()) return isBeamFiring() ? 1f : 0f;
+        return 1f - Math.max(0f, beamTimer) / CUTTER_TELL;
     }
 
     /** 伪装者是否还藏在道具外形里。 */
