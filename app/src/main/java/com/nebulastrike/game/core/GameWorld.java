@@ -89,7 +89,11 @@ public class GameWorld {
         /** v1.28：点亮一组道具连携（code = {@link Synergy#ordinal()}） */
         SYNERGY_ON,
         /** v1.29：相位核心的冲刺冲击波（code = 清掉的敌弹数） */
-        PHASE_BURST
+        PHASE_BURST,
+        /** v1.31：Boss 入场预警开始（code = 关卡编号，1 起） */
+        BOSS_WARNING,
+        /** v1.31：关卡肃清，进入过场喘息（code = 刚打完的关卡编号） */
+        STAGE_CLEAR
     }
     public static final class GameEvent {
         public final EventType type;
@@ -506,6 +510,23 @@ public class GameWorld {
      * 只按 wave 节拍会让 Boss 一场接一场、普通刷新几乎没有位置。
      */
     static final float BOSS_MIN_GAP = 12f;
+    /**
+     * Boss 入场预警时长：舰体已经在滑入，但炮口关闭、常规刷新暂停。
+     * 这几秒是"关卡 → Boss"的过渡，不是又一段可以刷分的普通时间。
+     */
+    public static final float BOSS_WARNING_TIME = 2.8f;
+    /** BOSS RUSH 的预警压短：连战要的是节奏，不是每场都看一遍长过场。 */
+    public static final float BOSS_RUSH_WARNING_TIME = 1.2f;
+    /** 击破 Boss 后的关卡喘息：清场、暂停刷新，让掉落有时间捡、让人松一口气。 */
+    public static final float STAGE_CLEAR_TIME = 4.2f;
+    public static final float RUSH_STAGE_CLEAR_TIME = 1.4f;
+    /**
+     * Boss 入场预警剩余秒数（>0 时停火、暂停常规刷新）。包级可见，
+     * 测试可以直接拨到 0 来跳过过场。
+     */
+    public float bossWarningTimer;
+    /** 关卡肃清后的喘息剩余秒数（>0 时暂停常规刷新）。 */
+    public float stageClearTimer;
     /** Boss 刚打完时的冷却倒计时（包级可见，测试可直接清零来强制触发下一场）。 */
     float bossGapTimer;
     /** boss dead-flash timer for the renderer */
@@ -853,9 +874,15 @@ public class GameWorld {
     // ---- boss battle ----
 
     private void updateBoss(float dt) {
+        if (bossWarningTimer > 0f) {
+            bossWarningTimer = Math.max(0f, bossWarningTimer - dt);
+            // 预警结束后重新给一轮开火间隔：玩家刚看完横幅，不该迎脸吃一发
+            if (bossWarningTimer <= 0f) boss.resetAttack();
+        }
         if (!boss.active) {
             for (BossLaser l : bossLasers) l.active = false;
             if (bossGapTimer > 0f) bossGapTimer = Math.max(0f, bossGapTimer - dt);
+            if (stageClearTimer > 0f) stageClearTimer = Math.max(0f, stageClearTimer - dt);
             // trigger at wave milestones when the screen is calm-ish
             // BOSS RUSH：不看 wave，喘息一结束下一位立刻入场（连战没有普通节拍）
             boolean due = bossRush() ? bossGapTimer <= 0f
@@ -868,7 +895,9 @@ public class GameWorld {
                 if (!bossRush()) nextBossWave = wave + (mode == GameMode.ENDLESS ? 3 : 4);
                 boss.init(bossesDefeated);
                 bossActive = true;
+                bossWarningTimer = bossRush() ? BOSS_RUSH_WARNING_TIME : BOSS_WARNING_TIME;
                 events.add(new GameEvent(EventType.BOSS_SPAWNED, boss.x, boss.y));
+                events.add(new GameEvent(EventType.BOSS_WARNING, boss.x, boss.y, stageNumber()));
             }
             return;
         }
@@ -881,20 +910,21 @@ public class GameWorld {
         updateBossParts(dt);
         updateBossLasers(dt);
         updateBossRam(dt);
-        if (boss.readyToAttack()) {
+        boolean armed = bossWarningTimer <= 0f;
+        if (armed && boss.readyToAttack()) {
             bossAttack();
             boss.resetAttack();
         }
-        if (boss.readyToSummon()) {
+        if (armed && boss.readyToSummon()) {
             summonMinions();
             boss.resetSummon();
         }
-        if (boss.readyToRam()) {
+        if (armed && boss.readyToRam()) {
             boss.startRam();
             addShake(0.4f, 14f);
             events.add(new GameEvent(EventType.BOSS_RAM, boss.x, boss.y));
         }
-        if (boss.readyToSummonPrism()) {
+        if (armed && boss.readyToSummonPrism()) {
             int made = boss.summonPrisms();
             if (made > 0) {
                 addShake(0.5f, 16f);
@@ -904,6 +934,9 @@ public class GameWorld {
         if (boss.hp <= 0) {
             boss.active = false;
             bossActive = false;
+            bossWarningTimer = 0f;
+            stageClearTimer = bossRush() ? RUSH_STAGE_CLEAR_TIME : STAGE_CLEAR_TIME;
+            clearBattlefieldForInterlude();
             // 打完立刻上表：下一场至少等这段喘息，别让高分把 Boss 战连成一片
             bossGapTimer = bossRush() ? BOSS_RUSH_GAP
                     : mode == GameMode.ENDLESS ? BOSS_MIN_GAP : BOSS_MIN_GAP * 1.5f;
@@ -944,16 +977,40 @@ public class GameWorld {
                         ? PowerUp.Kind.ORBIT : PowerUp.Kind.CHAIN, boss.x, boss.y + 80f);
             }
             events.add(new GameEvent(EventType.BOSS_DEFEATED, boss.x, boss.y));
+            events.add(new GameEvent(EventType.STAGE_CLEAR, boss.x, boss.y, bossesDefeated));
             // v1.10：击败 Boss 随机继承一种 Boss 能力（圣物）
             grantBossRelic();
         }
+    }
+
+    /** 当前关卡编号（1 起）：击败 Boss 即进入下一段航程。 */
+    public int stageNumber() {
+        return bossesDefeated + 1;
+    }
+
+    /** 是否处于"关卡 → Boss"或"Boss → 下一关"的过场里（刷新暂停）。 */
+    public boolean inInterlude() {
+        return bossWarningTimer > 0f || stageClearTimer > 0f;
+    }
+
+    /**
+     * Boss 击破后的过渡清场：不结算分数、不掉落，只把残弹与残余小怪收掉。
+     * 过场要真的"安静下来"，否则玩家刚松手就被上一波弹幕收走。
+     */
+    private void clearBattlefieldForInterlude() {
+        for (Enemy e : enemies) {
+            if (!e.active) continue;
+            e.active = false;
+            spark(e.x, e.y, 3, 8);
+        }
+        for (EnemyBullet b : enemyBullets) b.active = false;
     }
 
     public boolean bossActive;
 
     /** Boss 部件开火：炮塔打瞄准弹，激光部件进入预警->光束流程。 */
     private void updateBossParts(float dt) {
-        if (boss.y < 60f || boss.staggerTimer > 0f) return;
+        if (boss.y < 60f || boss.staggerTimer > 0f || bossWarningTimer > 0f) return;
         for (int i = 0; i < boss.partCount; i++) {
             BossPart p = boss.parts[i];
             if (!p.active || p.fireCd > 0f) continue;
@@ -1598,6 +1655,7 @@ public class GameWorld {
      */
     private void updateRushWave(float dt) {
         if (!spawningEnabled || bossActive) return;
+        if (inInterlude()) return;
         if (bossRush()) return;   // 连战局没有小怪，只剩 Boss 与它召来的僚机
         rushTimer -= dt;
         if (rushTimer > 0f) return;
@@ -1813,6 +1871,7 @@ public class GameWorld {
         if (!mutatorsEnabled || !spawningEnabled) return;
         // 连战局每局规则一致：不掷异变，比的是走位和节奏，不是这一把摇到了什么
         if (bossRush()) return;
+        if (inInterlude()) return;
         if (timeAlive < mutatorNextAt) return;
         Mutator[] all = Mutator.values();
         Mutator picked = all[1 + RNG.get().nextInt(Mutator.COUNT)];
@@ -2052,7 +2111,7 @@ public class GameWorld {
     /** 祭坛计时：到期熄灭、站进光环吸弹、充满爆发赐福。Boss 在场时不刷新新的祭坛。 */
     private void updateAltar(float dt) {
         if (!altar.active) {
-            if (!bossActive && timeAlive >= altarNextAt) spawnAltar();
+            if (!bossActive && !inInterlude() && timeAlive >= altarNextAt) spawnAltar();
             return;
         }
         altar.update(dt);
@@ -2117,7 +2176,7 @@ public class GameWorld {
             if (bountyTimer <= 0f) failBounty();
             return;
         }
-        if (bossActive || timeAlive < bountyNextAt) return;
+        if (bossActive || inInterlude() || timeAlive < bountyNextAt) return;
         issueBounty();
     }
 
@@ -2670,6 +2729,7 @@ public class GameWorld {
      */
     void updateV117Encounters(float dt) {
         if (!spawningEnabled || bossActive) return;
+        if (inInterlude()) return;
         if (bossRush()) return;   // 连战局只打 Boss：保底投放会抢走 Boss 战的空间
         v117EncounterTimer -= dt;
         if (v117EncounterTimer > 0f) return;
@@ -3116,6 +3176,7 @@ public class GameWorld {
     private void updateSpawning(float dt) {
         if (!spawningEnabled) return;
         if (bossActive) return; // the boss owns the sky
+        if (inInterlude()) return; // 过场时间留给横幅与喘息，不补小怪
         if (bossRush()) return; // 连战局全程没有常规刷新：空档只有喘息，没有小怪
         spawnTimer -= dt;
         formationTimer -= dt;
@@ -4596,6 +4657,8 @@ public class GameWorld {
         joyAnim = 0f;
         boss.active = false;
         bossActive = false;
+        bossWarningTimer = 0f;
+        stageClearTimer = 0f;
         bossFlash = 0f;
         for (BossLaser l : bossLasers) l.active = false;
         for (int i = 0; i < weaponCd.length; i++) weaponCd[i] = 0f;

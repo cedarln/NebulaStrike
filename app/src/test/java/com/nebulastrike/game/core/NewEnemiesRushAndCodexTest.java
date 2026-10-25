@@ -406,6 +406,7 @@ public class NewEnemiesRushAndCodexTest {
         world.wave = 4;
         world.update(1f / 60f);
         assertTrue("按舰级索引生成 Boss", world.boss.active);
+        world.bossWarningTimer = 0f;   // 部件测试不需要入场预警
         assertEquals(index > 3 ? 3 : index, world.boss.tier);
         world.boss.y = world.boss.arenaY;
         world.boss.hp = world.boss.maxHp * 0.5f; // 进入二阶段

@@ -286,6 +286,9 @@ public class ParryTest {
         for (int i = 0; i < 200; i++) {
             EnemyBullet eb = enemyBulletAt(450f, 850f, 0f, 260f);
             world.ship.dashTimer = 0f;   // 上一轮冲刺可能还没走完
+            // 这组只验证弹反与池子回收：别让擦弹槽在中途触发过载清屏，否则某一轮
+            // 的测试弹会先被 OVERDRIVE 收掉，parry 数就会随机少一
+            world.grazeCharge = 0f;
             dashToward(450f, 300f);
             world.update(1f / 60f);
             assertFalse("第 " + i + " 轮冲刺没有弹到敌弹", eb.active);

@@ -257,6 +257,9 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case OVERDRIVE: haptics.bomb(); break;
                     case GAME_OVER: haptics.death(); break;
                     case BOSS_DEFEATED: haptics.bomb(); break;
+                    // 入场预警：一记重震把注意力从走位拉到"抬头看"
+                    case BOSS_WARNING: haptics.impact(); break;
+                    case STAGE_CLEAR: haptics.tick(); break;
                     case BOSS_PART_DESTROYED: haptics.tick(); break;
                     case BOSS_DISARMED: haptics.impact(); break;
                     case BOSS_RAM: haptics.impact(); break;

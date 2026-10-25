@@ -20,6 +20,7 @@ public class BossTest {
     private void triggerBoss() {
         world.wave = 4; // milestone reached
         world.update(1f / 60f);
+        world.bossWarningTimer = 0f;   // 招式测试跳过 v1.31 的入场预警
     }
 
     @Test

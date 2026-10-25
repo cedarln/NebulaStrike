@@ -193,6 +193,7 @@ public class RelicsV129Test {
         world.wave = 4;
         world.update(1f / 60f);
         world.boss.init(2);
+        world.bossWarningTimer = 0f;   // 布雷舱测试跳过入场预警
         world.boss.y = 150f;
         world.boss.staggerTimer = 0f;
         for (int i = 0; i < world.boss.partCount; i++) {

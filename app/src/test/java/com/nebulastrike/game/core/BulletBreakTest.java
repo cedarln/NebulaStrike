@@ -247,6 +247,9 @@ public class BulletBreakTest {
         GameWorld w = new GameWorld(42L);
         w.spawningEnabled = true;
         w.lives = 999_999;
+        // 这里量的是"常规交火里的点弹频率"：把 Boss 节拍推远，
+        // 免得 v1.31 的入场预警/肃清过场把 60 秒里的弹幕量压掉一半
+        w.nextBossWave = 99;
         w.ship.makeInvulnerable();
         w.ship.addWeapon(WeaponType.MISSILE);
         for (int i = 0; i < 60 * 60; i++) {

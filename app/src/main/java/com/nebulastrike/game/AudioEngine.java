@@ -396,6 +396,10 @@ public class AudioEngine {
                     play(SfxId.PHASE_BURST, 0.72f,
                             1f + Math.min(0.2f, e.code * 0.012f), 0f);
                     break;
+                case STAGE_CLEAR:
+                    // 关卡肃清：用 WAVE 的低八度收尾，和 Boss 爆炸的余响叠在一起
+                    play(SfxId.WAVE, 0.52f, 0.82f, 0f);
+                    break;
             }
         }
     }

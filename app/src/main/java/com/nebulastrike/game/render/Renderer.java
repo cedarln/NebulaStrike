@@ -2530,7 +2530,7 @@ public class Renderer {
             paint.setFakeBoldText(false);
             paint.setTextSize(23f * s);
             paint.setColor(((int) (0xE0 * k) << 24) | 0xFFC8D6F0);
-            c.drawText("没有小怪 · 打完一个喘息 1.8 秒就来下一个", VW / 2f, 622f, paint);
+            c.drawText("没有小怪 · 打完一个喘息片刻，下一位随即入场", VW / 2f, 622f, paint);
             c.drawText("开局 " + GameWorld.RUSH_LIVES + " 条命 · 火力 2 · 越深赏金越高",
                     VW / 2f, 652f, paint);
             paint.setTextAlign(Paint.Align.LEFT);
@@ -2657,9 +2657,63 @@ public class Renderer {
                     + "  ·  " + w.achievementsUnlocked() + "/" + Achievement.COUNT,
                     VW / 2f, 684f, paint);
         }
+        // v1.31：关卡过场。Boss 入场预警与肃清喘息都画在最上层——
+        // 这两段是"现在该抬头看"的信息，不该被圣物/成就横幅盖住。
+        if (w.bossWarningTimer > 0f && w.bossActive) {
+            float k = Math.min(1f, w.bossWarningTimer / 0.5f);
+            float pulse = 0.55f + 0.45f * (float) Math.abs(Math.sin(w.timeAlive * 6.5f));
+            // 屏幕四周压一层红边：不看文字也知道"有东西要来了"
+            paint.setColor(((int) (0x30 * pulse) << 24) | 0x00FF4D5C);
+            c.drawRect(0f, 0f, VW, 18f, paint);
+            c.drawRect(0f, VH - 18f, VW, VH, paint);
+            c.drawRect(0f, 0f, 16f, VH, paint);
+            c.drawRect(VW - 16f, 0f, VW, VH, paint);
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(62f);
+            paint.setFakeBoldText(true);
+            paint.setColor(((int) (0xFF * k) << 24) | 0x00FF5C6E);
+            c.drawText("WARNING", VW / 2f, 556f, paint);
+            paint.setTextSize(30f);
+            paint.setColor(((int) (0xF0 * k) << 24) | 0x00FFC8D0);
+            c.drawText("强敌接近 · " + w.boss.title(), VW / 2f, 600f, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextSize(24f);
+            paint.setColor(((int) (0xD8 * k) << 24) | 0xFFC8D6F0);
+            c.drawText("第 " + w.stageNumber() + " 关 · 炮口已锁定",
+                    VW / 2f, 634f, paint);
+            float barW = 360f;
+            float frac = Math.max(0f, Math.min(1f,
+                    w.bossWarningTimer / (w.bossRush()
+                            ? GameWorld.BOSS_RUSH_WARNING_TIME : GameWorld.BOSS_WARNING_TIME)));
+            paint.setColor((0x55 << 24) | 0x00661A24);
+            c.drawRoundRect(VW / 2f - barW / 2f, 652f,
+                    VW / 2f + barW / 2f, 660f, 4f, 4f, paint);
+            paint.setColor(((int) (0xE0 * k) << 24) | 0x00FF5C6E);
+            c.drawRoundRect(VW / 2f - barW / 2f, 652f,
+                    VW / 2f - barW / 2f + barW * (1f - frac), 660f, 4f, 4f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+        if (w.stageClearTimer > 0f && !w.bossActive) {
+            float k = Math.min(1f, w.stageClearTimer / 0.5f);
+            float in = Math.min(1f, (GameWorld.STAGE_CLEAR_TIME - w.stageClearTimer) / 0.35f);
+            float s = 0.8f + 0.2f * in;
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(56f * s);
+            paint.setFakeBoldText(true);
+            paint.setColor(((int) (0xFF * k) << 24) | 0x00FFD166);
+            c.drawText("SECTOR " + (w.stageNumber() - 1) + " CLEAR", VW / 2f, 764f, paint);
+            paint.setTextSize(26f * s);
+            paint.setColor(((int) (0xE8 * k) << 24) | 0x00E8F1FF);
+            c.drawText("空域肃清 · 残骸与补给都已回收", VW / 2f, 804f, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextSize(23f * s);
+            paint.setColor(((int) (0xC8 * k) << 24) | 0xFFC8D6F0);
+            c.drawText("下一段航程：第 " + w.stageNumber() + " 关",
+                    VW / 2f, 838f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
         paint.setTextAlign(Paint.Align.LEFT);
     }
-
     /** 竖屏操作呈现：浮动摇杆（按下才显示）+ 右下角炸弹圆键。 */
     private void drawControls(Canvas c, GameWorld w) {
         // 浮动摇杆：基座 = 按下锚点，摇杆头朝手指方向偏移（限幅在基座圆内）。

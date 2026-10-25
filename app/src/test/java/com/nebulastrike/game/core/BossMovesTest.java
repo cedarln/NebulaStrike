@@ -17,6 +17,8 @@ public class BossMovesTest {
     private void triggerBoss() {
         world.wave = 4;
         world.update(1f / 60f);
+        // 本组测的是招式本身，跳过 v1.31 的入场预警
+        world.bossWarningTimer = 0f;
     }
 
     /** 进入三阶段并让世界跑完棱镜召唤流程。 */
