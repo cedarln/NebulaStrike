@@ -17,6 +17,13 @@ public class V110DifficultyRelicAndContentTest {
         return w;
     }
 
+    /** 圣物是 Boss 通用掉落，和主线终局无关：走无尽模式连打，避开第 8 位的最终旗舰。 */
+    private GameWorld relicWorld() {
+        GameWorld w = freshWorld();
+        w.mode = GameMode.ENDLESS;
+        return w;
+    }
+
     // ---- 难度档位 ----
 
     @Test
@@ -244,7 +251,7 @@ public class V110DifficultyRelicAndContentTest {
 
     @Test
     public void allRelicsCollectWithoutDuplicates() {
-        GameWorld w = freshWorld();
+        GameWorld w = relicWorld();
         for (int i = 0; i < Relic.COUNT; i++) {
             w.wave = 4 + i * 4;
             killBoss(w);
@@ -262,7 +269,7 @@ public class V110DifficultyRelicAndContentTest {
     /** 集齐全部圣物 = 覆盖所有被动效果，无需依赖随机顺序。 */
     @Test
     public void relicPassivesFireOnceAllRelicsAreOwned() {
-        GameWorld w = freshWorld();
+        GameWorld w = relicWorld();
         for (int i = 0; i < Relic.COUNT; i++) {
             w.wave = 4 + i * 4;
             killBoss(w);
@@ -298,7 +305,7 @@ public class V110DifficultyRelicAndContentTest {
         plain.update(1f / 60f);
         int oneShot = countActive(plain);
 
-        GameWorld w = freshWorld();
+        GameWorld w = relicWorld();
         for (int i = 0; i < Relic.COUNT; i++) {
             w.wave = 4 + i * 4;
             killBoss(w);

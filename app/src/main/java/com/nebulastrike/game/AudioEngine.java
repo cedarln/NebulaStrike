@@ -429,6 +429,14 @@ public class AudioEngine {
                     // 它是常驻敌机招式，不该抢 Boss 招式的声音位置
                     play(SfxId.BOSS_LASER, 0.58f, 1.18f, panFor(e.x));
                     break;
+                case BOSS_REBIRTH:
+                    // 终局重构：Boss 的心跳压到最低八度，像整片星核一起吸了口气
+                    play(SfxId.BOSS_PHASE, 1f, 0.62f, 0f);
+                    break;
+                case CAMPAIGN_CLEAR:
+                    // 通关：成就号角再降半档、拖长余韵，和坠机的下坠音完全分开
+                    play(SfxId.ACHIEVEMENT, 1f, 0.84f, 0f);
+                    break;
             }
         }
     }

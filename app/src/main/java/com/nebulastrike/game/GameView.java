@@ -141,8 +141,15 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
             }
             return;
         }
-        if (world.state == GameWorld.State.GAME_OVER && world.stateTimer > 0.8f) {
-            world.handleUiAction(Ui.Action.RESTART);
+        if (world.state == GameWorld.State.GAME_OVER) {
+            // 通关演出期间：第一下点击只快进到结算，不直接重开
+            if (world.endingActive()) {
+                world.skipEnding();
+                return;
+            }
+            if (world.stateTimer > 0.8f) {
+                world.handleUiAction(Ui.Action.RESTART);
+            }
             return;
         }
 
@@ -290,6 +297,10 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case BOSS_REINFORCE: haptics.impact(); break;
                     // 竖切光束落下：一道必须整列让开的攻击，给一次明确的中震
                     case ENEMY_BEAM: haptics.impact(); break;
+                    // 终局重构：血条回满一截，给一记比横冲更长的重震
+                    case BOSS_REBIRTH: haptics.bomb(); break;
+                    // 通关：最后一下长震，之后就让画面安静下来
+                    case CAMPAIGN_CLEAR: haptics.impact(); break;
                     // 棱镜召唤：比横冲轻，像"多了两个东西在绕圈"
                     case BOSS_PRISM: haptics.tick(); break;
                     // 祭坛降临只是提示；吸弹太频繁不给震，免得整场都在嗡嗡

@@ -72,6 +72,8 @@ public class Settings {
 
     // ---- 主线档案（v1.32）：已解密章数（1 起，1 = 只看到序章） ----
     public volatile int storyUnlocked = 1;
+    /** v1.40：是否已经打穿过八段航程（结局档案永久保留）。 */
+    public volatile boolean campaignCleared;
 
     /**
      * 解密到第 n 章。档案只前进不回收：重开一局、换模式都不会把已经读过的章节重新锁上。

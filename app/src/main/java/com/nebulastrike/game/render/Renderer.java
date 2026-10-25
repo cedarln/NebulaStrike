@@ -1744,6 +1744,16 @@ public class Renderer {
             c.drawCircle(b.x, b.y, r * 1.42f, paint);
         }
 
+        // 最终旗舰：金色双环 + 呼吸外晕，和普通的世界吞噬者一眼区分
+        if (w.finalBossFight) {
+            paint.setStrokeWidth(4f);
+            paint.setColor(0x99FFD166);
+            c.drawCircle(b.x, b.y, r * 1.58f, paint);
+            paint.setStrokeWidth(2f);
+            paint.setColor(0x66FFF3C4);
+            c.drawCircle(b.x, b.y, r * 1.72f + 7f * (float) Math.sin(b.age * 2.4f), paint);
+        }
+
         // 侧翼装甲：从第二个 Boss 起展开，舰体形态逐级变化
         if (b.tier >= 1) {
             bossWing(c, b, -1f);
@@ -1812,7 +1822,10 @@ public class Renderer {
                 + (b.shielded() ? "   ARMORED" : "")
                 + (b.isRamming() ? "   RAMMING" : "")
                 + (b.prismsAlive() > 0 ? "   PRISM" : "");
-        c.drawText(b.title() + "  MK-" + (b.level + 1) + "   PHASE " + b.phase + "/3" + status,
+        String barName = w.finalBossFight
+                ? "FINAL · " + Story.bossName(w.stageNumber())
+                : b.title() + "  MK-" + (b.level + 1);
+        c.drawText(barName + "   PHASE " + b.phase + "/3" + status,
                 VW / 2f, by + 50f, paint);
 
         // component pips：形状区分部件种类（圆=机炮 方=激光 菱=护盾 三角=分裂舱），暗色=已摧毁
@@ -2450,12 +2463,15 @@ public class Renderer {
                     VW / 2f - 70f, 60f, paint);
         }
 
-        // 航段常驻标识（v1.39）：右上一个短标签，战斗再乱也能确认自己飞到哪一段
-        paint.setTextSize(20f);
-        paint.setColor(0xFF8FA3C8);
-        paint.setTextAlign(Paint.Align.RIGHT);
-        c.drawText(Story.sectorShort(w.stageNumber()), VW - 40f, 88f, paint);
-        paint.setTextAlign(Paint.Align.LEFT);
+        // 航段常驻标识（v1.39）：右上一个短标签，战斗再乱也能确认自己飞到哪一段。
+        // Boss 战期间顶部被血条占满，这一段信息改由 Boss 血条与预警横幅承担。
+        if (!w.bossActive) {
+            paint.setTextSize(20f);
+            paint.setColor(0xFF8FA3C8);
+            paint.setTextAlign(Paint.Align.RIGHT);
+            c.drawText(Story.sectorShort(w.stageNumber()), VW - 40f, 88f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
 
         // 异变波芯片：名字 + 剩余时间条，最后 3 秒闪烁提示"窗口快关了，抓紧刷"
         if (w.mutator.isActive()) {
@@ -2996,10 +3012,11 @@ public class Renderer {
             paint.setTextSize(62f);
             paint.setFakeBoldText(true);
             paint.setColor(((int) (0xFF * k) << 24) | 0x00FF5C6E);
-            c.drawText("WARNING", VW / 2f, 556f, paint);
+            c.drawText(w.finalBossFight ? "FINAL WARNING" : "WARNING", VW / 2f, 556f, paint);
             paint.setTextSize(30f);
             paint.setColor(((int) (0xF0 * k) << 24) | 0x00FFC8D0);
-            c.drawText("强敌接近 · " + Story.bossName(w.stageNumber()), VW / 2f, 600f, paint);
+            c.drawText((w.finalBossFight ? "最终旗舰 · " : "强敌接近 · ")
+                            + Story.bossName(w.stageNumber()), VW / 2f, 600f, paint);
             paint.setFakeBoldText(false);
             paint.setTextSize(24f);
             paint.setColor(((int) (0xD8 * k) << 24) | 0xFFC8D6F0);
@@ -3284,7 +3301,8 @@ public class Renderer {
         paint.setTextSize(28f);
         c.drawText("SLIDE ANYWHERE TO FLY  •  AUTO FIRE  •  BOMB BUTTON", VW / 2f, 360f, paint);
 
-        button(c, Ui.START, "CAMPAIGN", 0xFF274BFF, 0xFFE8F1FF, true);
+        button(c, Ui.START, w.settings.campaignCleared ? "CAMPAIGN · CLEARED" : "CAMPAIGN",
+                0xFF274BFF, 0xFFE8F1FF, true);
         drawModeRow(c, w);
         button(c, Ui.SETTINGS, "SETTINGS", 0xFF182040, 0xFF8FA3C8, false, 30f);
         button(c, Ui.CHEATS, w.settings.cheatsActive() ? "LAB ON" : "LAB",
@@ -4542,23 +4560,41 @@ public class Renderer {
     }
 
     private void drawGameOver(Canvas c, GameWorld w) {
+        // 通关后先放结局演出，演完才落到结算页
+        if (w.endingActive()) {
+            drawEnding(c, w);
+            return;
+        }
         paint.setShader(null);
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(0x99000000);
         c.drawRect(0, 0, VW, VH, paint);
         paint.setTextAlign(Paint.Align.CENTER);
 
-        paint.setTextSize(96f);
-        paint.setColor(0xFFFF3355);
-        c.drawText("GAME OVER", VW / 2f, 400f, paint);
+        if (w.campaignVictory) {
+            paint.setTextSize(84f);
+            paint.setColor(0xFFFFD166);
+            c.drawText("CAMPAIGN CLEAR", VW / 2f, 400f, paint);
+        } else {
+            paint.setTextSize(96f);
+            paint.setColor(0xFFFF3355);
+            c.drawText("GAME OVER", VW / 2f, 400f, paint);
+        }
 
         paint.setTextSize(44f);
         paint.setColor(0xFFFFFFFF);
-        String modeTag = w.daily()
-                ? "日常 " + DailyChallenge.display(w.dailyKey) + " · " + w.dailyRule.label
-                : w.bossRush() ? "BOSS RUSH · 连破 " + w.bossRushKills + " 个"
-                : (w.mode == GameMode.ENDLESS ? "ENDLESS" : "WAVE " + w.wave)
-                        + "   •   " + w.settings.difficulty.label();
+        String modeTag;
+        if (w.campaignVictory) {
+            modeTag = Story.SECTOR_COUNT + " 段航程 · "
+                    + (w.campaignFirstClear ? "首次通关" : "再次通关");
+        } else if (w.daily()) {
+            modeTag = "日常 " + DailyChallenge.display(w.dailyKey) + " · " + w.dailyRule.label;
+        } else if (w.bossRush()) {
+            modeTag = "BOSS RUSH · 连破 " + w.bossRushKills + " 个";
+        } else {
+            modeTag = (w.mode == GameMode.ENDLESS ? "ENDLESS" : "WAVE " + w.wave)
+                    + "   •   " + w.settings.difficulty.label();
+        }
         c.drawText("Score " + w.score + "   •   " + modeTag, VW / 2f, 468f, paint);
 
         if (w.daily()) {
@@ -4612,7 +4648,70 @@ public class Renderer {
         paint.setTextSize(40f);
         float alpha = 0.4f + 0.6f * Math.abs((float) Math.sin(w.stateTimer * 2.2f));
         paint.setColor(((int) (255 * alpha) << 24) | 0x8FA3C8);
-        c.drawText("Tap to fly again", VW / 2f, 1230f, paint);
+        c.drawText(w.campaignVictory ? "Tap to fly again · 结局已写入档案" : "Tap to fly again",
+                VW / 2f, 1230f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /**
+     * 通关结局演出（v1.40）：三段终章文字逐段淡入，走完自动落到通关结算。
+     * 点击可提前跳过——不想读字的人不会被演出拦在结算外面。
+     */
+    private void drawEnding(Canvas c, GameWorld w) {
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xF2050812);
+        c.drawRect(0, 0, VW, VH, paint);
+        float t = w.stateTimer;
+
+        // 顶部细金线：八段航程在这里收束成一条
+        paint.setColor(0x88FFD166);
+        c.drawRect(90f, 150f, VW - 90f, 152f, paint);
+
+        float titleIn = Math.min(1f, t / 0.8f);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(26f);
+        paint.setColor(((int) (0xC0 * titleIn) << 24) | 0x00B08FFF);
+        c.drawText("ENDING · 终章", VW / 2f, 268f, paint);
+        paint.setFakeBoldText(true);
+        paint.setTextSize(66f);
+        paint.setColor(((int) (0xFF * titleIn) << 24) | 0x00FFD166);
+        c.drawText("天亮了", VW / 2f, 352f, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextSize(24f);
+        paint.setColor(((int) (0xC8 * titleIn) << 24) | 0x00E8F1FF);
+        c.drawText(Story.title(Story.CHAPTER_COUNT - 1) + "  ·  8 段航程全部完成",
+                VW / 2f, 404f, paint);
+        paint.setTextSize(18f);
+        paint.setColor(((int) (0x80 * titleIn) << 24) | 0xFF8FA3C8);
+        c.drawText("唤醒 · 残响 · 复制 · 节点 · 干涉 · 漩涡 · 倒影 · 摇篮",
+                VW / 2f, 440f, paint);
+
+        // 每段正文预留三行，换行数不同也不会互相挤压；按 1.8 秒一拍依次淡入
+        String[] body = Story.body(Story.CHAPTER_COUNT - 1);
+        float y = 530f;
+        for (int i = 0; i < body.length; i++) {
+            float in = Math.min(1f, Math.max(0f, (t - 1.2f - i * 1.8f) / 0.9f));
+            if (in > 0f) {
+                paint.setTextAlign(Paint.Align.LEFT);
+                paint.setTextSize(28f);
+                paint.setColor(((int) (0xE8 * in) << 24) | 0x00E8F1FF);
+                drawWrapped(c, body[i], 110f, y, 680f, 46f);
+            }
+            y += 46f * 3f + 20f;
+        }
+
+        float foot = Math.min(1f, Math.max(0f, (t - 6.2f) / 0.8f));
+        if (foot > 0f) {
+            float pulse = 0.45f + 0.55f * (float) Math.abs(Math.sin(t * 2.2f));
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(24f);
+            paint.setColor(((int) (0xC8 * foot * pulse) << 24) | 0x008FA3C8);
+            c.drawText("—— 档案到此为止 · 点击继续 ——", VW / 2f, 1160f, paint);
+            paint.setTextSize(20f);
+            paint.setColor(((int) (0x88 * foot) << 24) | 0x00FFD166);
+            c.drawText("CAMPAIGN CLEAR · " + w.score + " 分", VW / 2f, 1200f, paint);
+        }
         paint.setTextAlign(Paint.Align.LEFT);
     }
 

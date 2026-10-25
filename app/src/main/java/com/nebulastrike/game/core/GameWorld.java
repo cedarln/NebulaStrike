@@ -107,7 +107,11 @@ public class GameWorld {
         /** v1.37：Boss 换段过场，增援入场（code = 本次增援数） */
         BOSS_REINFORCE,
         /** v1.38：切割者落下贯穿全场的光束（code = 光束半宽） */
-        ENEMY_BEAM
+        ENEMY_BEAM,
+        /** v1.40：最终旗舰第一次被打空血，重构回场（code = 重构后的阶段） */
+        BOSS_REBIRTH,
+        /** v1.40：主线通关，进入结局演出（code 1 = 首次通关） */
+        CAMPAIGN_CLEAR
     }
     public static final class GameEvent {
         public final EventType type;
@@ -602,6 +606,18 @@ public class GameWorld {
     public static final float BOSS_PHASE_BREAK = 1.6f;
     /** Boss 刚打完时的冷却倒计时（包级可见，测试可直接清零来强制触发下一场）。 */
     float bossGapTimer;
+    /** v1.40：本场是不是主线最终旗舰（仅战役模式第 8 段）。 */
+    public boolean finalBossFight;
+    /** 最终旗舰是否已经用掉"终局重构"：第一次打空血会回血再战一轮。 */
+    public boolean finalBossRebirthed;
+    /** 本局是否通关（结局演出与结算标题用）。 */
+    public boolean campaignVictory;
+    /** 本局是否是首次通关。 */
+    public boolean campaignFirstClear;
+    /** 结局演出时长；走完自动落到通关结算，点击可提前跳过。 */
+    public static final float ENDING_TIME = 9f;
+    /** 最终旗舰的等级：比常规最高档再多两级血量、部件更多。 */
+    public static final int FINAL_BOSS_LEVEL = Story.SECTOR_COUNT + 2;
     /** boss dead-flash timer for the renderer */
     public float bossFlash;
     /** 每种特殊武器独立的开火冷却，实现真正的同时叠加。 */
@@ -993,7 +1009,10 @@ public class GameWorld {
                 // 在上一场尸体凉透前立刻接上（实测后期 endless 会退化成无间断 Boss 链，
                 // 普通刷新、突袭波和新舰型全被挤掉）。BOSS_MIN_GAP 再兜一层，留出喘息。
                 if (!bossRush()) nextBossWave = wave + (mode == GameMode.ENDLESS ? 3 : 4);
-                boss.init(bossesDefeated);
+                boolean finalFight = finalBossDue();
+                boss.init(finalFight ? FINAL_BOSS_LEVEL : bossesDefeated);
+                finalBossFight = finalFight;
+                finalBossRebirthed = false;
                 bossActive = true;
                 bossWarningTimer = bossRush() ? BOSS_RUSH_WARNING_TIME : BOSS_WARNING_TIME;
                 events.add(new GameEvent(EventType.BOSS_SPAWNED, boss.x, boss.y));
@@ -1033,6 +1052,22 @@ public class GameWorld {
             }
         }
         if (boss.hp <= 0) {
+            if (finalBossFight && !finalBossRebirthed) {
+                finalBossRebirthed = true;
+                // 终局重构：第一次打空血不结算，把血拉回 1/3 并清掉满屏弹幕。
+                // 相位会从 3 掉回 2，下一帧自然触发一次换段过场与增援。
+                boss.hp = boss.maxHp * 0.35f;
+                boss.flash = 1f;
+                for (EnemyBullet b : enemyBullets) b.active = false;
+                for (BossLaser l : bossLasers) l.active = false;
+                boss.resetAttack();
+                bossPhaseBreakTimer = BOSS_PHASE_BREAK;
+                bossPhaseBreakPhase = 2;
+                addHitStop(0.12f);
+                addShake(1f, 24f);
+                events.add(new GameEvent(EventType.BOSS_REBIRTH, boss.x, boss.y, 2));
+                return;
+            }
             boss.active = false;
             bossActive = false;
             bossWarningTimer = 0f;
@@ -1086,10 +1121,54 @@ public class GameWorld {
                         ? PowerUp.Kind.ORBIT : PowerUp.Kind.CHAIN, boss.x, boss.y + 80f);
             }
             events.add(new GameEvent(EventType.BOSS_DEFEATED, boss.x, boss.y));
-            events.add(new GameEvent(EventType.STAGE_CLEAR, boss.x, boss.y, bossesDefeated));
-            // v1.10：击败 Boss 随机继承一种 Boss 能力（圣物）
-            grantBossRelic();
+            if (finalBossFight) {
+                beginCampaignVictory();
+            } else {
+                events.add(new GameEvent(EventType.STAGE_CLEAR, boss.x, boss.y, bossesDefeated));
+                // v1.10：击败 Boss 随机继承一种 Boss 能力（圣物）
+                grantBossRelic();
+            }
         }
+    }
+
+    /** 第 8 段（战役模式）由最终旗舰压阵；无尽模式继续按常规队列循环。 */
+    public boolean finalBossDue() {
+        return mode == GameMode.WAVES && bossesDefeated == Story.SECTOR_COUNT - 1;
+    }
+
+    /**
+     * 主线通关：解锁终章、落盘"已通关"，把这一局的成绩先入账，
+     * 然后进入 {@link #ENDING_TIME} 秒的结局演出（点击可跳过）。
+     */
+    private void beginCampaignVictory() {
+        boolean first = !settings.campaignCleared;
+        settings.campaignCleared = true;
+        settings.noteStory(Story.CHAPTER_COUNT);
+        codexDirty = true;
+        campaignVictory = true;
+        campaignFirstClear = first;
+        // 结局由演出自己讲，不再叠"档案解密"与"肃清"两层横幅
+        storyBanner = 0f;
+        storyBannerChapter = 0;
+        stageClearTimer = 0f;
+        stageIntroTimer = 0f;
+        bossGapTimer = 0f;
+        state = State.GAME_OVER;
+        stateTimer = 0f;
+        clearShipInput();
+        addShake(0.9f, 28f);
+        recordRunResult();
+        events.add(new GameEvent(EventType.CAMPAIGN_CLEAR, boss.x, boss.y, first ? 1 : 0));
+    }
+
+    /** 结局演出是否仍在进行（此时点击只快进到通关结算）。 */
+    public boolean endingActive() {
+        return campaignVictory && state == State.GAME_OVER && stateTimer < ENDING_TIME;
+    }
+
+    /** 提前结束结局演出，直接落到通关结算。 */
+    public void skipEnding() {
+        if (endingActive()) stateTimer = ENDING_TIME;
     }
 
     /** 当前关卡编号（1 起）：击败 Boss 即进入下一段航程。 */
@@ -4799,32 +4878,40 @@ public class GameWorld {
             stateTimer = 0f;
             clearShipInput();
             addShake(0.6f, 22f);
-            if (daily()) {
-                // 日常局只写日历：全球同一天同一把尺，历史最高分和两张分数榜留给自由局
-                dailyImproved = recordDailyRun();
-            } else if (bossRush()) {
-                // 连战局只写自己的榜与"最深入纪录"：不吃 CAMPAIGN 的历史最高分
-                if (bossRushKills > settings.rushBest) {
-                    settings.rushBest = bossRushKills;
-                    bossRushImproved = true;
-                    if (store != null) store.save(settings);
-                }
-                scoreRank = insertScore(score, mode);
-            } else {
-                if (score > bestScore) {
-                    bestScore = score;
-                    newBest = true;
-                    if (store != null) store.saveBestScore(bestScore);
-                }
-                scoreRank = insertScore(score, mode);
-            }
-            // 坠机也要把最后一程的增量入账（此时已是 GAME_OVER，只记成就不再改分）
-            commitAchievements();
-            flushCodex();
+            recordRunResult();
             events.add(new GameEvent(EventType.GAME_OVER, ship.x, ship.y));
         } else {
             respawnSafely();
         }
+    }
+
+    /**
+     * 一局结束（坠机或通关）时的统一入账：日榜 / 连战深度 / 历史最高分，
+     * 再把成就与图鉴增量落盘。
+     */
+    private void recordRunResult() {
+        if (daily()) {
+            // 日常局只写日历：全球同一天同一把尺，历史最高分和两张分数榜留给自由局
+            dailyImproved = recordDailyRun();
+        } else if (bossRush()) {
+            // 连战局只写自己的榜与"最深入纪录"：不吃 CAMPAIGN 的历史最高分
+            if (bossRushKills > settings.rushBest) {
+                settings.rushBest = bossRushKills;
+                bossRushImproved = true;
+                if (store != null) store.save(settings);
+            }
+            scoreRank = insertScore(score, mode);
+        } else {
+            if (score > bestScore) {
+                bestScore = score;
+                newBest = true;
+                if (store != null) store.saveBestScore(bestScore);
+            }
+            scoreRank = insertScore(score, mode);
+        }
+        // 坠机/通关都要把最后一程的增量入账（此时已非 PLAYING，只记成就不再改分）
+        commitAchievements();
+        flushCodex();
     }
 
     public void addShake(float time, float mag) {
@@ -5044,6 +5131,10 @@ public class GameWorld {
         for (BossLaser l : bossLasers) l.active = false;
         for (int i = 0; i < weaponCd.length; i++) weaponCd[i] = 0f;
         bossesDefeated = 0;
+        finalBossFight = false;
+        finalBossRebirthed = false;
+        campaignVictory = false;
+        campaignFirstClear = false;
         nextBossWave = m == GameMode.ENDLESS ? 3 : 4; // endless: bosses come faster
         bossGapTimer = bossRush() ? BOSS_RUSH_OPENING : 0f;   // 连战局开场 2.6 秒后第一位入场
         formationTimer = m == GameMode.ENDLESS ? 6f : 8f;
