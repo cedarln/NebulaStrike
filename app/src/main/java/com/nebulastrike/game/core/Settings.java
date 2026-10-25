@@ -70,6 +70,21 @@ public class Settings {
     /** 到达过的最深波次。 */
     public volatile int bestWave;
 
+    // ---- 主线档案（v1.32）：已解密章数（1 起，1 = 只看到序章） ----
+    public volatile int storyUnlocked = 1;
+
+    /**
+     * 解密到第 n 章。档案只前进不回收：重开一局、换模式都不会把已经读过的章节重新锁上。
+     *
+     * @return true 表示本次确实解开了新章节（调用方据此落盘与弹提示）
+     */
+    public boolean noteStory(int chapters) {
+        int want = clamp(chapters, 1, Story.CHAPTER_COUNT);
+        if (want <= storyUnlocked) return false;
+        storyUnlocked = want;
+        return true;
+    }
+
     /** 开新局记一次出勤。 */
     public void countRunStart() {
         if (runsStarted < Integer.MAX_VALUE) runsStarted++;
@@ -239,6 +254,7 @@ public class Settings {
         if (runsStarted < 0) runsStarted = 0;
         if (deaths < 0) deaths = 0;
         if (bestWave < 0) bestWave = 0;
+        storyUnlocked = clamp(storyUnlocked, 1, Story.CHAPTER_COUNT);
     }
 
     /** yyyyMMdd 形式的日期键合法性检查：年份合理、月份 1..12、日期 1..31。 */

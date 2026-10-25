@@ -129,7 +129,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
         }
 
         Ui.Action a = Ui.hit(world.state, world.settingsOpen, world.cheatOpen,
-                world.codexOpen, world.achieveOpen, world.careerOpen, v[0], v[1]);
+                world.codexOpen, world.achieveOpen, world.careerOpen, world.storyOpen,
+                v[0], v[1]);
         if (a != null) {
             world.handleUiAction(a);
             if (a == Ui.Action.CHECK_UPDATE) dispatchUpdateWork();
@@ -260,6 +261,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     // 入场预警：一记重震把注意力从走位拉到"抬头看"
                     case BOSS_WARNING: haptics.impact(); break;
                     case STAGE_CLEAR: haptics.tick(); break;
+                    case STORY_UNLOCK: haptics.tick(); break;
                     case BOSS_PART_DESTROYED: haptics.tick(); break;
                     case BOSS_DISARMED: haptics.impact(); break;
                     case BOSS_RAM: haptics.impact(); break;

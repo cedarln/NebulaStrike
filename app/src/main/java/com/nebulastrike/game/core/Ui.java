@@ -35,7 +35,9 @@ public final class Ui {
     public static final Rect CODEX = new Rect(GameWorld.WIDTH / 2f - 220f, 632f, 140f, 64f);
     public static final Rect ACHIEVEMENTS = new Rect(GameWorld.WIDTH / 2f - 70f, 632f, 140f, 64f);
     public static final Rect CAREER = new Rect(GameWorld.WIDTH / 2f + 80f, 632f, 140f, 64f);
-    public static final Rect CHECK_UPDATE = new Rect(GameWorld.WIDTH / 2f - 220f, 712f, 440f, 56f);
+    /** v1.32：STORY 与检查更新并排（各 210 宽），空出菜单第五行。 */
+    public static final Rect STORY = new Rect(GameWorld.WIDTH / 2f - 220f, 712f, 210f, 56f);
+    public static final Rect CHECK_UPDATE = new Rect(GameWorld.WIDTH / 2f + 10f, 712f, 210f, 56f);
 
     // playing: floating joystick is position-free (handled by GameView);
     // the bomb / dash buttons are mirrored for left-handed play
@@ -112,6 +114,11 @@ public final class Ui {
     public static final float ACH_ROW_Y = 372f;
     public static final float ACH_ROW_H = 56f;
 
+    // 剧情档案面板（v1.32）：章节卡 + 底部翻页/返回
+    public static final Rect STORY_PREV = new Rect(110f, 1262f, 200f, 80f);
+    public static final Rect STORY_NEXT = new Rect(590f, 1262f, 200f, 80f);
+    public static final Rect STORY_BACK = new Rect(GameWorld.WIDTH / 2f - 140f, 1420f, 280f, 64f);
+
     /** 成就某一行（0 起，按当前页内的序号）的命中矩形。 */
     public static Rect achieveRow(int index) {
         return new Rect(110f, ACH_ROW_Y + index * ACH_ROW_H, 680f, ACH_ROW_H - 8f);
@@ -136,6 +143,7 @@ public final class Ui {
         OPEN_CODEX, CODEX_BACK, CODEX_TAB,
         OPEN_ACHIEVEMENTS, ACHIEVEMENTS_BACK, ACHIEVEMENTS_TAB,
         OPEN_CAREER, CAREER_BACK,
+        OPEN_STORY, STORY_BACK, STORY_PREV, STORY_NEXT,
         SET_DIFF_CASUAL, SET_DIFF_STANDARD, SET_DIFF_HARDCORE
     }
 
@@ -167,8 +175,20 @@ public final class Ui {
     public static Action hit(GameWorld.State state, boolean settingsOpen, boolean cheatOpen,
                              boolean codexOpen, boolean achieveOpen, boolean careerOpen,
                              float x, float y) {
+        return hit(state, settingsOpen, cheatOpen, codexOpen, achieveOpen, careerOpen, false, x, y);
+    }
+
+    public static Action hit(GameWorld.State state, boolean settingsOpen, boolean cheatOpen,
+                             boolean codexOpen, boolean achieveOpen, boolean careerOpen,
+                             boolean storyOpen, float x, float y) {
         switch (state) {
             case MENU:
+                if (storyOpen) {
+                    if (STORY_BACK.contains(x, y)) return Action.STORY_BACK;
+                    if (STORY_PREV.contains(x, y)) return Action.STORY_PREV;
+                    if (STORY_NEXT.contains(x, y)) return Action.STORY_NEXT;
+                    return null;
+                }
                 if (codexOpen) {
                     if (CODEX_BACK.contains(x, y)) return Action.CODEX_BACK;
                     if (CODEX_TAB_ENEMIES.contains(x, y) || CODEX_TAB_BOSSES.contains(x, y)) {
@@ -222,6 +242,7 @@ public final class Ui {
                 if (CODEX.contains(x, y)) return Action.OPEN_CODEX;
                 if (ACHIEVEMENTS.contains(x, y)) return Action.OPEN_ACHIEVEMENTS;
                 if (CAREER.contains(x, y)) return Action.OPEN_CAREER;
+                if (STORY.contains(x, y)) return Action.OPEN_STORY;
                 if (CHECK_UPDATE.contains(x, y)) return Action.CHECK_UPDATE;
                 return null;
             case PAUSED:

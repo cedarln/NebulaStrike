@@ -400,6 +400,10 @@ public class AudioEngine {
                     // 关卡肃清：用 WAVE 的低八度收尾，和 Boss 爆炸的余响叠在一起
                     play(SfxId.WAVE, 0.52f, 0.82f, 0f);
                     break;
+                case STORY_UNLOCK:
+                    // 解密一节档案：短促明亮，像通讯频道被接通
+                    play(SfxId.RELIC, 0.34f, 1.12f, 0f);
+                    break;
             }
         }
     }

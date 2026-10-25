@@ -93,7 +93,9 @@ public class GameWorld {
         /** v1.31：Boss 入场预警开始（code = 关卡编号，1 起） */
         BOSS_WARNING,
         /** v1.31：关卡肃清，进入过场喘息（code = 刚打完的关卡编号） */
-        STAGE_CLEAR
+        STAGE_CLEAR,
+        /** v1.32：解锁剧情章节（code = 章节序号，1 起） */
+        STORY_UNLOCK
     }
     public static final class GameEvent {
         public final EventType type;
@@ -487,6 +489,13 @@ public class GameWorld {
     public volatile int achieveTab;
     /** 生涯数据面板（菜单内，v1.30）。 */
     public volatile boolean careerOpen;
+    /** 剧情档案面板（菜单内，v1.32）。 */
+    public volatile boolean storyOpen;
+    /** 剧情档案当前页（0 起）。 */
+    public volatile int storyPage;
+    /** 刚解锁剧情的横幅倒计时（秒）与章节号。 */
+    public float storyBanner;
+    public int storyBannerChapter;
     private SettingsStore store;
 
     // ---- 应用内升级检测（状态机；网络 IO 由 app 层异步执行，这里只存状态） ----
@@ -941,6 +950,13 @@ public class GameWorld {
             bossGapTimer = bossRush() ? BOSS_RUSH_GAP
                     : mode == GameMode.ENDLESS ? BOSS_MIN_GAP : BOSS_MIN_GAP * 1.5f;
             bossesDefeated++;
+            int storyChapter = Story.chaptersForSector(stageNumber());
+            if (settings.noteStory(storyChapter)) {
+                codexDirty = true;
+                storyBanner = 4.2f;
+                storyBannerChapter = storyChapter;
+                events.add(new GameEvent(EventType.STORY_UNLOCK, boss.x, boss.y, storyChapter));
+            }
             if (bossRush()) {
                 bossRushKills++;
                 // 越深入赏金越高：第 n 个 Boss 额外 150×n，刷分靠稳而不是靠苟
@@ -1642,6 +1658,7 @@ public class GameWorld {
             if (rushBanner <= 0f) rushActive = false;
         }
         if (debutBanner > 0f) debutBanner = Math.max(0f, debutBanner - dt);
+        if (storyBanner > 0f) storyBanner = Math.max(0f, storyBanner - dt);
     }
 
     /** hit-stop：只在比当前剩余更长时接管，避免小事件截断大事件。 */
@@ -3165,7 +3182,8 @@ public class GameWorld {
                 handleUiAction(Ui.Action.QUIT_TO_MENU);
                 return true;
             default:
-                if (settingsOpen || cheatOpen || codexOpen || achieveOpen || careerOpen) {
+                if (settingsOpen || cheatOpen || codexOpen || achieveOpen || careerOpen
+                        || storyOpen) {
                     closePanels();
                     return true;
                 }
@@ -4215,6 +4233,7 @@ public class GameWorld {
                 codexOpen = false;
                 achieveOpen = false;
                 careerOpen = false;
+                storyOpen = false;
                 break;
             case OPEN_CHEATS:
                 cheatOpen = true;
@@ -4222,6 +4241,7 @@ public class GameWorld {
                 codexOpen = false;
                 achieveOpen = false;
                 careerOpen = false;
+                storyOpen = false;
                 break;
             case OPEN_CODEX:
                 codexOpen = true;
@@ -4229,6 +4249,7 @@ public class GameWorld {
                 cheatOpen = false;
                 achieveOpen = false;
                 careerOpen = false;
+                storyOpen = false;
                 flushCodex();
                 break;
             case CODEX_BACK:
@@ -4243,6 +4264,7 @@ public class GameWorld {
                 cheatOpen = false;
                 codexOpen = false;
                 careerOpen = false;
+                storyOpen = false;
                 // 打开成就页前先把账结算干净：页面显示的进度要和真实进度一致
                 commitAchievements();
                 flushCodex();
@@ -4256,12 +4278,34 @@ public class GameWorld {
                 cheatOpen = false;
                 codexOpen = false;
                 achieveOpen = false;
+                storyOpen = false;
                 // 生涯面板读的是同一本账，打开前先结算并落盘
                 commitAchievements();
                 flushCodex();
                 break;
             case CAREER_BACK:
                 careerOpen = false;
+                break;
+            case OPEN_STORY:
+                storyOpen = true;
+                settingsOpen = false;
+                cheatOpen = false;
+                codexOpen = false;
+                achieveOpen = false;
+                careerOpen = false;
+                // 默认停在最近解密的一章：玩家点进来最想看的是刚解锁的那段
+                storyPage = Math.max(0, Math.min(Story.CHAPTER_COUNT - 1,
+                        settings.storyUnlocked - 1));
+                flushCodex();
+                break;
+            case STORY_BACK:
+                storyOpen = false;
+                break;
+            case STORY_PREV:
+                if (storyPage > 0) storyPage--;
+                break;
+            case STORY_NEXT:
+                if (storyPage < Story.CHAPTER_COUNT - 1) storyPage++;
                 break;
             case ACHIEVEMENTS_TAB:
                 achieveTab = achieveTab == 0 ? 1 : 0;
@@ -4375,13 +4419,14 @@ public class GameWorld {
         if (store != null) store.save(settings);
     }
 
-    /** 菜单里的设置/LAB/图鉴/成就/生涯面板互斥；返回键统一关闭。 */
+    /** 菜单里的设置/LAB/图鉴/成就/生涯/剧情面板互斥；返回键统一关闭。 */
     public void closePanels() {
         settingsOpen = false;
         cheatOpen = false;
         codexOpen = false;
         achieveOpen = false;
         careerOpen = false;
+        storyOpen = false;
     }
 
     /** 图鉴进度只在有变化时落盘，避免每帧写 SharedPreferences。 */
@@ -4582,6 +4627,8 @@ public class GameWorld {
         v117Encounters = 0;
         debutBanner = 0f;
         debutBannerType = null;
+        storyBanner = 0f;
+        storyBannerChapter = 0;
         for (int i = 0; i < v117EncounterCounts.length; i++) v117EncounterCounts[i] = 0;
         // v1.18：本局成就读数归零（Settings 里的历史最佳与累计账本不动）
         for (int i = 0; i < typeKills.length; i++) typeKills[i] = 0;

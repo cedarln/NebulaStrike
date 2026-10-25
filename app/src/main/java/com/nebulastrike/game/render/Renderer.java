@@ -30,6 +30,7 @@ import com.nebulastrike.game.core.Relic;
 import com.nebulastrike.game.core.Settings;
 import com.nebulastrike.game.core.Ship;
 import com.nebulastrike.game.core.Star;
+import com.nebulastrike.game.core.Story;
 import com.nebulastrike.game.core.Synergy;
 import com.nebulastrike.game.core.Turret;
 import com.nebulastrike.game.core.Ultimate;
@@ -2142,6 +2143,7 @@ public class Renderer {
                 else if (w.codexOpen) drawCodex(c, w);
                 else if (w.achieveOpen) drawAchievements(c, w);
                 else if (w.careerOpen) drawCareer(c, w);
+                else if (w.storyOpen) drawStory(c, w);
                 else if (w.settingsOpen) drawSettings(c, w);
                 else drawMenu(c, w);
                 return;
@@ -2712,6 +2714,26 @@ public class Renderer {
                     VW / 2f, 838f, paint);
             paint.setTextAlign(Paint.Align.LEFT);
         }
+        // 剧情解密横幅：和过场横幅错开一档，安静地出现在战场中段
+        if (w.storyBanner > 0f && w.storyBannerChapter > 0) {
+            int chapter = Math.max(0, Math.min(Story.CHAPTER_COUNT - 1, w.storyBannerChapter - 1));
+            float k = Math.min(1f, w.storyBanner / 0.5f);
+            float in = Math.min(1f, (4.2f - w.storyBanner) / 0.35f);
+            float s = 0.8f + 0.2f * in;
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(34f * s);
+            paint.setFakeBoldText(true);
+            paint.setColor(((int) (0xFF * k) << 24) | 0x00B08FFF);
+            c.drawText("档案解密 · 第 " + w.storyBannerChapter + " 章", VW / 2f, 960f, paint);
+            paint.setTextSize(26f * s);
+            paint.setColor(((int) (0xE8 * k) << 24) | 0x00E8F1FF);
+            c.drawText(Story.title(chapter), VW / 2f, 998f, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextSize(20f * s);
+            paint.setColor(((int) (0xB0 * k) << 24) | 0x008FA3C8);
+            c.drawText("主菜单 · 剧情档案可回看", VW / 2f, 1030f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
         paint.setTextAlign(Paint.Align.LEFT);
     }
     /** 竖屏操作呈现：浮动摇杆（按下才显示）+ 右下角炸弹圆键。 */
@@ -2922,6 +2944,8 @@ public class Renderer {
                 w.settings.achievementsUnlocked() + "/" + Achievement.COUNT, 0xFFFFD166);
         menuEntry(c, Ui.CAREER, "生涯",
                 "出勤 " + Career.count(w.settings.runsStarted) + " 次", 0xFF6FE38B);
+        menuEntry(c, Ui.STORY, "剧情档案",
+                w.settings.storyUnlocked + "/" + Story.CHAPTER_COUNT + " 章", 0xFFB08FFF);
 
         paint.setTextSize(28f);
         paint.setColor(0xFFFFD166);
@@ -3039,20 +3063,21 @@ public class Renderer {
         String label;
         int bg, fg;
         switch (w.updateState) {
+            // v1.32：按钮收窄到 210 宽，文案必须同步压短，否则会溢出
             case CHECKING:    label = "检查中…"; bg = 0xFF182040; fg = 0xFF8FA3C8; break;
-            case UP_TO_DATE:  label = "已是最新版本 v" + w.currentVersion;
+            case UP_TO_DATE:  label = "已是最新";
                               bg = 0xFF182040; fg = 0xFF6FE38B; break;
-            case AVAILABLE:   label = "发现新版本 " + w.updateVersion + "，点击下载";
+            case AVAILABLE:   label = "发现 " + w.updateVersion + " · 下载";
                               bg = 0xFF2E7D32; fg = 0xFFE8FFEA; break;
             case DOWNLOADING: label = "下载中 " + w.updateProgress + "%";
                               bg = 0xFF182040; fg = 0xFFFFD166; break;
-            case READY:       label = "已就绪，正在打开安装…"; bg = 0xFF182040; fg = 0xFF7DF9FF; break;
-            case ERROR:       label = w.updateError != null ? w.updateError : "检查失败，点击重试";
+            case READY:       label = "正在安装…"; bg = 0xFF182040; fg = 0xFF7DF9FF; break;
+            case ERROR:       label = "更新失败 · 重试";
                               bg = 0xFF401820; fg = 0xFFFF7089; break;
             default:          label = "检查更新"; bg = 0xFF182040; fg = 0xFF8FA3C8; break;
         }
         button(c, Ui.CHECK_UPDATE, label, bg, fg, w.updateState == GameWorld.UpdateState.AVAILABLE,
-                34f);
+                26f);
 
         // 下载中画进度条
         if (w.updateState == GameWorld.UpdateState.DOWNLOADING) {
@@ -3434,6 +3459,129 @@ public class Renderer {
         paint.setTextAlign(Paint.Align.LEFT);
 
         button(c, Ui.CAREER_BACK, "BACK", 0xFF182040, 0xFFE8F1FF, false, 30f);
+    }
+
+    /** 剧情档案（v1.32）：顶部时间线 + 当前章节卡，锁定章节也能翻看解密条件。 */
+    private void drawStory(Canvas c, GameWorld w) {
+        int unlocked = w.settings.storyUnlocked;
+        int page = Math.max(0, Math.min(Story.CHAPTER_COUNT - 1, w.storyPage));
+        boolean open = page < unlocked;
+
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xE60A1024);
+        c.drawRect(0, 0, VW, VH, paint);
+        paint.setColor(0xE60A0C18);
+        c.drawRoundRect(80f, 150f, 820f, 1380f, 26f, 26f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(0x66B08FFF);
+        c.drawRoundRect(80f, 150f, 820f, 1380f, 26f, 26f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(56f);
+        paint.setFakeBoldText(true);
+        paint.setColor(0xFFB08FFF);
+        c.drawText("STORY 星海档案", VW / 2f, 226f, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextSize(24f);
+        paint.setColor(0xFF8FA3C8);
+        c.drawText("时间线 " + unlocked + "/" + Story.CHAPTER_COUNT
+                + "  ·  击破一位 Boss 解密下一章", VW / 2f, 268f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+
+        // 时间线：已解密亮紫、当前页金色、未解密暗格
+        float dotY = 322f;
+        float step = 660f / (Story.CHAPTER_COUNT - 1);
+        paint.setStrokeWidth(3f);
+        paint.setColor(0x33FFFFFF);
+        c.drawLine(120f, dotY, 780f, dotY, paint);
+        for (int i = 0; i < Story.CHAPTER_COUNT; i++) {
+            float x = 120f + i * step;
+            boolean seen = i < unlocked;
+            boolean cur = i == page;
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(seen ? (cur ? 0xFFFFD166 : 0xFFB08FFF) : 0xFF2A3450);
+            c.drawCircle(x, dotY, cur ? 12f : 7f, paint);
+            if (cur) {
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2f);
+                paint.setColor(0xFFFFD166);
+                c.drawCircle(x, dotY, 20f, paint);
+                paint.setStyle(Paint.Style.FILL);
+            }
+        }
+
+        paint.setColor(0xFF8FA3C8);
+        paint.setTextSize(22f);
+        paint.setFakeBoldText(true);
+        c.drawText(Story.tag(page), 110f, 392f, paint);
+        paint.setTextSize(40f);
+        paint.setColor(open ? 0xFFE8F1FF : 0xFF4A5470);
+        c.drawText(Story.title(page), 110f, 442f, paint);
+        paint.setFakeBoldText(false);
+
+        paint.setColor(0x22FFFFFF);
+        c.drawRect(110f, 464f, 790f, 466f, paint);
+
+        if (!open) {
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(34f);
+            paint.setColor(0xFF5A647F);
+            c.drawText("··· 档案未解密 ···", VW / 2f, 700f, paint);
+            paint.setTextSize(26f);
+            paint.setColor(0xFF8FA3C8);
+            c.drawText(Story.unlockHint(page), VW / 2f, 748f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        } else {
+            float y = 512f;
+            paint.setTextSize(29f);
+            paint.setColor(0xFFC8D6F0);
+            for (String paragraph : Story.body(page)) {
+                y = drawWrapped(c, paragraph, 110f, y, 680f, 44f);
+                y += 22f;
+            }
+        }
+
+        boolean ending = Story.isEnding(page);
+        if (open && ending) {
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(24f);
+            paint.setColor(0xFFFFD166);
+            c.drawText("—— 完 ——", VW / 2f, 1150f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+
+        button(c, Ui.STORY_PREV, "上一章", page > 0 ? 0xFF182040 : 0xFF101526,
+                page > 0 ? 0xFF8FA3C8 : 0xFF3A4260, false, 26f);
+        button(c, Ui.STORY_NEXT, "下一章", page < Story.CHAPTER_COUNT - 1 ? 0xFF182040 : 0xFF101526,
+                page < Story.CHAPTER_COUNT - 1 ? 0xFF8FA3C8 : 0xFF3A4260, false, 26f);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(26f);
+        paint.setColor(0xFF8FA3C8);
+        c.drawText((page + 1) + " / " + Story.CHAPTER_COUNT, VW / 2f, 1314f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+
+        button(c, Ui.STORY_BACK, "BACK", 0xFF182040, 0xFFE8F1FF, false, 30f);
+    }
+
+    /** 逐字换行（中文没有空格可断），返回下一行的基线 Y。 */
+    private float drawWrapped(Canvas c, String text, float x, float y, float maxWidth,
+                              float lineHeight) {
+        float lineY = y;
+        int start = 0;
+        for (int i = 1; i <= text.length(); i++) {
+            boolean last = i == text.length();
+            if (!last && paint.measureText(text, start, i) <= maxWidth) continue;
+            // 超宽时退一个字；只有一个字也放不下就硬画
+            int end = last ? i : Math.max(start + 1, i - 1);
+            c.drawText(text, start, end, x, lineY, paint);
+            start = end;
+            lineY += lineHeight;
+            i = end;
+        }
+        return lineY;
     }
 
     private static int totalOf(int[] totals, Achievement.Metric m) {

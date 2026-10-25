@@ -48,6 +48,7 @@ public class SharedPrefsStore implements SettingsStore {
         into.runsStarted = prefs.getInt("runsStarted", 0);
         into.deaths = prefs.getInt("deaths", 0);
         into.bestWave = prefs.getInt("bestWave", 0);
+        into.storyUnlocked = prefs.getInt("storyUnlocked", 1);
         into.sanitize();
     }
 
@@ -120,7 +121,8 @@ public class SharedPrefsStore implements SettingsStore {
         e.putInt("rushBest", s.rushBest)
                 .putInt("runsStarted", s.runsStarted)
                 .putInt("deaths", s.deaths)
-                .putInt("bestWave", s.bestWave);
+                .putInt("bestWave", s.bestWave)
+                .putInt("storyUnlocked", s.storyUnlocked);
         e.apply();
     }
 }
