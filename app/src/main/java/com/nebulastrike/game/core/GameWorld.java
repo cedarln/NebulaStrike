@@ -111,7 +111,15 @@ public class GameWorld {
         /** v1.40：最终旗舰第一次被打空血，重构回场（code = 重构后的阶段） */
         BOSS_REBIRTH,
         /** v1.40：主线通关，进入结局演出（code 1 = 首次通关） */
-        CAMPAIGN_CLEAR
+        CAMPAIGN_CLEAR,
+        /** v1.41：友军补给舰进入战场（code = 满血值） */
+        ESCORT_INCOMING,
+        /** v1.41：补给舰被敌弹击中（不震屏，只报个信） */
+        ESCORT_HIT,
+        /** v1.41：补给舰安全离场并投下补给（code = 吃掉的敌弹数） */
+        ESCORT_SAVED,
+        /** v1.41：补给舰被击毁，护航失败 */
+        ESCORT_LOST
     }
     public static final class GameEvent {
         public final EventType type;
@@ -151,6 +159,21 @@ public class GameWorld {
     public final Turret[] turrets = new Turret[3];
     /** v1.15：重力井（GRAVITY 道具）同时最多 2 口，避免整屏敌弹被吸干净。 */
     public final GravityWell[] gravityWells = new GravityWell[2];
+
+    // ---- v1.41：护航目标 ESCORT ----
+    /** 友军补给舰「星鸦」：保护它穿越，成功就投下补给。 */
+    public final Escort escort = new Escort();
+    /** 第一趟护航出现的时刻（秒）：第一场 Boss 之前，玩家已经熟悉基本走位。 */
+    public static final float ESCORT_FIRST_AT = 30f;
+    /** 两趟护航之间的间隔；失败与成功都从这里重新计时。 */
+    public static final float ESCORT_PERIOD = 52f;
+    public static final float ESCORT_BANNER_TIME = 3.4f;
+    public static final int ESCORT_REWARD_SCORE = 800;
+    /** 距离下一次护航出现还有多久；Boss 战与换段过场期间冻结。 */
+    public float escortTimer = ESCORT_FIRST_AT;
+    public float escortBanner;
+    public int escortsSaved;
+    public int escortsLost;
 
     // ---- v1.26：局内祭坛 ALTAR ----
     /** 场上最多一座祭坛：它要占住一块场地，多了反而变成刷分点。 */
@@ -864,6 +887,7 @@ public class GameWorld {
         updateV117Encounters(dt);
         updateSpawning(dt);
         updateRushWave(dt);
+        updateEscort(dt);
         updateGrace(dt);
         updateBoss(dt * timeScale);
 
@@ -1013,6 +1037,8 @@ public class GameWorld {
                 boss.init(finalFight ? FINAL_BOSS_LEVEL : bossesDefeated);
                 finalBossFight = finalFight;
                 finalBossRebirthed = false;
+                // Boss 入场时护航舰先行撤离：两套节拍不叠在一起，也避免它替玩家吃掉 Boss 弹
+                if (escort.active && !escort.leaving) escort.leaving = true;
                 bossActive = true;
                 bossWarningTimer = bossRush() ? BOSS_RUSH_WARNING_TIME : BOSS_WARNING_TIME;
                 events.add(new GameEvent(EventType.BOSS_SPAWNED, boss.x, boss.y));
@@ -1901,6 +1927,86 @@ public class GameWorld {
         }
         spawnPowerUp(PowerUp.Kind.BONUS, cx, -20f);
         events.add(new GameEvent(EventType.RUSH, cx, 0f));
+    }
+
+    /**
+     * v1.41 护航：补给舰按固定节拍出现，Boss 战与换段过场期间不会刷新。
+     * 它的信标把附近的敌弹拉向自己——玩家想拿补给，就得替它清出一条走廊。
+     */
+    private void updateEscort(float dt) {
+        if (escortBanner > 0f) escortBanner = Math.max(0f, escortBanner - dt);
+        if (escort.active) {
+            if (!escort.update(dt)) {
+                // 安全爬升离场：投下补给并计入本局护航成功数
+                spawnPowerUp(dropWeaponKind(), escort.x, Math.max(escort.y, 90f));
+                addScore(ESCORT_REWARD_SCORE, SCORE_OTHER);
+                escortsSaved++;
+                addShake(0.18f, 6f);
+                events.add(new GameEvent(EventType.ESCORT_SAVED,
+                        escort.x, Math.max(escort.y, 90f), escort.absorbed));
+                escortTimer = ESCORT_PERIOD;
+                return;
+            }
+            tauntBulletsTowardEscort(dt);
+            absorbBulletsOnEscort();
+            return;
+        }
+        if (!spawningEnabled || bossRush() || bossActive || inInterlude()) return;
+        escortTimer = Math.max(0f, escortTimer - dt);
+        if (escortTimer > 0f) return;
+        float x = 220f + RNG.get().nextFloat() * (WIDTH - 440f);
+        escort.init(x);
+        escortBanner = ESCORT_BANNER_TIME;
+        events.add(new GameEvent(EventType.ESCORT_INCOMING, x, 120f, (int) Escort.MAX_HP));
+    }
+
+    /** 悬停期间把半径内的敌弹慢慢掰向自己：护航目标越危险，越值得去救。 */
+    private void tauntBulletsTowardEscort(float dt) {
+        if (!escort.holding()) return;
+        float r2 = Escort.TAUNT_RADIUS * Escort.TAUNT_RADIUS;
+        for (EnemyBullet b : enemyBullets) {
+            if (!b.active || b.homing || b.web || b.mine) continue;
+            float dx = escort.x - b.x, dy = escort.y - b.y;
+            if (dx * dx + dy * dy > r2) continue;
+            float speed = (float) Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+            if (speed < 1f) continue;
+            float cur = (float) Math.atan2(b.vy, b.vx);
+            float want = (float) Math.atan2(dy, dx);
+            float diff = want - cur;
+            while (diff > Math.PI) diff -= (float) (Math.PI * 2);
+            while (diff < -Math.PI) diff += (float) (Math.PI * 2);
+            float maxTurn = Escort.TAUNT_TURN * dt;
+            if (diff > maxTurn) diff = maxTurn;
+            if (diff < -maxTurn) diff = -maxTurn;
+            float a = cur + diff;
+            b.vx = (float) Math.cos(a) * speed;
+            b.vy = (float) Math.sin(a) * speed;
+        }
+    }
+
+    /** 敌弹撞上补给舰：弹被吃掉、舰体扣血；打空就护航失败（不扣命）。 */
+    private void absorbBulletsOnEscort() {
+        for (EnemyBullet b : enemyBullets) {
+            if (!b.active || b.web) continue;
+            float rr = Escort.RADIUS * 0.78f + b.radius;
+            float dx = b.x - escort.x, dy = b.y - escort.y;
+            if (dx * dx + dy * dy > rr * rr) continue;
+            b.active = false;
+            escort.absorbed++;
+            spark(b.x, b.y, 3, 8);
+            float damage = Escort.BULLET_DAMAGE + Math.max(0f, b.radius - 10f) * 0.45f;
+            if (escort.damage(damage)) {
+                explode(escort.x, escort.y, 8);
+                explode(escort.x - 22f, escort.y + 12f, 8);
+                addShake(0.42f, 18f);
+                escortsLost++;
+                events.add(new GameEvent(EventType.ESCORT_LOST, escort.x, escort.y));
+                escort.active = false;
+                escortTimer = ESCORT_PERIOD;
+                return;
+            }
+            events.add(new GameEvent(EventType.ESCORT_HIT, b.x, b.y));
+        }
     }
 
     /** 擦弹槽满：清空敌弹并进入短时火力爆发。 */
@@ -5083,6 +5189,14 @@ public class GameWorld {
         altarsBlessed = 0;
         altarFlash = 0f;
         altarCleared = 0;
+        // v1.41：护航状态归零
+        escort.active = false;
+        escort.hp = Escort.MAX_HP;
+        escort.absorbed = 0;
+        escortTimer = ESCORT_FIRST_AT;
+        escortBanner = 0f;
+        escortsSaved = 0;
+        escortsLost = 0;
         // v1.27：赏金状态归零
         if (bountyTarget != null) bountyTarget.bounty = false;
         bountyTarget = null;

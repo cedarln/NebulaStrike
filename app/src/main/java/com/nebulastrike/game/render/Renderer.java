@@ -19,6 +19,7 @@ import com.nebulastrike.game.core.DailyChallenge;
 import com.nebulastrike.game.core.Difficulty;
 import com.nebulastrike.game.core.Enemy;
 import com.nebulastrike.game.core.EnemyType;
+import com.nebulastrike.game.core.Escort;
 import com.nebulastrike.game.core.FloatText;
 import com.nebulastrike.game.core.GameMode;
 import com.nebulastrike.game.core.GameWorld;
@@ -107,6 +108,7 @@ public class Renderer {
         drawPowerUps(c, w);
         drawEnemyBullets(c, w);
         drawEnemies(c, w);
+        drawEscort(c, w);
         drawTurrets(c, w);
         drawGravityWells(c, w);
         drawAltar(c, w);
@@ -1468,6 +1470,50 @@ public class Renderer {
     }
 
     /** 玩家炮台：底座 + 旋转炮管 + 耐久条，倒计时最后 2 秒开始闪烁。 */
+    /**
+     * v1.41 护航舰：友军绿松石色舰体 + 信标范围环 + 头顶血条。
+     * 它必须和敌机一眼分开——形状是六边补给舱，配色只用薄荷/白色，不参与敌方配色。
+     */
+    private void drawEscort(Canvas c, GameWorld w) {
+        Escort e = w.escort;
+        if (!e.active) return;
+        float breathe = 0.5f + 0.5f * (float) Math.sin(w.timeAlive * 3f);
+        if (e.holding() && !w.settings.reducedFx) {
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2f);
+            paint.setColor(((int) (0x24 + 0x14 * breathe) << 24) | 0x007CFFB0);
+            c.drawCircle(e.x, e.y, Escort.TAUNT_RADIUS * (0.96f + 0.04f * breathe), paint);
+            paint.setStyle(Paint.Style.FILL);
+        }
+        glow.setColor(0x3A7CFFB0);
+        c.drawCircle(e.x, e.y, Escort.RADIUS * 1.8f, glow);
+        paint.setColor(e.flash > 0.4f ? 0xFFFFFFFF : 0xFF1E3D46);
+        hexagon(c, e.x, e.y, Escort.RADIUS, 0xFF2A6B5C);
+        paint.setColor(0xFF7CFFB0);
+        c.drawRect(e.x - 5f, e.y - Escort.RADIUS * 0.92f,
+                e.x + 5f, e.y + Escort.RADIUS * 0.45f, paint);
+        paint.setColor(0xFFC8FFE0);
+        c.drawRect(e.x - Escort.RADIUS * 0.9f, e.y - 8f,
+                e.x - Escort.RADIUS * 0.55f, e.y + 16f, paint);
+        c.drawRect(e.x + Escort.RADIUS * 0.55f, e.y - 8f,
+                e.x + Escort.RADIUS * 0.9f, e.y + 16f, paint);
+        paint.setColor(((int) (0xA0 + 0x5F * breathe) << 24) | 0x00FFFFFF);
+        c.drawCircle(e.x, e.y - Escort.RADIUS * 0.55f, 4f, paint);
+        // 头顶血条：绿 → 琥珀 → 红，和玩家护盾条用同一套读数习惯
+        float bw = 120f;
+        float frac = e.hpFrac();
+        float by = e.y - Escort.RADIUS - 26f;
+        paint.setColor(0xC0151A2A);
+        c.drawRect(e.x - bw / 2f, by, e.x + bw / 2f, by + 9f, paint);
+        paint.setColor(frac > 0.6f ? 0xFF6BFF9E : frac > 0.3f ? 0xFFFFD166 : 0xFFFF5C7A);
+        c.drawRect(e.x - bw / 2f, by, e.x - bw / 2f + bw * frac, by + 9f, paint);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(18f);
+        paint.setColor(0xFF9BE8FF);
+        c.drawText("ESCORT · 星鸦", e.x, by - 8f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
     private void drawTurrets(Canvas c, GameWorld w) {
         for (Turret t : w.turrets) {
             if (t == null || !t.active) continue;
@@ -2932,6 +2978,23 @@ public class Renderer {
                             ? "连杀 ×" + w.bountyStreak + " · 赏金与目标强度同步上涨"
                             : "限时击毁 · 奖励分数与保底道具";
             c.drawText(sub, VW / 2f, 412f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+        // v1.41：护航目标登场——只报一次，之后靠舰体与血条自己说话
+        if (w.escortBanner > 0f) {
+            float k = Math.min(1f, w.escortBanner / 0.4f);
+            float in = Math.min(1f, (GameWorld.ESCORT_BANNER_TIME - w.escortBanner) / 0.25f);
+            float s = 0.72f + 0.28f * in;
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(48f * s);
+            paint.setFakeBoldText(true);
+            paint.setColor(((int) (0xFF * k) << 24) | 0x007CFFB0);
+            c.drawText("护航目标 · 补给舰「星鸦」", VW / 2f, 470f, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextSize(23f * s);
+            paint.setColor(((int) (0xD0 * k) << 24) | 0x00E8F1FF);
+            c.drawText("信标会吸引附近敌弹 · 护送到离场就投下补给",
+                    VW / 2f, 502f, paint);
             paint.setTextAlign(Paint.Align.LEFT);
         }
         // v1.17：新舰型首次登场介绍（只在存档里第一次遇到时弹，读一次就够）

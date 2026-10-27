@@ -301,6 +301,10 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case BOSS_REBIRTH: haptics.bomb(); break;
                     // 通关：最后一下长震，之后就让画面安静下来
                     case CAMPAIGN_CLEAR: haptics.impact(); break;
+                    // 护航舰：入场轻点、成功重震、失败给一次短促的中震
+                    case ESCORT_INCOMING: haptics.tick(); break;
+                    case ESCORT_SAVED: haptics.bomb(); break;
+                    case ESCORT_LOST: haptics.impact(); break;
                     // 棱镜召唤：比横冲轻，像"多了两个东西在绕圈"
                     case BOSS_PRISM: haptics.tick(); break;
                     // 祭坛降临只是提示；吸弹太频繁不给震，免得整场都在嗡嗡

@@ -437,6 +437,22 @@ public class AudioEngine {
                     // 通关：成就号角再降半档、拖长余韵，和坠机的下坠音完全分开
                     play(SfxId.ACHIEVEMENT, 1f, 0.84f, 0f);
                     break;
+                case ESCORT_INCOMING:
+                    // 友军入场：明亮短促，和敌舰预警的警报音走相反的情绪
+                    play(SfxId.BONUS, 0.5f, 1.08f, 0f);
+                    break;
+                case ESCORT_HIT:
+                    // 补给舰挨弹：压得很低，只是"它在流血"的提示，不抢受击音
+                    play(SfxId.SHIELD_BLOCK, 0.26f, 0.78f, panFor(e.x));
+                    break;
+                case ESCORT_SAVED:
+                    // 护送成功：一段完整的上扬音，奖励感和大招同档
+                    play(SfxId.ACHIEVEMENT, 0.82f, 1.02f, panFor(e.x));
+                    break;
+                case ESCORT_LOST:
+                    // 护航失败：重爆音但音高下坠，不扣命，所以不接 GAME_OVER 的低鸣
+                    play(SfxId.EXPLODE_HEAVY, 0.72f, 0.82f, panFor(e.x));
+                    break;
             }
         }
     }
