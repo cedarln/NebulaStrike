@@ -327,6 +327,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case BOSS_CORE_OPEN: haptics.tick(); break;
                     // 连杀点着狂热：中震确认"节奏起来了"，结束不再震动
                     case FRENZY_START: haptics.impact(); break;
+                    // 词缀揭晓：轻震把视线带到血条下的词缀名
+                    case BOSS_AFFIX: haptics.tick(); break;
                     case MIRAGE_REVEAL: haptics.tick(); break;
                     // 分数奖励命：和大招同档的长震，让"跨过阈值"这件事被身体记住
                     case EXTRA_LIFE: haptics.bomb(); break;

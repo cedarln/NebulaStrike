@@ -11,6 +11,7 @@ import com.nebulastrike.game.core.Achievement;
 import com.nebulastrike.game.core.Achievements;
 import com.nebulastrike.game.core.Altar;
 import com.nebulastrike.game.core.Boss;
+import com.nebulastrike.game.core.BossAffix;
 import com.nebulastrike.game.core.BossLaser;
 import com.nebulastrike.game.core.BossPart;
 import com.nebulastrike.game.core.Bullet;
@@ -2060,8 +2061,21 @@ public class Renderer {
         String barName = w.finalBossFight
                 ? "FINAL · " + Story.bossName(w.stageNumber())
                 : b.title() + "  MK-" + (b.level + 1);
-        c.drawText(barName + "   PHASE " + b.phase + "/3" + status,
-                VW / 2f, by + 50f, paint);
+        String head = barName + "   PHASE " + b.phase + "/3" + status;
+        String affixTxt = b.affix == BossAffix.NONE ? ""
+                : "   ◆ " + b.affix.label + " " + b.affix.tag;
+        if (affixTxt.isEmpty()) {
+            c.drawText(head, VW / 2f, by + 50f, paint);
+        } else {
+            // 词缀单独上色：名字照常居中，词缀接在后面用琥珀色标出来
+            paint.setTextAlign(Paint.Align.LEFT);
+            float total = paint.measureText(head + affixTxt);
+            float startX = VW / 2f - total / 2f;
+            c.drawText(head, startX, by + 50f, paint);
+            paint.setColor(0xFFFFB36B);
+            c.drawText(affixTxt, startX + paint.measureText(head), by + 50f, paint);
+            paint.setTextAlign(Paint.Align.CENTER);
+        }
 
         // component pips：形状区分部件种类（圆=机炮 方=激光 菱=护盾 三角=分裂舱），暗色=已摧毁
         float pipY = by + 68f;

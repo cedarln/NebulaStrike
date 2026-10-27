@@ -317,6 +317,11 @@ public class AudioEngine {
                 case FRENZY_END:
                     play(SfxId.UI, 0.2f, 0.6f, panFor(e.x));
                     break;
+                case BOSS_AFFIX:
+                    // 词缀揭晓：比 Boss 入场更低一截的警报，提示"这一场规则变了"
+                    play(SfxId.ALARM, 0.5f, 0.74f + 0.06f * Math.max(0, e.code - 1),
+                            panFor(e.x));
+                    break;
                 case ULT_READY:
                     play(SfxId.ULT_READY, 0.75f, 1f, 0f);
                     break;

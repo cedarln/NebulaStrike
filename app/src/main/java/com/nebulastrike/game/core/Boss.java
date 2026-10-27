@@ -44,6 +44,10 @@ public class Boss {
     /** 三阶段棱镜召唤：已召唤过就不再重复，队列由 GameWorld 消费。 */
     public boolean prismsSummoned;
     public boolean prismQueued;
+    /** v1.47 词缀与它带来的两项修正：攻击节奏倍率、舰体受击倍率。 */
+    public BossAffix affix = BossAffix.NONE;
+    public float tempo = 1f;
+    public float armor = 1f;
 
     public Boss() {
         for (int i = 0; i < parts.length; i++) parts[i] = new BossPart();
@@ -73,6 +77,9 @@ public class Boss {
         this.ramTargetX = this.x;
         this.prismsSummoned = false;
         this.prismQueued = false;
+        this.affix = BossAffix.NONE;
+        this.tempo = 1f;
+        this.armor = 1f;
         layoutParts();
     }
 
@@ -197,7 +204,7 @@ public class Boss {
         }
 
         if (staggerTimer <= 0f) {
-            attackCd -= dt * (0.8f + 0.25f * phase);
+            attackCd -= dt * (0.8f + 0.25f * phase) * tempo;
             minionCd -= dt;
             ramCd -= dt;
         }
@@ -283,7 +290,8 @@ public class Boss {
     }
 
     public void damage(int amount) {
-        hp -= amount * damageScale();
+        // 词缀护甲（磐垒）与护盾发生器的减伤叠乘：两条都活着时最硬
+        hp -= amount * damageScale() * armor;
         flash = 0.06f;
     }
 

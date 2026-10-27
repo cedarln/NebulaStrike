@@ -133,7 +133,9 @@ public class GameWorld {
         /** v1.46：连杀狂热点着（code = 点着时的连杀数） */
         FRENZY_START,
         /** v1.46：连杀狂热结束 */
-        FRENZY_END
+        FRENZY_END,
+        /** v1.47：Boss 词缀揭晓（code = 词缀序号，0 表示无词缀） */
+        BOSS_AFFIX
     }
     public static final class GameEvent {
         public final EventType type;
@@ -721,6 +723,16 @@ public class GameWorld {
     public float bossCoreCooldown;
     /** 核心命中反馈（渲染层读它闪白）。 */
     public float bossCoreFlash;
+
+    // ---- v1.47：Boss 词缀 AFFIX ----
+    /** 第几艘 Boss 起带词缀（0 基：level 2 就是第三艘）。 */
+    public static final int AFFIX_FROM_LEVEL = 2;
+    /** 带词缀 Boss 的击破赏金：300 + 100 × 舰级。 */
+    public static final int AFFIX_SCORE_BASE = 300;
+    /** 词缀专用 LCG：与对局主随机源隔离，同一局序列可复现、不扰动刷新节拍。 */
+    private long affixSeed = 0x2545F4914F6CDD1DL;
+    /** 本局种子：词缀序列按它起头，同一局可复现、不同局不重样。 */
+    private long runSeed;
     /** boss dead-flash timer for the renderer */
     public float bossFlash;
     /** 每种特殊武器独立的开火冷却，实现真正的同时叠加。 */
@@ -878,6 +890,8 @@ public class GameWorld {
 
     /** @param startInMenu true for the real app flow; tests use false to start playing */
     public GameWorld(long seed, boolean startInMenu) {
+        runSeed = seed;
+        affixSeed = seed * 0x9E3779B97F4A7C15L + 0x2545F4914F6CDD1DL;
         RNG.setSeed(seed);
         state = startInMenu ? State.MENU : State.PLAYING;
         for (int i = 0; i < bullets.length; i++) bullets[i] = new Bullet();
@@ -1125,8 +1139,14 @@ public class GameWorld {
                 // 普通刷新、突袭波和新舰型全被挤掉）。BOSS_MIN_GAP 再兜一层，留出喘息。
                 if (!bossRush()) nextBossWave = wave + (mode == GameMode.ENDLESS ? 3 : 4);
                 boolean finalFight = finalBossDue();
-                boss.init(finalFight ? FINAL_BOSS_LEVEL : bossesDefeated);
+                int bossLevel = finalFight ? FINAL_BOSS_LEVEL : bossesDefeated;
+                boss.init(bossLevel);
                 resetBossCore();
+                rollBossAffix(bossLevel);
+                if (boss.affix != BossAffix.NONE) {
+                    events.add(new GameEvent(EventType.BOSS_AFFIX, boss.x, boss.y,
+                            boss.affix.ordinal()));
+                }
                 finalBossFight = finalFight;
                 finalBossRebirthed = false;
                 // Boss 入场时护航舰先行撤离：两套节拍不叠在一起，也避免它替玩家吃掉 Boss 弹
@@ -1223,6 +1243,15 @@ public class GameWorld {
                 }
             }
             addScore(500 + boss.level * 250, SCORE_BOSS);
+            // 词缀赏金：扛着更硬的壳 / 更快的炮打完，多给一笔；磐垒与蜂群再多掉一件
+            int affixPayout = bossAffixBonus();
+            if (affixPayout > 0) {
+                addScore(affixPayout, SCORE_BOSS);
+                if (boss.affix == BossAffix.BULWARK || boss.affix == BossAffix.BROOD) {
+                    float roll = ((nextAffixRoll() & 0x7fffffff) % 1000) / 1000f;
+                    spawnPowerUp(dropKind(roll), boss.x - 120f, boss.y + 60f);
+                }
+            }
             explode(boss.x, boss.y, 2);
             explode(boss.x - boss.radius * 0.7f, boss.y + 30f, 3);
             explode(boss.x + boss.radius * 0.7f, boss.y - 20f, 0);
@@ -1332,7 +1361,10 @@ public class GameWorld {
             spark(b.x, b.y, 2, 4);
         }
         int n = boss.phase >= 3 ? 3 : 2;
-        EnemyType[] escort = {EnemyType.HUNTER, EnemyType.SPLITTER, EnemyType.HUNTER};
+        // 蜂群词缀：每次换段多放两架，把"清增援"变成真正的分心点
+        if (boss.affix == BossAffix.BROOD) n += 2;
+        EnemyType[] escort = {EnemyType.HUNTER, EnemyType.SPLITTER, EnemyType.HUNTER,
+                EnemyType.DRONE, EnemyType.SPLITTER};
         int made = 0;
         for (int i = 0; i < n; i++) {
             EnemyType type = escort[i];
@@ -1512,7 +1544,7 @@ public class GameWorld {
             bossCoreTimer -= dt;
             if (bossCoreTimer <= 0f) {
                 bossCoreTimer = 0f;
-                bossCoreCooldown = CORE_INTERVAL;
+                bossCoreCooldown = coreInterval();
                 events.add(new GameEvent(EventType.BOSS_CORE_CLOSE, boss.x, boss.y));
             }
             return;
@@ -1530,6 +1562,35 @@ public class GameWorld {
         bossCoreTimer = 0f;
         bossCoreCooldown = CORE_FIRST_DELAY;
         bossCoreFlash = 0f;
+    }
+
+    /** 词缀专用掷点：每艘带词缀的 Boss 前进一格，不碰对局主随机源。 */
+    private int nextAffixRoll() {
+        affixSeed = affixSeed * 6364136223846793005L + 1442695040888963407L;
+        return (int) ((affixSeed >>> 33) & 0x7fffffff);
+    }
+
+    /** 按舰级掷一条词缀：第三艘起才有，前两艘保持无词缀。 */
+    void rollBossAffix(int level) {
+        applyBossAffix(level < AFFIX_FROM_LEVEL ? BossAffix.NONE
+                : BossAffix.of(nextAffixRoll()));
+    }
+
+    /** 把词缀落到 Boss 的修正字段上（测试也走这条路径，保证效果一致）。 */
+    void applyBossAffix(BossAffix affix) {
+        boss.affix = affix == null ? BossAffix.NONE : affix;
+        boss.tempo = boss.affix == BossAffix.BLAZE ? 1.22f : 1f;
+        boss.armor = boss.affix == BossAffix.BULWARK ? 0.84f : 1f;
+    }
+
+    /** 词缀赏金：带词缀的 Boss 击破时多给 300 + 100 × 舰级，无词缀为 0。 */
+    public int bossAffixBonus() {
+        return boss.affix == BossAffix.NONE ? 0 : AFFIX_SCORE_BASE + 100 * boss.level;
+    }
+
+    /** 疾火把核心暴露排得更勤：更快的手，也意味着更频繁的反打窗口。 */
+    private float coreInterval() {
+        return boss.affix == BossAffix.BLAZE ? CORE_INTERVAL * 0.82f : CORE_INTERVAL;
     }
 
     /** 核心是否处于可打双倍伤害的暴露窗口。 */
@@ -5562,6 +5623,7 @@ public class GameWorld {
         bountyTimer = 0f;
         bountyNextAt = BOUNTY_FIRST_AT;
         bountySeed = 0x9E3779B97F4A7C15L;
+        affixSeed = runSeed * 0x9E3779B97F4A7C15L + 0x2545F4914F6CDD1DL;
         bountyStreak = 0;
         bountyBestStreak = 0;
         bountiesClaimed = 0;
