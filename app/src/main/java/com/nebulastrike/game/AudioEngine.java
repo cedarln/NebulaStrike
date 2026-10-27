@@ -293,6 +293,15 @@ public class AudioEngine {
                     play(SfxId.GRAVITY_BURST, 0.6f + Math.min(0.35f, e.code * 0.03f),
                             vary(0.06f), panFor(e.x));
                     break;
+                case DECOY_DEPLOY:
+                    // 全息投影展开：空灵上扫，比实体部署音更"轻"
+                    play(SfxId.PHASE_SHIFT, 0.66f, 1.12f, panFor(e.x));
+                    break;
+                case DECOY_BURST:
+                    // code = 本次吞掉的敌弹数：吞得越多，爆得越厚
+                    play(SfxId.GRAVITY_BURST, 0.52f + Math.min(0.36f, e.code * 0.03f),
+                            vary(0.06f), panFor(e.x));
+                    break;
                 case ULT_READY:
                     play(SfxId.ULT_READY, 0.75f, 1f, 0f);
                     break;

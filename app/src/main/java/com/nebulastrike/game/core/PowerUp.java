@@ -18,7 +18,9 @@ public class PowerUp {
         /** v1.24：电弧炮（武器类，叠加不替换；命中后向附近目标连锁放电）。 */
         ARC,
         /** v1.43：回旋镖（武器类，叠加不替换；去程折返、回程沿发射线扫回来）。 */
-        BOOMERANG }
+        BOOMERANG,
+        /** v1.44：诱饵浮标（9 秒内把敌人的瞄准骗到浮标上，吃满或到期时爆散清弹）。 */
+        DECOY }
 
     public Kind kind;
     public float x, y;

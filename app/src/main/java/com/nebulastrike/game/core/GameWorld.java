@@ -121,7 +121,11 @@ public class GameWorld {
         /** v1.41：补给舰被击毁，护航失败 */
         ESCORT_LOST,
         /** v1.42：旋翼者甩出旋转光刃（code = 扫向 +1/-1） */
-        GYRE_SPIN
+        GYRE_SPIN,
+        /** v1.44：诱饵浮标部署（code = 满耐久吸收数） */
+        DECOY_DEPLOY,
+        /** v1.44：诱饵浮标爆散（code = 本次吃掉/吸收的敌弹数） */
+        DECOY_BURST
     }
     public static final class GameEvent {
         public final EventType type;
@@ -273,6 +277,8 @@ public class GameWorld {
     public static final int FLOAT_MUTATOR = 0xFFD166;
     /** 重力井吞弹飘字（Renderer 直接取用）。 */
     public static final int FLOAT_GRAVITY = 0xC9A0FF;
+    /** v1.44：诱饵浮标吞弹飘字（全息青）。 */
+    public static final int FLOAT_DECOY = 0x57E8FF;
     /** 终极技充能折算 / 折弹得分的飘字色（金色）。 */
     public static final int FLOAT_ULT = 0xFFE08A;
 
@@ -547,6 +553,32 @@ public class GameWorld {
     public static final int MAX_BOUNCES = 3;
     /** 回旋镖去程时长：0.62 秒约飞 550 像素，正好覆盖中段的敌机群再折返。 */
     public static final float BOOMERANG_OUT_TIME = 0.62f;
+
+    // ---- v1.44：诱饵浮标 DECOY ----
+    /** 浮标寿命：9 秒的重心转移，够打完一轮 Boss 弹幕或穿过一段高压区。 */
+    public static final float DECOY_LIFE = 9f;
+    public static final float DECOY_RADIUS = 24f;
+    /** 引力范围（比重力井小得多：它只负责自己的"骗术"，不和 GRAVITY 抢定位）。 */
+    public static final float DECOY_PULL_RADIUS = 170f;
+    public static final float DECOY_PULL_ACCEL = 2600f;
+    /** 进入这个距离的敌弹被全息外壳吞掉（再加敌弹自身半径）。 */
+    public static final float DECOY_ABSORB_RADIUS = 34f;
+    /** 吸收上限：吃满立即过载爆散，奖励玩家"把弹幕引过去"的打法。 */
+    public static final int DECOY_MAX_ABSORB = 12;
+    public static final int DECOY_ABSORB_SCORE = 4;
+    /** 爆散半径与伤害：清掉范围内的弹，顺手给贴脸的敌机补一刀。 */
+    public static final float DECOY_BURST_RADIUS = 190f;
+    public static final int DECOY_BURST_DAMAGE = 2;
+    public boolean decoyActive;
+    public float decoyX, decoyY;
+    public float decoyLife;
+    public int decoyAbsorb;
+    /** 吸收时的全息闪动余量（1 → 0）。 */
+    public float decoyPulse;
+    /** 爆散余晖（1 → 0），渲染层画一圈扩散环。 */
+    public float decoyFlash;
+    private final Enemy[] decoyVictims = new Enemy[enemies.length];
+
     /** RELIC_GAINED 事件的 code 上限，方便测试断言。 */
     public static final int RELIC_COUNT = Relic.COUNT;
 
@@ -2102,7 +2134,7 @@ public class GameWorld {
                 break;
             }
             case HUNTER: // aimed shot
-                float dx = ship.x - e.x, dy = ship.y - e.y;
+                float dx = aimX() - e.x, dy = aimY() - e.y;
                 float len = (float) Math.sqrt(dx * dx + dy * dy);
                 if (len < 1f) len = 1f;
                 EnemyBullet b = freeEnemyBullet();
@@ -2110,7 +2142,7 @@ public class GameWorld {
                 e.fireCd = 2.2f + RNG.get().nextFloat() * 0.8f;
                 break;
             case SNIPER: // 预警 0.7 秒后的高速瞄准弹
-                float sx = ship.x - e.x, sy = ship.y - e.y;
+                float sx = aimX() - e.x, sy = aimY() - e.y;
                 float sl = (float) Math.sqrt(sx * sx + sy * sy);
                 if (sl < 1f) sl = 1f;
                 float snipeSpeed = 560f + 40f * Math.min(4f, timeAlive / 60f);
@@ -2153,7 +2185,7 @@ public class GameWorld {
             case SEEKER: {
                 // 追猎者：两侧发射管各放一枚追踪弹。初速朝飞船，之后按有限转向率修正；
                 // 寿命 4.2 秒、转向率 120°/秒——横向拉开或冲刺都能把它们甩到身后。
-                float hx = ship.x - e.x, hy = ship.y - e.y;
+                float hx = aimX() - e.x, hy = aimY() - e.y;
                 float hl = (float) Math.sqrt(hx * hx + hy * hy);
                 if (hl < 1f) { hx = 0f; hy = 1f; hl = 1f; }
                 int made = 0;
@@ -2179,7 +2211,7 @@ public class GameWorld {
             case SNARER: {
                 // 缚网者：左右各抛一枚缓慢的网弹，落点覆盖飞船两侧；
                 // 不致死，但被缠住 2 秒——这 2 秒里速度只剩 45%，也冲不出去
-                float wx = ship.x - e.x, wy = ship.y - e.y;
+                float wx = aimX() - e.x, wy = aimY() - e.y;
                 float wl = (float) Math.sqrt(wx * wx + wy * wy);
                 if (wl < 1f) { wx = 0f; wy = 1f; wl = 1f; }
                 for (int i = -1; i <= 1; i += 2) {
@@ -2236,7 +2268,7 @@ public class GameWorld {
             case PHASER: {
                 // 相位者只在实体期开火：一对窄角瞄准弹，逼玩家在"能打"的窗口里走位；
                 // 相位期完全沉默，那 0.7 秒是玩家重新占位的时间
-                float px = ship.x - e.x, py = ship.y - e.y;
+                float px = aimX() - e.x, py = aimY() - e.y;
                 float pl = (float) Math.sqrt(px * px + py * py);
                 if (pl < 1f) { px = 0f; py = 1f; pl = 1f; }
                 for (int i = -1; i <= 1; i += 2) {
@@ -2379,6 +2411,7 @@ public class GameWorld {
         updateNano(dt);
         updateTurrets(dt);
         updateGravityWells(dt);
+        updateDecoy(dt);
         updateAltar(dt);
         updateBounty(dt);
         updateMinersAndCarriers();
@@ -2536,6 +2569,114 @@ public class GameWorld {
                 }
             }
         }
+    }
+
+    // ---- v1.44：诱饵浮标 DECOY ----
+
+    /**
+     * 诱饵的每帧逻辑：拉扯附近敌弹 → 靠得太近的直接吞掉 → 吃满或到期时爆散。
+     * 和重力井一样跑在 updateGrace 里（早于敌弹位移与命中判定），
+     * 所以被吞掉的弹不可能在同一帧又打到玩家。
+     */
+    private void updateDecoy(float dt) {
+        if (decoyPulse > 0f) decoyPulse = Math.max(0f, decoyPulse - dt * 3.4f);
+        if (decoyFlash > 0f) decoyFlash = Math.max(0f, decoyFlash - dt * 2.2f);
+        if (!decoyActive) return;
+        decoyLife -= dt;
+        if (decoyLife <= 0f) {
+            burstDecoy();
+            return;
+        }
+        for (EnemyBullet b : enemyBullets) {
+            if (!b.active) continue;
+            float dx = decoyX - b.x, dy = decoyY - b.y;
+            float d2 = dx * dx + dy * dy;
+            if (d2 > DECOY_PULL_RADIUS * DECOY_PULL_RADIUS) continue;
+            float d = (float) Math.sqrt(d2);
+            if (d > DECOY_ABSORB_RADIUS + b.radius) {
+                // 越近拉得越猛：全息外壳像一块磁铁，把瞄过来的弹道掰弯
+                float pull = DECOY_PULL_ACCEL * (1f - d / DECOY_PULL_RADIUS) * dt;
+                if (d > 1e-3f) {
+                    b.vx += dx / d * pull;
+                    b.vy += dy / d * pull;
+                }
+                continue;
+            }
+            b.active = false;
+            decoyAbsorb++;
+            decoyPulse = 1f;
+            ultCharge(ULT_GAIN_ABSORB, b.x, b.y);
+            int gained = addScore(DECOY_ABSORB_SCORE, SCORE_OTHER);
+            spark(b.x, b.y, 4, 4);
+            spawnFloatText(decoyX, decoyY - DECOY_RADIUS - 14f, gained, FLOAT_DECOY, false);
+            if (decoyAbsorb >= DECOY_MAX_ABSORB) {
+                burstDecoy();
+                return;
+            }
+        }
+    }
+
+    private void deployDecoy(float x, float y) {
+        decoyActive = true;
+        decoyX = clamp(x, 70f, WIDTH - 70f);
+        decoyY = clamp(y, 140f, HEIGHT - 220f);
+        decoyLife = DECOY_LIFE;
+        decoyAbsorb = 0;
+        decoyPulse = 0f;
+        spark(decoyX, decoyY, 12, 4);
+        events.add(new GameEvent(EventType.DECOY_DEPLOY, decoyX, decoyY, DECOY_MAX_ABSORB));
+    }
+
+    /** 诱饵爆散：清一圈敌弹、给贴脸目标补 2 点伤害，然后收场。 */
+    private void burstDecoy() {
+        if (!decoyActive) return;
+        float x = decoyX, y = decoyY;
+        int eaten = decoyAbsorb;
+        decoyActive = false;
+        decoyFlash = 1f;
+        clearBulletsAround(x, y, DECOY_BURST_RADIUS);
+
+        // 两段式结算：先算伤害再统一击杀，避免分裂子机被同一波爆散连带刷分
+        int n = 0;
+        float r2 = DECOY_BURST_RADIUS * DECOY_BURST_RADIUS;
+        for (Enemy e : enemies) {
+            if (!e.active) continue;
+            float dx = e.x - x, dy = e.y - y;
+            if (dx * dx + dy * dy > r2) continue;
+            e.damage(DECOY_BURST_DAMAGE);
+            spark(e.x, e.y, 3, 4);
+            if (e.hp <= 0f && n < decoyVictims.length) decoyVictims[n++] = e;
+        }
+        for (int i = 0; i < n; i++) {
+            Enemy v = decoyVictims[i];
+            decoyVictims[i] = null;
+            if (v.active) killEnemy(v);
+        }
+        if (boss.active) {
+            float dx = boss.x - x, dy = boss.y - y;
+            if (dx * dx + dy * dy <= r2) {
+                for (int i = 0; i < boss.partCount; i++) {
+                    BossPart p = boss.parts[i];
+                    if (p.active) damageBossPart(p, DECOY_BURST_DAMAGE);
+                }
+                boss.damage(DECOY_BURST_DAMAGE);
+            }
+        }
+        addShake(0.2f, 9f);
+        spark(x, y, 16, 4);
+        events.add(new GameEvent(EventType.DECOY_BURST, x, y, eaten));
+    }
+
+    /**
+     * 瞄准点：诱饵在场时，追猎 / 狙击 / 相位 / 缚网这些"瞄准弹"改为瞄它；
+     * 切割者与旋翼者的光束不吃这套（光束按列/按扫向结算，不追点）。
+     */
+    private float aimX() {
+        return decoyActive ? decoyX : ship.x;
+    }
+
+    private float aimY() {
+        return decoyActive ? decoyY : ship.y;
     }
 
     // ---- v1.26：局内祭坛 ALTAR ----
@@ -4395,6 +4536,10 @@ public class GameWorld {
                 ship.addWeapon(WeaponType.BOOMERANG);
                 weaponCd[WeaponType.BOOMERANG.ordinal()] = 0f;
                 break;
+            case DECOY:
+                // 摆在船上方：先替玩家接住"瞄着你"的那一串，再顺带清一圈
+                deployDecoy(p.x, p.y - 170f);
+                break;
             case NOVA:
                 detonateNova();
                 break;
@@ -4670,12 +4815,15 @@ public class GameWorld {
     }
 
     /**
-     * 掉落分布（v1.15，v1.23 加入 REFLECT，v1.24 加入 ARC，v1.43 加入 BOOMERANG）。
+     * 掉落分布（v1.15，v1.23 加入 REFLECT，v1.24 加入 ARC，v1.43 加入 BOOMERANG，
+     * v1.44 加入 DECOY）。
      * BONUS 只由突袭奖励波投放，不在常规掉落表内。
      * 追踪弹 MISSILE 14%（用户反馈"想要更多追踪弹"），
      * 尾部"特殊道具"区（0.85~1.0，共 15%）：
-     * BOUNCE 1.5%、BOOMERANG 1.5%、NOVA 3%、NANITE 2.5%、GRAVITY 2%、ARC 2%、REFLECT 1.5%、TURRET 1%。
-     * BOOMERANG 的份额由 BOUNCE 让出（同为弹道类武器，效果本身不变，只是出现频率略降）。
+     * BOUNCE 1.5%、BOOMERANG 1.5%、DECOY 1.5%、NOVA 1.5%、NANITE 2.5%、
+     * GRAVITY 2%、ARC 2%、REFLECT 1.5%、TURRET 1%。
+     * BOOMERANG 的份额由 BOUNCE 让出、DECOY 的份额由新星让出（效果本身不变，
+     * 只是出现频率略降），核心武器权重一律不动。
      * 独立成纯函数便于测试边界。
      */
     public static PowerUp.Kind dropKind(float roll) {
@@ -4694,6 +4842,7 @@ public class GameWorld {
         if (roll < 0.85f) return PowerUp.Kind.TIME;
         if (roll < 0.865f) return PowerUp.Kind.BOUNCE;
         if (roll < 0.88f) return PowerUp.Kind.BOOMERANG;
+        if (roll < 0.895f) return PowerUp.Kind.DECOY;
         if (roll < 0.91f) return PowerUp.Kind.NOVA;
         if (roll < 0.935f) return PowerUp.Kind.NANITE;
         if (roll < 0.955f) return PowerUp.Kind.GRAVITY;
@@ -5257,6 +5406,12 @@ public class GameWorld {
         escortBanner = 0f;
         escortsSaved = 0;
         escortsLost = 0;
+        // v1.44：诱饵浮标归零
+        decoyActive = false;
+        decoyLife = 0f;
+        decoyAbsorb = 0;
+        decoyPulse = 0f;
+        decoyFlash = 0f;
         // v1.27：赏金状态归零
         if (bountyTarget != null) bountyTarget.bounty = false;
         bountyTarget = null;

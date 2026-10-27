@@ -320,6 +320,9 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case SYNERGY_ON: haptics.tick(); break;
                     // 相位冲击波是"清场"动作：比普通冲刺重一档
                     case PHASE_BURST: haptics.impact(); break;
+                    // 诱饵展开是"布置"动作，轻点；爆散吃掉一片弹幕才值得中震
+                    case DECOY_DEPLOY: haptics.tick(); break;
+                    case DECOY_BURST: haptics.impact(); break;
                     case MIRAGE_REVEAL: haptics.tick(); break;
                     // 分数奖励命：和大招同档的长震，让"跨过阈值"这件事被身体记住
                     case EXTRA_LIFE: haptics.bomb(); break;

@@ -109,6 +109,7 @@ public class Renderer {
         drawEnemyBullets(c, w);
         drawEnemies(c, w);
         drawEscort(c, w);
+        drawDecoy(c, w);
         drawTurrets(c, w);
         drawGravityWells(c, w);
         drawAltar(c, w);
@@ -509,6 +510,7 @@ public class Renderer {
                 case REFLECT: color = 0xFFB48FFF; label = "RF"; break;
                 case ARC: color = 0xFF9BE8FF; label = "AC"; break;
                 case BOOMERANG: color = 0xFFFFB36B; label = "BM"; break;
+                case DECOY: color = 0xFF57E8FF; label = "DC"; break;
                 default: color = 0xFFFF5C7A; label = "B"; break;
             }
             boolean hot = p.attracted;
@@ -1615,6 +1617,87 @@ public class Renderer {
         paint.setColor(0xFF9BE8FF);
         c.drawText("ESCORT · 星鸦", e.x, by - 8f, paint);
         paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /**
+     * v1.44 诱饵浮标：全息青色六边舱。
+     * 三圈读数——外环是剩余寿命、点阵是已吞弹数、贴脸脉冲是"刚又吞了一发"，
+     * 爆散时在舱位闪一圈冲击环（读 decoyFlash，舱体消失后还要画完）。
+     */
+    private void drawDecoy(Canvas c, GameWorld w) {
+        int col = 0x57E8FF;
+        if (w.decoyFlash > 0f) {
+            float k = w.decoyFlash;
+            float rr = GameWorld.DECOY_BURST_RADIUS * (1.05f - 0.5f * k);
+            glow.setColor(((int) (0x66 * k) << 24) | col);
+            c.drawCircle(w.decoyX, w.decoyY, rr, glow);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(3f + 6f * k);
+            paint.setColor(((int) (0xC0 * k) << 24) | 0x00FFFFFF);
+            c.drawCircle(w.decoyX, w.decoyY, rr, paint);
+            paint.setStyle(Paint.Style.FILL);
+        }
+        if (!w.decoyActive) return;
+        float x = w.decoyX, y = w.decoyY;
+        float r = GameWorld.DECOY_RADIUS;
+        float lifeFrac = Math.max(0f, Math.min(1f, w.decoyLife / GameWorld.DECOY_LIFE));
+        // 最后 2 秒频闪：告诉玩家"它快没电了，别再指望它替你接弹"
+        float blink = w.decoyLife < 2f
+                ? 0.55f + 0.45f * (0.5f + 0.5f * (float) Math.sin(w.timeAlive * 16f)) : 1f;
+        float breathe = 0.5f + 0.5f * (float) Math.sin(w.timeAlive * 3.4f);
+
+        // 磁吸边界：慢呼吸的细圈，这圈里的弹都会被拐进来
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(((int) ((0x18 + 0x10 * breathe) * blink) << 24) | col);
+        c.drawCircle(x, y, GameWorld.DECOY_PULL_RADIUS * (0.95f + 0.05f * breathe), paint);
+
+        // 全息外壳：外发光 + 暗底六边 + 亮边六边
+        glow.setColor(((int) (0x50 * blink) << 24) | col);
+        c.drawCircle(x, y, r * 1.9f, glow);
+        paint.setStyle(Paint.Style.FILL);
+        hexagon(c, x, y, r, ((int) (0xD8 * blink) << 24) | 0x000C1D26);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2.5f);
+        hexagon(c, x, y, r, ((int) (0xE0 * blink) << 24) | col);
+
+        // 内部扫描线 + 中心菱形：全息投影的"活的"感觉
+        paint.setStyle(Paint.Style.FILL);
+        float scan = (float) Math.sin(w.timeAlive * 2.7f);
+        paint.setColor(((int) (0x66 * blink) << 24) | 0x00FFFFFF);
+        c.drawRect(x - r * 0.72f, y + scan * r * 0.55f - 1.5f,
+                x + r * 0.72f, y + scan * r * 0.55f + 1.5f, paint);
+        diamond(c, x, y, r * 0.42f, ((int) (0xF0 * blink) << 24)
+                | (blink < 0.8f ? col : 0xFFFFFF));
+
+        // 吞弹脉冲：每吞一发向外散开一圈白环
+        if (w.decoyPulse > 0f) {
+            float k = w.decoyPulse;
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2f + 2f * k);
+            paint.setColor(((int) (0x90 * k) << 24) | 0x00FFFFFF);
+            c.drawCircle(x, y, r + (1f - k) * 42f, paint);
+        }
+
+        // 寿命环：12 点起顺时针缩短；剩不足 1/3 转琥珀色做二次提醒
+        float lr = r + 9f;
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(4f);
+        paint.setColor(0x33101826);
+        c.drawCircle(x, y, lr, paint);
+        paint.setColor(lifeFrac < 0.34f ? 0xFFFFB03A : col);
+        c.drawArc(x - lr, y - lr, x + lr, y + lr, -90f, 360f * lifeFrac, false, paint);
+
+        // 吞弹点阵：顺时针点满 12 颗就爆
+        paint.setStyle(Paint.Style.FILL);
+        for (int i = 0; i < GameWorld.DECOY_MAX_ABSORB; i++) {
+            double ang = Math.PI * 2 * i / GameWorld.DECOY_MAX_ABSORB - Math.PI / 2;
+            float px = x + (float) Math.cos(ang) * (lr + 11f);
+            float py = y + (float) Math.sin(ang) * (lr + 11f);
+            boolean lit = i < w.decoyAbsorb;
+            paint.setColor(lit ? ((int) (0xF0 * blink) << 24) | 0x00FFFFFF : 0x33FFFFFF);
+            c.drawCircle(px, py, lit ? 3.4f : 2.4f, paint);
+        }
     }
 
     private void drawTurrets(Canvas c, GameWorld w) {

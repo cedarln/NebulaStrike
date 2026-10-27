@@ -138,7 +138,7 @@ public class BoomerangV143Test {
         assertEquals(PowerUp.Kind.BOUNCE, GameWorld.dropKind(0.86f));
         assertEquals(PowerUp.Kind.BOOMERANG, GameWorld.dropKind(0.87f));
         assertEquals(PowerUp.Kind.BOOMERANG, GameWorld.dropKind(0.879f));
-        assertEquals(PowerUp.Kind.NOVA, GameWorld.dropKind(0.88f));
+        assertEquals(PowerUp.Kind.DECOY, GameWorld.dropKind(0.88f));
         // 原有核心武器权重不动
         assertEquals(PowerUp.Kind.MISSILE, GameWorld.dropKind(0.30f));
         assertEquals(PowerUp.Kind.ARC, GameWorld.dropKind(0.96f));
