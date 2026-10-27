@@ -453,6 +453,10 @@ public class AudioEngine {
                     // 护航失败：重爆音但音高下坠，不扣命，所以不接 GAME_OVER 的低鸣
                     play(SfxId.EXPLODE_HEAVY, 0.72f, 0.82f, panFor(e.x));
                     break;
+                case GYRE_SPIN:
+                    // 旋转光刃起转：比切割者更薄更高；扫向决定音高微差，听感上能分出起手方向
+                    play(SfxId.BOSS_LASER, 0.44f, e.code > 0 ? 1.34f : 1.22f, panFor(e.x));
+                    break;
             }
         }
     }

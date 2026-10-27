@@ -41,7 +41,9 @@ public enum EnemyType {
     /** 螺旋炮台（v1.35）：悬停高位，以三臂螺旋连续吐出慢速弹，缺口随旋转移动。 */
     HELIX(36f, 8, 130f, 95, 18),
     /** 切割者（v1.38）：悬停高位瞄准一列，预警后落下贯穿全场的竖切光束；只能靠位移躲。 */
-    CUTTER(40f, 9, 135f, 110, 19);
+    CUTTER(40f, 9, 135f, 110, 19),
+    /** 旋翼者（v1.42）：悬停后甩出双头旋转光刃，扫过的整条线都会灼伤，只能绕开。 */
+    GYRE(40f, 10, 125f, 120, 20);
 
     public final float radius;
     public final int hp;
@@ -50,7 +52,8 @@ public enum EnemyType {
     /** Palette index used by the renderer (0 cyan, 1 green, 2 orange, 3 magenta, 4 yellow,
      *  5 lime, 6 rose, 7 violet, 8 mint, 9 crimson, 10 steel,
      *  11 phantom rose, 12 storm blue, 13 brood amber, 14 impact ember, 15 shift violet,
-     *  16 tracker periwinkle, 17 snare violet, 18 helix cyan, 19 cutter mint). */
+     *  16 tracker periwinkle, 17 snare violet, 18 helix cyan, 19 cutter mint,
+     *  20 gyre gold). */
     public final int colorHint;
 
     EnemyType(float radius, int hp, float baseSpeed, int score, int colorHint) {
@@ -67,7 +70,7 @@ public enum EnemyType {
             case SUICIDER: case SPLITTER: case HEALER: case SNIPER:
             case MINER: case CARRIER: case SHIELDER:
             case MIRAGE: case MAGNETON: case QUEEN: case RAMMER: case PHASER: case SEEKER:
-            case SNARER: case HELIX: case CUTTER:
+            case SNARER: case HELIX: case CUTTER: case GYRE:
                 return true;
             default:
                 return false;

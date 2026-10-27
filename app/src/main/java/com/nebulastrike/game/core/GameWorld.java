@@ -119,7 +119,9 @@ public class GameWorld {
         /** v1.41：补给舰安全离场并投下补给（code = 吃掉的敌弹数） */
         ESCORT_SAVED,
         /** v1.41：补给舰被击毁，护航失败 */
-        ESCORT_LOST
+        ESCORT_LOST,
+        /** v1.42：旋翼者甩出旋转光刃（code = 扫向 +1/-1） */
+        GYRE_SPIN
     }
     public static final class GameEvent {
         public final EventType type;
@@ -3155,6 +3157,15 @@ public class GameWorld {
                 spark(e.x, e.y + e.type.radius, 7, 19);
                 events.add(new GameEvent(EventType.ENEMY_BEAM, e.x, e.y,
                         (int) Enemy.CUTTER_HALF_WIDTH));
+                continue;
+            }
+            if (e.type == EnemyType.GYRE && e.gyreJustStarted) {
+                // 光刃起转：轻微震屏 + 轮毂火花，扫向写进 code 供音效做左右声道
+                e.gyreJustStarted = false;
+                addShake(0.14f, 5f);
+                spark(e.x, e.y, 8, 20);
+                events.add(new GameEvent(EventType.GYRE_SPIN, e.x, e.y,
+                        e.gyreSpinDir > 0f ? 1 : -1));
             }
         }
     }
@@ -3235,6 +3246,7 @@ public class GameWorld {
             case SNARER: return 17;
             case HELIX: return 18;
             case CUTTER: return 19;
+            case GYRE: return 20;
             default: return 4;
         }
     }
@@ -3727,10 +3739,13 @@ public class GameWorld {
         // v1.38：切割者 155s 解锁——一道需要整列让开的光束，权重低于螺旋炮台：
         // 它的压力来自"这一列不能站"，两艘同场就已经逼得玩家满场跑
         float wCutter = t > 155f ? Math.min(0.045f, 0.022f + (t - 155f) / 3400f) : 0f;
+        // v1.42：旋翼者 170s 解锁——它不发射弹，压力全在"这一整条线正在扫过来"，
+        // 权重比切割者再低一点：两把光刃同场时安全角度会碎成四块
+        float wGyre = t > 170f ? Math.min(0.035f, 0.016f + (t - 170f) / 3800f) : 0f;
         // 保留至少 15% 无人机当"炮灰"：非无人机权重整体归一
         float sum = wTank + wHunter + wWeaver + wSui + wSplit + wHeal + wSnipe
                 + wMiner + wShield + wCarrier + wMirage + wMagnet + wQueen + wRammer
-                + wPhaser + wSeeker + wSnarer + wHelix + wCutter;
+                + wPhaser + wSeeker + wSnarer + wHelix + wCutter + wGyre;
         if (sum > 0.85f) {
             float k = 0.85f / sum;
             wTank *= k; wHunter *= k; wWeaver *= k;
@@ -3741,6 +3756,7 @@ public class GameWorld {
             wSnarer *= k;
             wHelix *= k;
             wCutter *= k;
+            wGyre *= k;
         }
         float c = 0f;
         if (r < (c += wTank)) return EnemyType.TANK;
@@ -3762,6 +3778,7 @@ public class GameWorld {
         if (r < (c += wSnarer)) return EnemyType.SNARER;
         if (r < (c += wHelix)) return EnemyType.HELIX;
         if (r < (c += wCutter)) return EnemyType.CUTTER;
+        if (r < (c += wGyre)) return EnemyType.GYRE;
         return EnemyType.DRONE;
     }
 
@@ -4083,6 +4100,26 @@ public class GameWorld {
                 }
                 e.beamHit = true;
                 spark(ship.x, ship.y, 8, 19);
+                onPlayerHit();
+                break;
+            }
+        }
+        // v1.42：旋翼者的双头光刃——一条穿过舰体、绕轮毂旋转的长线。
+        // 和切割者一样是"整条线都烫"，但它在动，所以躲法是绕着扫向走而不是逃出射程
+        if (!ship.isSafe()) {
+            for (Enemy e : enemies) {
+                if (!e.active || !e.isGyreSpinning() || e.gyreHit) continue;
+                float ax = (float) Math.cos(e.gyreAngle);
+                float ay = (float) Math.sin(e.gyreAngle);
+                float dA = distToSegment(ship.x, ship.y, e.x, e.y,
+                        e.x + ax * Enemy.GYRE_HALF_LENGTH,
+                        e.y + ay * Enemy.GYRE_HALF_LENGTH);
+                float dB = distToSegment(ship.x, ship.y, e.x, e.y,
+                        e.x - ax * Enemy.GYRE_HALF_LENGTH,
+                        e.y - ay * Enemy.GYRE_HALF_LENGTH);
+                if (Math.min(dA, dB) > Ship.RADIUS * 0.5f + Enemy.GYRE_HALF_WIDTH) continue;
+                e.gyreHit = true;
+                spark(ship.x, ship.y, 9, 20);
                 onPlayerHit();
                 break;
             }

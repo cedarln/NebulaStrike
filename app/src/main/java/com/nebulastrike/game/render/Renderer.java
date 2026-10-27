@@ -1376,6 +1376,77 @@ public class Renderer {
                             r * (0.16f + 0.2f * e.beamCharge()), paint);
                     break;
                 }
+                case GYRE: {
+                    // 旋翼者：旋翼轮毂 + 一条穿过舰体的双头光刃。
+                    // 预警期先画出"起手线 + 这次要扫过的弧"，起转后光刃才逐层亮起来——
+                    // 玩家该往哪边让，看的是那段弧，而不是光刃此刻在哪
+                    boolean spinning = e.isGyreSpinning();
+                    boolean charging = e.isGyreCharging();
+                    float ax = (float) Math.cos(e.gyreAngle);
+                    float ay = (float) Math.sin(e.gyreAngle);
+                    float len = Enemy.GYRE_HALF_LENGTH;
+                    if (charging || spinning) {
+                        float p = spinning ? 1f : e.gyreCharge();
+                        float sweep = (float) Math.toDegrees(
+                                e.gyreSpinDir * Enemy.GYRE_SPIN_RATE * Enemy.GYRE_SPIN_TIME);
+                        paint.setStyle(Paint.Style.STROKE);
+                        paint.setStrokeWidth(2.5f);
+                        paint.setColor(((int) ((spinning ? 0x30 : 0x38 + 0x58 * p)) << 24)
+                                | 0x00FFC46B);
+                        arcRect.set(e.x - r * 2.6f, e.y - r * 2.6f,
+                                e.x + r * 2.6f, e.y + r * 2.6f);
+                        c.drawArc(arcRect, (float) Math.toDegrees(e.gyreAngle),
+                                sweep, false, paint);
+                        // 外晕 → 刃体 → 白芯；预警期只有细线，起转后才展开成实体
+                        paint.setStrokeWidth(spinning
+                                ? Enemy.GYRE_HALF_WIDTH * 3.6f : 5f);
+                        paint.setColor(((int) ((spinning ? 0x3A : 0x14 + 0x1E * p)) << 24)
+                                | 0x00FFB36B);
+                        c.drawLine(e.x - ax * len, e.y - ay * len,
+                                e.x + ax * len, e.y + ay * len, paint);
+                        paint.setStrokeWidth(spinning
+                                ? Enemy.GYRE_HALF_WIDTH * 2f : 1.7f);
+                        paint.setColor(((int) ((spinning ? 0xD8 : 0x55 + 0x80 * p)) << 24)
+                                | 0x00FFC46B);
+                        c.drawLine(e.x - ax * len, e.y - ay * len,
+                                e.x + ax * len, e.y + ay * len, paint);
+                        if (spinning) {
+                            paint.setStrokeWidth(2f);
+                            paint.setColor(0xFFFFF3D6);
+                            c.drawLine(e.x - ax * len, e.y - ay * len,
+                                    e.x + ax * len, e.y + ay * len, paint);
+                            paint.setStyle(Paint.Style.FILL);
+                            glow.setColor(0x88FFE0A8);
+                            c.drawCircle(e.x + ax * len, e.y + ay * len, 16f, glow);
+                            c.drawCircle(e.x - ax * len, e.y - ay * len, 16f, glow);
+                            paint.setColor(0xFFFFF3D6);
+                            c.drawCircle(e.x + ax * len, e.y + ay * len, 6f, paint);
+                            c.drawCircle(e.x - ax * len, e.y - ay * len, 6f, paint);
+                        }
+                        paint.setStyle(Paint.Style.FILL);
+                    }
+                    // 轮毂：六边形机体 + 四片反向慢转的旋翼
+                    hexagon(c, e.x, e.y, r * 0.72f, base);
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeWidth(3.5f);
+                    paint.setColor(spinning ? 0xFFFFF3D6 : 0xFFFFC46B);
+                    c.save();
+                    c.rotate((float) Math.toDegrees(e.gyreAngle) * -0.6f, e.x, e.y);
+                    for (int i = 0; i < 4; i++) {
+                        c.rotate(90f, e.x, e.y);
+                        c.drawLine(e.x, e.y + r * 0.55f, e.x, e.y + r * 1.2f, paint);
+                        paint.setStyle(Paint.Style.FILL);
+                        c.drawCircle(e.x, e.y + r * 1.2f, r * 0.15f, paint);
+                        paint.setStyle(Paint.Style.STROKE);
+                    }
+                    c.restore();
+                    paint.setStyle(Paint.Style.FILL);
+                    paint.setColor(0xFF1A1206);
+                    c.drawCircle(e.x, e.y, r * 0.4f, paint);
+                    paint.setColor(spinning ? 0xFFFFF3D6 : 0xFFFFC46B);
+                    c.drawCircle(e.x, e.y, r * (0.18f + 0.14f * e.gyreCharge()), paint);
+                    break;
+                }
             }
             if (e.bounty) drawBountyMark(c, w, e);
         }
@@ -4418,6 +4489,20 @@ public class Renderer {
                 c.drawCircle(x, y + r * 0.55f, r * 0.2f, paint);
                 break;
             }
+            case GYRE: {
+                // 轮毂 + 一条贯穿的双头刃线：图鉴里就能看出"它扫的是一整条线"
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2.5f);
+                paint.setColor(known ? 0xFFFFC46B : 0x406B7A99);
+                c.drawLine(x - r * 1.9f, y + r * 1.1f, x + r * 1.9f, y - r * 1.1f, paint);
+                paint.setStyle(Paint.Style.FILL);
+                hexagon(c, x, y, r * 0.72f, base);
+                paint.setColor(known ? 0xFF1A1206 : 0x336B7A99);
+                c.drawCircle(x, y, r * 0.36f, paint);
+                paint.setColor(known ? 0xFFFFF3D6 : 0x406B7A99);
+                c.drawCircle(x, y, r * 0.17f, paint);
+                break;
+            }
             default:
                 break;
         }
@@ -4483,6 +4568,7 @@ public class Renderer {
             case SNARER: return "缚网者 SNARER";
             case HELIX: return "螺旋炮台 HELIX";
             case CUTTER: return "切割者 CUTTER";
+            case GYRE: return "旋翼者 GYRE";
             default: return t.name();
         }
     }
@@ -4509,6 +4595,7 @@ public class Renderer {
             case SNARER: return "缓慢网弹命中不扣命，但减速 2 秒并封锁冲刺，可被击碎";
             case HELIX: return "三臂螺旋连吐 9 拍，缺口随旋臂移动；每轮之间歇 2 秒";
             case CUTTER: return "锁定一列后切下贯穿光柱，点弹/弹反/反射都挡不住，只能让开";
+            case GYRE: return "预警后甩出双头光刃旋转 158°，光刃扫过的整条线都会灼伤，绕着扫向躲";
             default: return "未知机型";
         }
     }
@@ -5194,6 +5281,7 @@ public class Renderer {
             case 17: rgb = 0xB98BFF; break;   // 缚网者：网缚紫
             case 18: rgb = 0x7DF9FF; break;   // 螺旋炮台：旋臂青
             case 19: rgb = 0x8CFFC1; break;   // 切割者：切痕薄荷
+            case 20: rgb = 0xFFC46B; break;   // 旋翼者：旋刃金
             default: rgb = 0x5CE1FF; break;
         }
         return (alpha << 24) | rgb;

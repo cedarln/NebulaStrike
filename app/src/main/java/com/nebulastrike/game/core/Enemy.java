@@ -34,6 +34,18 @@ public class Enemy {
     public boolean beamHit;
     /** 光束刚切下去（一次性标记，由 GameWorld 消费并播表现）。 */
     public boolean beamJustFired;
+    /** v1.42 旋翼者：旋转光刃当前角度（弧度，渲染与伤害判定共用同一条线）。 */
+    public float gyreAngle;
+    /** 旋翼者：本次旋转的扫向（+1 顺时针 / -1 逆时针），每次起转重掷。 */
+    public float gyreSpinDir = 1f;
+    /** 旋翼者：巡航蓄能计时，归零后进入预警。 */
+    public float gyreRest;
+    /** 旋翼者：预警 / 旋转的剩余时长。 */
+    public float gyreTimer;
+    /** 旋翼者：本次旋转是否已经命中过飞船（一次旋转只结算一次伤害）。 */
+    public boolean gyreHit;
+    /** 旋翼者刚起转（一次性标记，由 GameWorld 消费并播表现）。 */
+    public boolean gyreJustStarted;
     /** 坦克的齐射计数：每第 3 轮改成五连扇形扫射。 */
     public int volley;
     /** 分裂舱被击毁时生成的子机层数（防止无限分裂）。 */
@@ -185,6 +197,24 @@ public class Enemy {
     /** 瞄准期的横向跟船速度：每帧只追一点，横移就能把光束拖到身后。 */
     public static final float CUTTER_TRACK = 240f;
 
+    // ---- v1.42 旋翼者 ----
+    /** 悬停高度：光刃从高位扫下去，整条射线都能看清。 */
+    public static final float GYRE_HOVER_Y = 330f;
+    /** 驻留时长：约三次旋转后离场。 */
+    public static final float GYRE_HOVER = 14f;
+    /** 两次旋转之间的蓄能巡游时间：够玩家重新找位，也不至于干等。 */
+    public static final float GYRE_REST = 2.2f;
+    /** 预警时长：起手线已经指向飞船，玩家要在这段时间里挪出这条线。 */
+    public static final float GYRE_TELL = 0.9f;
+    /** 一次旋转的持续时长。 */
+    public static final float GYRE_SPIN_TIME = 2.4f;
+    /** 角速度（弧度/秒）：约 66°/秒，一次扫过 158°。 */
+    public static final float GYRE_SPIN_RATE = 1.15f;
+    /** 光刃半长：从舰体一路够到屏幕下沿之外，靠"绕开角度"而不是"跑出射程"来躲。 */
+    public static final float GYRE_HALF_LENGTH = 1250f;
+    /** 光刃半宽（伤害判定用）；比切割者的光柱细，穿过它只需要一次果断的横移。 */
+    public static final float GYRE_HALF_WIDTH = 16f;
+
     // ---- v1.33 追猎者 ----
     /** 悬停高度：在弹幕层上方，玩家能清楚看到两侧发射管亮起。 */
     public static final float SEEKER_HOVER_Y = 340f;
@@ -215,13 +245,22 @@ public class Enemy {
                 : type == EnemyType.SEEKER ? SEEKER_HOVER
                 : type == EnemyType.SNARER ? SNARER_HOVER
                 : type == EnemyType.HELIX ? HELIX_HOVER
-                : type == EnemyType.CUTTER ? CUTTER_HOVER : 0f;
+                : type == EnemyType.CUTTER ? CUTTER_HOVER
+                : type == EnemyType.GYRE ? GYRE_HOVER : 0f;
         this.spiralAngle = 0f;
         this.burstCount = 0;
         this.beamPhase = 0;
         this.beamTimer = 0f;
         this.beamHit = false;
         this.beamJustFired = false;
+        this.gyreAngle = (float) (Math.PI / 2);
+        // 扫向沿用巡游方向：不额外抽随机数，长跑里的确定性序列不会被新舰型打乱
+        this.gyreSpinDir = dir;
+        // 第一轮蓄能短一点：刚到位就该让玩家看到这艘舰"是干什么的"
+        this.gyreRest = 1.2f;
+        this.gyreTimer = 0f;
+        this.gyreHit = false;
+        this.gyreJustStarted = false;
         this.volley = 0;
         this.splitDepth = 0;
         this.mineCd = type == EnemyType.MINER ? 1.2f : 0f;
@@ -262,6 +301,7 @@ public class Enemy {
             case SNARER: fireCd = 2.9f + GameWorld.RNG.get().nextFloat() * 0.8f; break;
             case HELIX: fireCd = 1.8f + GameWorld.RNG.get().nextFloat() * 0.5f; break;
             case CUTTER: fireCd = 1.6f + GameWorld.RNG.get().nextFloat() * 0.5f; break;
+            case GYRE: fireCd = -1f; break;   // 不开炮：全部威胁都在光刃上
             default: fireCd = -1f; // does not fire
         }
     }
@@ -599,6 +639,56 @@ public class Enemy {
                 }
                 break;
             }
+            case GYRE: {
+                // 旋翼者：压到高位后左右巡游蓄能，预警 0.9 秒后甩出双头光刃旋转约半圈。
+                // 起手线直接指向飞船，光刃又长到够穿整个屏幕——躲法只有"绕着扫向走位"，
+                // 而不是往外跑；一次旋转最多结算一次伤害，被擦到不会连续掉命。
+                if (y < GYRE_HOVER_Y) {
+                    y += speed() * dt;
+                    break;
+                }
+                if (hoverCd <= 0f) {
+                    beamPhase = 0;
+                    y += speed() * 1.4f * dt;
+                    break;
+                }
+                hoverCd -= dt;
+                if (beamPhase == 0) {
+                    x += dir * 46f * dt;
+                    if (x < type.radius + 20f || x > worldW - type.radius - 20f) {
+                        dir = -dir;
+                        x = clamp(x, type.radius + 20f, worldW - type.radius - 20f);
+                    }
+                    gyreRest -= dt;
+                    if (gyreRest <= 0f) {
+                        beamPhase = 1;
+                        gyreTimer = GYRE_TELL;
+                        gyreAngle = Float.isNaN(shipX) || Float.isNaN(shipY)
+                                ? (float) (Math.PI / 2)
+                                : (float) Math.atan2(shipY - y, shipX - x);
+                        gyreSpinDir = dir;
+                    }
+                    break;
+                }
+                if (beamPhase == 1) {
+                    gyreTimer -= dt;
+                    if (gyreTimer <= 0f) {
+                        beamPhase = 2;
+                        gyreTimer = GYRE_SPIN_TIME;
+                        gyreHit = false;
+                        gyreJustStarted = true;
+                    }
+                    break;
+                }
+                gyreTimer -= dt;
+                gyreAngle += gyreSpinDir * GYRE_SPIN_RATE * dt;
+                if (gyreTimer <= 0f) {
+                    beamPhase = 0;
+                    gyreTimer = 0f;
+                    gyreRest = GYRE_REST;
+                }
+                break;
+            }
             case PHASER: {
                 // 相位者：压到中场后按固定节拍循环——实体 3.2s → 预警 0.9s → 相位 0.7s。
                 // 相位期子弹原样穿过（GameWorld 跳过碰撞），所以"打空"不会浪费火力；
@@ -678,6 +768,27 @@ public class Enemy {
     public float beamCharge() {
         if (!isBeamCharging()) return isBeamFiring() ? 1f : 0f;
         return 1f - Math.max(0f, beamTimer) / CUTTER_TELL;
+    }
+
+    /** 旋翼者正在预警（渲染层画未成形的光刃与扫向弧）。 */
+    public boolean isGyreCharging() {
+        return type == EnemyType.GYRE && beamPhase == 1;
+    }
+
+    /** 旋翼者的光刃正在旋转（渲染层画光刃，GameWorld 结算伤害）。 */
+    public boolean isGyreSpinning() {
+        return type == EnemyType.GYRE && beamPhase == 2;
+    }
+
+    /** 旋翼者预警进度 0..1。 */
+    public float gyreCharge() {
+        if (!isGyreCharging()) return isGyreSpinning() ? 1f : 0f;
+        return 1f - Math.max(0f, gyreTimer) / GYRE_TELL;
+    }
+
+    /** 旋翼者本次旋转剩余比例 1..0，渲染层据此收细光刃尾焰。 */
+    public float gyreRemain() {
+        return isGyreSpinning() ? Math.max(0f, gyreTimer) / GYRE_SPIN_TIME : 0f;
     }
 
     /** 伪装者是否还藏在道具外形里。 */
