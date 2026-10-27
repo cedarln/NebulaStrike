@@ -539,6 +539,9 @@ public class AudioEngine {
             case ARC:
                 play(SfxId.SHOOT_LASER, 0.32f, 0.82f, panFor(x));
                 break;
+            case BOOMERANG:
+                play(SfxId.SHOOT_BOUNCE, 0.42f, 0.72f, panFor(x));
+                break;
             default:
                 play(SfxId.SHOOT_VULCAN, 0.40f, vary(0.06f), panFor(x));
                 break;

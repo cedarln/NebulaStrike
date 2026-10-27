@@ -22,7 +22,13 @@ public enum WeaponType {
     /** 弹跳弹（v1.10）：命中前最多在左右壁各反弹一次，专治盾卫这类正面怪物。 */
     BOUNCE(0.24f, 2),
     /** 电弧炮（v1.24）：命中后向附近目标跳跃放电，叠层增加弹数与跳跃次数。 */
-    ARC(0.30f, 2);
+    ARC(0.30f, 2),
+    /**
+     * 回旋镖（v1.43）：穿透圆盘，向上抛出去、顶点折返，再沿发射线扫回来。
+     * 同一架敌机在去程与回程各吃一次，等于"一条竖线上的双程火力"；
+     * 回程顺便切掉路上的敌弹（3 点伤害越过 BREAK_MIN_DAMAGE）。
+     */
+    BOOMERANG(0.46f, 3);
 
     public final float cooldown;
     public final int damage;
@@ -67,6 +73,7 @@ public enum WeaponType {
             case SWARM: return "SWARM";
             case BOUNCE: return "BOUNCE";
             case ARC: return "ARC";
+            case BOOMERANG: return "BOOMERANG";
             default: return "VULCAN";
         }
     }

@@ -545,6 +545,8 @@ public class GameWorld {
     public static final float NOVA_DAMAGE = 3f;
     /** 弹跳弹每发可用的反弹次数。 */
     public static final int MAX_BOUNCES = 3;
+    /** 回旋镖去程时长：0.62 秒约飞 550 像素，正好覆盖中段的敌机群再折返。 */
+    public static final float BOOMERANG_OUT_TIME = 0.62f;
     /** RELIC_GAINED 事件的 code 上限，方便测试断言。 */
     public static final int RELIC_COUNT = Relic.COUNT;
 
@@ -3927,6 +3929,22 @@ public class GameWorld {
                 }
                 break;
             }
+            case BOOMERANG: {
+                // 回旋镖：去程上抛穿透、顶点折返，回程沿发射线扫回来再吃一轮
+                int discs = Math.min(3, 1 + Math.max(0, stack - 1)
+                        + Math.max(0, (lvl - 2) / 3));
+                for (int i = 0; i < discs; i++) {
+                    Bullet b = freeBullet();
+                    if (b == null) return;
+                    float side = i - (discs - 1) / 2f;
+                    float off = side * 34f;
+                    float homeX = ship.x + off;
+                    b.initBoomerang(homeX, ship.y - Ship.RADIUS - 8f,
+                            side * 70f, -880f, WeaponType.BOOMERANG.damage,
+                            BOOMERANG_OUT_TIME, homeX);
+                }
+                break;
+            }
             default: {
                 // VULCAN：单发 / 双发平行 / 三向
                 int vulcanLvl = Math.min(Ship.MAX_POWER, lvl);
@@ -4373,6 +4391,10 @@ public class GameWorld {
                 ship.addWeapon(WeaponType.ARC);
                 weaponCd[WeaponType.ARC.ordinal()] = 0f;
                 break;
+            case BOOMERANG:
+                ship.addWeapon(WeaponType.BOOMERANG);
+                weaponCd[WeaponType.BOOMERANG.ordinal()] = 0f;
+                break;
             case NOVA:
                 detonateNova();
                 break;
@@ -4648,12 +4670,12 @@ public class GameWorld {
     }
 
     /**
-     * 掉落分布（v1.15，v1.23 加入 REFLECT，v1.24 加入 ARC）。
+     * 掉落分布（v1.15，v1.23 加入 REFLECT，v1.24 加入 ARC，v1.43 加入 BOOMERANG）。
      * BONUS 只由突袭奖励波投放，不在常规掉落表内。
      * 追踪弹 MISSILE 14%（用户反馈"想要更多追踪弹"），
      * 尾部"特殊道具"区（0.85~1.0，共 15%）：
-     * BOUNCE 3%、NOVA 3%、NANITE 2.5%、GRAVITY 2%、ARC 2%、REFLECT 1.5%、TURRET 1%。
-     * ARC 的 2% 由双倍分数与僚机各让出 1%（效果本身不变，只是出现频率略降）。
+     * BOUNCE 1.5%、BOOMERANG 1.5%、NOVA 3%、NANITE 2.5%、GRAVITY 2%、ARC 2%、REFLECT 1.5%、TURRET 1%。
+     * BOOMERANG 的份额由 BOUNCE 让出（同为弹道类武器，效果本身不变，只是出现频率略降）。
      * 独立成纯函数便于测试边界。
      */
     public static PowerUp.Kind dropKind(float roll) {
@@ -4670,7 +4692,8 @@ public class GameWorld {
         if (roll < 0.80f) return PowerUp.Kind.LIFE;
         if (roll < 0.82f) return PowerUp.Kind.WINGMAN;
         if (roll < 0.85f) return PowerUp.Kind.TIME;
-        if (roll < 0.88f) return PowerUp.Kind.BOUNCE;
+        if (roll < 0.865f) return PowerUp.Kind.BOUNCE;
+        if (roll < 0.88f) return PowerUp.Kind.BOOMERANG;
         if (roll < 0.91f) return PowerUp.Kind.NOVA;
         if (roll < 0.935f) return PowerUp.Kind.NANITE;
         if (roll < 0.955f) return PowerUp.Kind.GRAVITY;

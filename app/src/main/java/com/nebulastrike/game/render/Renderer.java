@@ -351,6 +351,37 @@ public class Renderer {
                 paint.setColor(0xFFFFFFFF);
                 c.drawRoundRect(-16f, -2.5f, 20f, 2.5f, 2f, 2f, paint);
                 c.restore();
+            } else if (b.boomerang) {
+                // 回旋镖：暖橙双刃弯月，自旋穿行；回程转暖白并拖出速度残影
+                boolean back = b.boomerangReturning;
+                float inv = (float) Math.hypot(b.vx, b.vy);
+                if (inv > 1f) {
+                    float tx = b.vx / inv, ty = b.vy / inv;
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeWidth(b.radius * 1.2f);
+                    paint.setColor(back ? 0x55FFE0A8 : 0x44FFB36B);
+                    c.drawLine(b.x - tx * 36f, b.y - ty * 36f,
+                            b.x - tx * 10f, b.y - ty * 10f, paint);
+                    paint.setStyle(Paint.Style.FILL);
+                }
+                glow.setColor(back ? 0x66FFE0A8 : 0x55FFB36B);
+                c.drawCircle(b.x, b.y, b.radius + 10f, glow);
+                c.save();
+                c.translate(b.x, b.y);
+                c.rotate((float) Math.toDegrees(b.spin));
+                paint.setColor(back ? 0xFFFFE0A8 : 0xFFFFB36B);
+                shapePath.rewind();
+                shapePath.moveTo(-b.radius, -b.radius * 0.8f);
+                shapePath.lineTo(0f, b.radius * 0.1f);
+                shapePath.lineTo(b.radius, -b.radius * 0.8f);
+                shapePath.lineTo(b.radius * 0.6f, b.radius * 0.55f);
+                shapePath.lineTo(0f, b.radius * 0.08f);
+                shapePath.lineTo(-b.radius * 0.6f, b.radius * 0.55f);
+                shapePath.close();
+                c.drawPath(shapePath, paint);
+                paint.setColor(0xFFFFFFFF);
+                c.drawCircle(0f, 0f, b.radius * 0.3f, paint);
+                c.restore();
             } else if (b.piercing && b.homing) {
                 // 蜂群穿刺束（SWARM）：短细的紫青飞镖，带拖尾亮点
                 float ang = (float) Math.atan2(b.vy, b.vx);
@@ -477,6 +508,7 @@ public class Renderer {
                 case GRAVITY: color = 0xFFC9A0FF; label = "GV"; break;
                 case REFLECT: color = 0xFFB48FFF; label = "RF"; break;
                 case ARC: color = 0xFF9BE8FF; label = "AC"; break;
+                case BOOMERANG: color = 0xFFFFB36B; label = "BM"; break;
                 default: color = 0xFFFF5C7A; label = "B"; break;
             }
             boolean hot = p.attracted;
@@ -2519,6 +2551,7 @@ public class Renderer {
             case SWARM: return 0xFFCFB8FF;
             case BOUNCE: return 0xFF6BFFC8;
             case ARC: return 0xFF9BE8FF;
+            case BOOMERANG: return 0xFFFFB36B;
             default: return 0xFFFFD166;
         }
     }

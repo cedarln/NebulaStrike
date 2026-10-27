@@ -36,6 +36,16 @@ public class Bullet {
     public boolean arc;
     /** 电弧剩余跳跃次数（0 = 命中后不再连锁）。 */
     public int arcJumps;
+    /** v1.43：回旋镖弹体（穿透、折返、回程吸附发射线）。 */
+    public boolean boomerang;
+    /** 回旋镖是否已进入回程（true 后不再计时，改由 homeX 弹性收束）。 */
+    public boolean boomerangReturning;
+    /** 去程剩余时间；归零即折返。 */
+    public float boomerangTimer;
+    /** 回程瞄准的横坐标（发射时的船位置），让回旋镖"回到手里"。 */
+    public float homeX;
+    /** 渲染自旋角。 */
+    public float spin;
 
     public void init(float x, float y, float vy) {
         init(x, y, 0f, vy, 1, false);
@@ -62,6 +72,11 @@ public class Bullet {
         this.reflected = false;
         this.arc = false;
         this.arcJumps = 0;
+        this.boomerang = false;
+        this.boomerangReturning = false;
+        this.boomerangTimer = 0f;
+        this.homeX = 0f;
+        this.spin = 0f;
         this.landed = false;
     }
 
@@ -100,9 +115,47 @@ public class Bullet {
         this.radius = 10f;
     }
 
+    /**
+     * 回旋镖：穿透圆盘，去程 outTime 秒，随后折返并收回 homeX。
+     * @param homeX 回程希望回到的横坐标（通常是发射时飞船所在列）
+     */
+    public void initBoomerang(float x, float y, float vx, float vy, int damage,
+                              float outTime, float homeX) {
+        init(x, y, vx, vy, damage, false);
+        this.boomerang = true;
+        this.boomerangReturning = false;
+        this.boomerangTimer = outTime;
+        this.homeX = homeX;
+        this.radius = 13f;
+        this.spin = 0f;
+        // 穿透：去程与回程各结算一次，这正是回旋镖的价值
+        this.piercing = true;
+    }
+
     public void update(float dt) {
+        if (boomerang) updateBoomerang(dt);
         x += vx * dt;
         y += vy * dt;
         if (hitCooldown > 0f) hitCooldown -= dt;
+    }
+
+    /**
+     * 回旋镖弹道：去程匀速上抛，outTime 到点后折返——纵向反向并加速，
+     * 横向用阻尼弹簧收回发射时的 homeX，于是"回到手里"而不是斜着飘走。
+     */
+    private void updateBoomerang(float dt) {
+        spin += dt * 17f;
+        if (!boomerangReturning) {
+            boomerangTimer -= dt;
+            if (boomerangTimer <= 0f) {
+                boomerangReturning = true;
+                vy = Math.max(Math.abs(vy) * 1.28f, 980f);
+                vx *= 0.3f;
+            }
+            return;
+        }
+        float dx = homeX - x;
+        vx += (dx * 5.2f - vx * 2.6f) * dt;
+        vy = Math.min(vy + 240f * dt, 1280f);
     }
 }
