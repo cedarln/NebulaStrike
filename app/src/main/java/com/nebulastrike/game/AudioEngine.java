@@ -302,6 +302,13 @@ public class AudioEngine {
                     play(SfxId.GRAVITY_BURST, 0.52f + Math.min(0.36f, e.code * 0.03f),
                             vary(0.06f), panFor(e.x));
                     break;
+                case BOSS_CORE_OPEN:
+                    // 开核是"机会来了"：借用攒满铃的亮色，音高压高一点，别和大招抢辨识度
+                    play(SfxId.ULT_READY, 0.58f, 1.16f, panFor(e.x));
+                    break;
+                case BOSS_CORE_CLOSE:
+                    play(SfxId.UI, 0.26f, 0.72f, panFor(e.x));
+                    break;
                 case ULT_READY:
                     play(SfxId.ULT_READY, 0.75f, 1f, 0f);
                     break;

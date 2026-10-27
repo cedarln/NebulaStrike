@@ -125,7 +125,11 @@ public class GameWorld {
         /** v1.44：诱饵浮标部署（code = 满耐久吸收数） */
         DECOY_DEPLOY,
         /** v1.44：诱饵浮标爆散（code = 本次吃掉/吸收的敌弹数） */
-        DECOY_BURST
+        DECOY_BURST,
+        /** v1.45：Boss 核心暴露（code = 窗口整秒数） */
+        BOSS_CORE_OPEN,
+        /** v1.45：Boss 核心合拢 */
+        BOSS_CORE_CLOSE
     }
     public static final class GameEvent {
         public final EventType type;
@@ -279,6 +283,8 @@ public class GameWorld {
     public static final int FLOAT_GRAVITY = 0xC9A0FF;
     /** v1.44：诱饵浮标吞弹飘字（全息青）。 */
     public static final int FLOAT_DECOY = 0x57E8FF;
+    /** v1.45：Boss 核心双倍伤害飘字（余烬橙）。 */
+    public static final int FLOAT_CORE = 0xFF7A45;
     /** 终极技充能折算 / 折弹得分的飘字色（金色）。 */
     public static final int FLOAT_ULT = 0xFFE08A;
 
@@ -677,6 +683,26 @@ public class GameWorld {
     public static final float ENDING_TIME = 9f;
     /** 最终旗舰的等级：比常规最高档再多两级血量、部件更多。 */
     public static final int FINAL_BOSS_LEVEL = Story.SECTOR_COUNT + 2;
+
+    // ---- v1.45：Boss 核心暴露 CORE BREAK ----
+    /** 入场后第一次开核的延迟（预警期不计时）。 */
+    public static final float CORE_FIRST_DELAY = 6.5f;
+    /** 两次开核之间的间隔。 */
+    public static final float CORE_INTERVAL = 11.5f;
+    /** 每次核心暴露的窗口时长。 */
+    public static final float CORE_WINDOW = 3.4f;
+    /** 核心命中圈：只有打在舰体正中这一小块才算"打中核心"。 */
+    public static final float CORE_RADIUS = 48f;
+    /** 核心期的伤害倍率（护盾发生器的减伤仍会在 Boss.damage 里叠乘）。 */
+    public static final int CORE_DAMAGE_MULT = 2;
+    /** 每次核心命中的额外分数。 */
+    public static final int CORE_HIT_SCORE = 10;
+    /** 核心暴露剩余秒数（>0 时核心可被打出双倍伤害）。 */
+    public float bossCoreTimer;
+    /** 距离下一次核心暴露的秒数。 */
+    public float bossCoreCooldown;
+    /** 核心命中反馈（渲染层读它闪白）。 */
+    public float bossCoreFlash;
     /** boss dead-flash timer for the renderer */
     public float bossFlash;
     /** 每种特殊武器独立的开火冷却，实现真正的同时叠加。 */
@@ -1071,6 +1097,7 @@ public class GameWorld {
                 if (!bossRush()) nextBossWave = wave + (mode == GameMode.ENDLESS ? 3 : 4);
                 boolean finalFight = finalBossDue();
                 boss.init(finalFight ? FINAL_BOSS_LEVEL : bossesDefeated);
+                resetBossCore();
                 finalBossFight = finalFight;
                 finalBossRebirthed = false;
                 // Boss 入场时护航舰先行撤离：两套节拍不叠在一起，也避免它替玩家吃掉 Boss 弹
@@ -1093,6 +1120,7 @@ public class GameWorld {
         updateBossLasers(dt);
         updateBossRam(dt);
         boolean armed = bossWarningTimer <= 0f && bossPhaseBreakTimer <= 0f;
+        updateBossCore(dt, armed);
         if (armed && boss.readyToAttack()) {
             bossAttack();
             boss.resetAttack();
@@ -1120,6 +1148,7 @@ public class GameWorld {
                 // 相位会从 3 掉回 2，下一帧自然触发一次换段过场与增援。
                 boss.hp = boss.maxHp * 0.35f;
                 boss.flash = 1f;
+                resetBossCore();
                 for (EnemyBullet b : enemyBullets) b.active = false;
                 for (BossLaser l : bossLasers) l.active = false;
                 boss.resetAttack();
@@ -1132,6 +1161,9 @@ public class GameWorld {
             }
             boss.active = false;
             bossActive = false;
+            bossCoreTimer = 0f;
+            bossCoreCooldown = 0f;
+            bossCoreFlash = 0f;
             bossWarningTimer = 0f;
             bossPhaseBreakTimer = 0f;
             stageClearTimer = bossRush() ? RUSH_STAGE_CLEAR_TIME : STAGE_CLEAR_TIME;
@@ -1431,6 +1463,49 @@ public class GameWorld {
         b.initRadius(boss.x + dirSign * boss.radius * 0.5f, boss.y + boss.hitRadius * 0.4f,
                 dirSign * 90f, 240f + boss.level * 12f, 12f);
         spark(boss.x, boss.y + boss.radius * 0.4f, 2, 2);
+    }
+
+    /**
+     * v1.45 核心暴露节拍：预警 / 换段期间不计时也不开核；
+     * 开核后到点自动合拢并把下一次排进 {@link #CORE_INTERVAL}。
+     */
+    private void updateBossCore(float dt, boolean armed) {
+        if (bossCoreFlash > 0f) bossCoreFlash = Math.max(0f, bossCoreFlash - dt * 2.6f);
+        if (!armed) {
+            // 换段 / 入场期间把窗口收掉：玩家正在清增援，核心不该白送双倍伤害
+            if (bossCoreTimer > 0f) {
+                bossCoreTimer = 0f;
+                events.add(new GameEvent(EventType.BOSS_CORE_CLOSE, boss.x, boss.y));
+            }
+            return;
+        }
+        if (bossCoreTimer > 0f) {
+            bossCoreTimer -= dt;
+            if (bossCoreTimer <= 0f) {
+                bossCoreTimer = 0f;
+                bossCoreCooldown = CORE_INTERVAL;
+                events.add(new GameEvent(EventType.BOSS_CORE_CLOSE, boss.x, boss.y));
+            }
+            return;
+        }
+        bossCoreCooldown -= dt;
+        if (bossCoreCooldown > 0f) return;
+        bossCoreTimer = CORE_WINDOW;
+        bossCoreFlash = Math.max(bossCoreFlash, 0.6f);
+        addShake(0.16f, 5f);
+        events.add(new GameEvent(EventType.BOSS_CORE_OPEN, boss.x, boss.y, (int) CORE_WINDOW));
+    }
+
+    /** 新一场 Boss 战把核心节拍清成"入场后第一次开核"。 */
+    private void resetBossCore() {
+        bossCoreTimer = 0f;
+        bossCoreCooldown = CORE_FIRST_DELAY;
+        bossCoreFlash = 0f;
+    }
+
+    /** 核心是否处于可打双倍伤害的暴露窗口。 */
+    public boolean bossCoreOpen() {
+        return boss.active && bossCoreTimer > 0f;
     }
 
     /** 击毁 Boss 记入图鉴（解锁对应舰级）。 */
@@ -4334,11 +4409,21 @@ public class GameWorld {
                     if (b.cluster) burstFragments(b.x, b.y);
                     if (b.arc && b.arcJumps > 0) chainArc(b.x, b.y, b.arcJumps, null);
                     int dealt = damageOrCrit(b.damage);
-                    boss.damage(dealt);
-                    if (dealt != b.damage) {
-                        spawnFloatText(b.x, b.y, dealt, FLOAT_CRIT, true);
-                        events.add(new GameEvent(EventType.CRIT, b.x, b.y, dealt));
+                    // v1.45：核心暴露期打在舰体正中的这一小块，伤害翻倍并额外计分
+                    boolean crit = dealt != b.damage;
+                    boolean coreHit = bossCoreTimer > 0f
+                            && dx * dx + dy * dy <= CORE_RADIUS * CORE_RADIUS;
+                    if (coreHit) {
+                        dealt *= CORE_DAMAGE_MULT;
+                        bossCoreFlash = 1f;
+                        addScore(CORE_HIT_SCORE, SCORE_OTHER);
                     }
+                    boss.damage(dealt);
+                    if (crit || coreHit) {
+                        spawnFloatText(b.x, b.y, dealt,
+                                coreHit ? FLOAT_CORE : FLOAT_CRIT, crit);
+                    }
+                    if (crit) events.add(new GameEvent(EventType.CRIT, b.x, b.y, dealt));
                     spark(b.x, b.y, 2, 2);
                     if (boss.hp <= 0) break;
                 }
@@ -5412,6 +5497,10 @@ public class GameWorld {
         decoyAbsorb = 0;
         decoyPulse = 0f;
         decoyFlash = 0f;
+        // v1.45：Boss 核心节拍归零
+        bossCoreTimer = 0f;
+        bossCoreCooldown = 0f;
+        bossCoreFlash = 0f;
         // v1.27：赏金状态归零
         if (bountyTarget != null) bountyTarget.bounty = false;
         bountyTarget = null;

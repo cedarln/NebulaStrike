@@ -116,6 +116,7 @@ public class Renderer {
         drawPhaseBurst(c, w);
         if (w.boss.active) {
             drawBoss(c, w);
+            drawBossCore(c, w);
             drawBossLasers(c, w);
         }
         drawBullets(c, w);
@@ -2358,6 +2359,87 @@ public class Renderer {
         paint.setColor(0xFFF3E8FF);
         c.drawCircle(0f, 0f, r * 0.34f * breathe, paint);
         c.restore();
+        paint.setStyle(Paint.Style.FILL);
+    }
+
+    /**
+     * v1.45 核心暴露：舰体正中开一块余烬色的核心。
+     * 预警 1.4 秒（收拢弧）→ 暴露 3.4 秒（三道旋转弧 + 白热核 + 窗口寿命环）→ 合拢。
+     * 核心圈内命中是双倍伤害，所以这一块必须比任何部件都显眼。
+     */
+    private void drawBossCore(Canvas c, GameWorld w) {
+        if (!w.boss.active) return;
+        float x = w.boss.x, y = w.boss.y;
+        float r = GameWorld.CORE_RADIUS;
+        boolean open = w.bossCoreTimer > 0f;
+        boolean tell = !open && w.bossCoreCooldown > 0f
+                && w.bossCoreCooldown < 1.4f;
+        if (!open && !tell && w.bossCoreFlash <= 0f) return;
+        float pulse = 0.5f + 0.5f * (float) Math.sin(w.timeAlive * 9f);
+
+        if (tell) {
+            // 收拢弧：三道弧从外向内合拢，告诉玩家"窗口要开了，把火力对到正中"
+            float k = 1f - Math.max(0f, w.bossCoreCooldown) / 1.4f;
+            float rr = r + 52f * (1f - k);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2.5f);
+            for (int i = 0; i < 3; i++) {
+                float a0 = w.timeAlive * 90f + i * 120f;
+                paint.setColor(((int) (0x60 + 0x60 * k) << 24) | 0x00FF7A45);
+                c.drawArc(x - rr, y - rr, x + rr, y + rr, a0, 54f, false, paint);
+            }
+        }
+
+        if (open) {
+            float frac = Math.max(0f, Math.min(1f, w.bossCoreTimer / GameWorld.CORE_WINDOW));
+            // 外晕：呼吸的余烬光
+            glow.setColor(((int) (0x50 + 0x30 * pulse) << 24) | 0x00FF7A45);
+            c.drawCircle(x, y, r * (2.1f + 0.2f * pulse), glow);
+            // 三道反向旋转弧：一眼看出"这是可打的窗口"
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(3f);
+            for (int i = 0; i < 3; i++) {
+                float rr = r + 10f + i * 9f;
+                float a0 = w.timeAlive * (i % 2 == 0 ? 150f : -120f) + i * 120f;
+                paint.setColor((0xB0 - i * 0x28) << 24 | 0x00FF9A5C);
+                c.drawArc(x - rr, y - rr, x + rr, y + rr, a0, 82f, false, paint);
+            }
+            // 白热核：暗底 + 余烬环 + 脉动白芯
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(0xE8120608);
+            c.drawCircle(x, y, r * 0.8f, paint);
+            paint.setColor(0xD0FF7A45);
+            c.drawCircle(x, y, r * 0.62f, paint);
+            paint.setColor(0xFFFFE8D0);
+            c.drawCircle(x, y, r * (0.26f + 0.08f * pulse), paint);
+            // 窗口寿命环：从 12 点顺时针缩短，剩下最后 1/4 转白提示"要合拢了"
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(4f);
+            paint.setColor(0x33FF7A45);
+            c.drawCircle(x, y, r + 4f, paint);
+            paint.setColor(frac < 0.25f ? 0xFFFFFFFF : 0xFFFFB03A);
+            c.drawArc(x - r - 4f, y - r - 4f, x + r + 4f, y + r + 4f,
+                    -90f, 360f * frac, false, paint);
+            // 只写一次"×2"：窗口开启时玩家抬头就能看见倍率
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(22f);
+            paint.setFakeBoldText(true);
+            paint.setColor(((int) (0xD0 * Math.min(1f, frac * 4f)) << 24) | 0xFFFFC48A);
+            c.drawText("×2", x, y + r + 30f, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+
+        // 命中反馈：核心挨打时闪一圈白热
+        if (w.bossCoreFlash > 0f) {
+            float k = w.bossCoreFlash;
+            glow.setColor(((int) (0x88 * k) << 24) | 0x00FFFFFF);
+            c.drawCircle(x, y, r * (0.9f + 0.7f * (1f - k)), glow);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2f + 4f * k);
+            paint.setColor(((int) (0xA0 * k) << 24) | 0x00FFFFFF);
+            c.drawCircle(x, y, r * (1.0f + 0.5f * (1f - k)), paint);
+        }
         paint.setStyle(Paint.Style.FILL);
     }
 

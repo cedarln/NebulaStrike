@@ -323,6 +323,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     // 诱饵展开是"布置"动作，轻点；爆散吃掉一片弹幕才值得中震
                     case DECOY_DEPLOY: haptics.tick(); break;
                     case DECOY_BURST: haptics.impact(); break;
+                    // 核心暴露：轻点一下把视线拉到舰体正中；合拢不再震动
+                    case BOSS_CORE_OPEN: haptics.tick(); break;
                     case MIRAGE_REVEAL: haptics.tick(); break;
                     // 分数奖励命：和大招同档的长震，让"跨过阈值"这件事被身体记住
                     case EXTRA_LIFE: haptics.bomb(); break;
