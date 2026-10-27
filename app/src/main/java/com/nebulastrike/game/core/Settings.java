@@ -75,6 +75,17 @@ public class Settings {
     /** v1.40：是否已经打穿过八段航程（结局档案永久保留）。 */
     public volatile boolean campaignCleared;
 
+    // ---- 回声周目（v1.49）：通关主线后解锁的 NG+ ----
+    /** 回声碎片：每一场回声 Boss 掉一枚，是后日谈档案的解锁货币。只增不减。 */
+    public volatile int echoShards;
+    /** 回声周目通关次数。 */
+    public volatile int echoClears;
+
+    /** 是否已经可以进入回声周目（主线通关即解锁）。 */
+    public boolean echoUnlocked() {
+        return campaignCleared;
+    }
+
     /**
      * 解密到第 n 章。档案只前进不回收：重开一局、换模式都不会把已经读过的章节重新锁上。
      *
@@ -256,6 +267,8 @@ public class Settings {
         if (runsStarted < 0) runsStarted = 0;
         if (deaths < 0) deaths = 0;
         if (bestWave < 0) bestWave = 0;
+        if (echoShards < 0) echoShards = 0;
+        if (echoClears < 0) echoClears = 0;
         storyUnlocked = clamp(storyUnlocked, 1, Story.CHAPTER_COUNT);
     }
 

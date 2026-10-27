@@ -137,7 +137,11 @@ public class GameWorld {
         /** v1.47：Boss 词缀揭晓（code = 词缀序号，0 表示无词缀） */
         BOSS_AFFIX,
         /** v1.48：枢链者的锁链通电下扫（code = 锁链全长） */
-        LINK_PULSE
+        LINK_PULSE,
+        /** v1.49：回声周目开局（code = 已持有的回声碎片总数） */
+        ECHO_START,
+        /** v1.49：获得回声碎片（code = 本次获得后的碎片总数） */
+        ECHO_SHARD
     }
     public static final class GameEvent {
         public final EventType type;
@@ -613,10 +617,11 @@ public class GameWorld {
     // persistence-backed state
     public int bestScore;
     public boolean newBest;
-    /** local top-5 scores, descending; 0 = empty slot. Three boards: WAVES / ENDLESS / RUSH */
+    /** local top-5 scores, descending; 0 = empty slot. Four boards: WAVES / ENDLESS / RUSH / ECHO */
     public final int[] leaderboard = new int[5];
     public final int[] leaderboardEndless = new int[5];
     public final int[] leaderboardRush = new int[5];
+    public final int[] leaderboardEcho = new int[5];
     /** 0-based rank of the last finished run on the board for the active mode; -1 = not on board */
     public int scoreRank = -1;
     public final Settings settings = new Settings();
@@ -863,6 +868,30 @@ public class GameWorld {
     /** 本局是否刷新了"深入纪录"（结算页提示）。 */
     public boolean bossRushImproved;
 
+    // ---- v1.49 回声周目 ECHO LOOP ----
+    /** 回声局固定命数与开局火力（不吃 LAB：它有自己的一张榜）。 */
+    public static final int ECHO_LIVES = 4;
+    public static final int ECHO_START_POWER = 2;
+    /** 回声局全局得分倍率：难度上去了，分数也要跟上，否则没人愿意刷这张榜。 */
+    public static final float ECHO_SCORE_SCALE = 1.5f;
+    /** 回声敌机的血量与速度加成。 */
+    public static final float ECHO_HP_SCALE = 1.3f;
+    public static final float ECHO_SPEED_SCALE = 1.12f;
+    /** 回声 Boss 的额外血量与出招节奏。 */
+    public static final float ECHO_BOSS_HP_SCALE = 1.2f;
+    public static final float ECHO_BOSS_TEMPO = 1.06f;
+    /** 每击破一场回声 Boss 掉 1 枚碎片，打穿一周目额外 3 枚。 */
+    public static final int ECHO_SHARDS_PER_BOSS = 1;
+    public static final int ECHO_SHARDS_ON_CLEAR = 3;
+    public static final float ECHO_BANNER_TIME = 3.6f;
+    public static final float ECHO_SHARD_FLASH_TIME = 1.4f;
+    /** 开局铭牌倒计时。 */
+    public float echoBanner;
+    /** 碎片到手的 HUD 高亮余量。 */
+    public float echoShardFlash;
+    /** 菜单里点锁住的铭牌时，提示"还没解锁"的余量。 */
+    public float echoLockedFlash;
+
     // ---- 得分构成（结算图用） ----
     public static final int SCORE_ENEMY = 0;
     public static final int SCORE_BOSS = 1;
@@ -954,6 +983,7 @@ public class GameWorld {
                 if (bossFlash > 0f) bossFlash = Math.max(0f, bossFlash - dt * 2f);
             }
             // 升级提示（已是最新 / 失败）停留 4 秒后回到可点击状态
+            if (echoLockedFlash > 0f) echoLockedFlash = Math.max(0f, echoLockedFlash - dt);
             if (updateState == UpdateState.UP_TO_DATE || updateState == UpdateState.ERROR) {
                 updateMsgTimer += dt;
                 if (updateMsgTimer > 4f) updateState = UpdateState.IDLE;
@@ -1147,6 +1177,12 @@ public class GameWorld {
                 boss.init(bossLevel);
                 resetBossCore();
                 rollBossAffix(bossLevel);
+                if (echo()) {
+                    // 回声旗舰：舰体更厚、出招略快；词缀与护盾仍在它之上叠乘
+                    boss.maxHp *= ECHO_BOSS_HP_SCALE;
+                    boss.hp = boss.maxHp;
+                    boss.tempo *= ECHO_BOSS_TEMPO;
+                }
                 if (boss.affix != BossAffix.NONE) {
                     events.add(new GameEvent(EventType.BOSS_AFFIX, boss.x, boss.y,
                             boss.affix.ordinal()));
@@ -1276,6 +1312,8 @@ public class GameWorld {
                 spawnPowerUp(RNG.get().nextBoolean()
                         ? PowerUp.Kind.ORBIT : PowerUp.Kind.CHAIN, boss.x, boss.y + 80f);
             }
+            // v1.49：回声局每击破一场旗舰，掉一枚回声碎片（后日谈档案的解锁货币）
+            if (echo()) grantEchoShards(ECHO_SHARDS_PER_BOSS, boss.x, boss.y);
             events.add(new GameEvent(EventType.BOSS_DEFEATED, boss.x, boss.y));
             if (finalBossFight) {
                 beginCampaignVictory();
@@ -1287,9 +1325,19 @@ public class GameWorld {
         }
     }
 
-    /** 第 8 段（战役模式）由最终旗舰压阵；无尽模式继续按常规队列循环。 */
+    /** 第 8 段（战役与回声周目）由最终旗舰压阵；其余模式继续按常规队列循环。 */
     public boolean finalBossDue() {
-        return mode == GameMode.WAVES && bossesDefeated == Story.SECTOR_COUNT - 1;
+        return (mode == GameMode.WAVES || echo())
+                && bossesDefeated == Story.SECTOR_COUNT - 1;
+    }
+
+    /** 发放回声碎片：立即落盘，并在 HUD 上闪一下到手提示。 */
+    private void grantEchoShards(int n, float x, float y) {
+        if (n <= 0) return;
+        settings.echoShards += n;
+        if (store != null) store.save(settings);
+        echoShardFlash = ECHO_SHARD_FLASH_TIME;
+        events.add(new GameEvent(EventType.ECHO_SHARD, x, y, settings.echoShards));
     }
 
     /**
@@ -1314,6 +1362,11 @@ public class GameWorld {
         clearShipInput();
         addShake(0.9f, 28f);
         recordRunResult();
+        // v1.49：打穿回声周目额外给一笔碎片；通关次数单独记账
+        if (echo()) {
+            settings.echoClears++;
+            grantEchoShards(ECHO_SHARDS_ON_CLEAR, boss.x, boss.y);
+        }
         events.add(new GameEvent(EventType.CAMPAIGN_CLEAR, boss.x, boss.y, first ? 1 : 0));
     }
 
@@ -2467,7 +2520,14 @@ public class GameWorld {
      * but never below a 0.16s spawn floor (roughly 6 spawns/sec).
      */
     private void updateDifficulty() {
-        if (mode == GameMode.ENDLESS) {
+        if (echo()) {
+            // 回声周目：120 秒就压到满，基础值本身就比战役更凶（速度另乘 ECHO_SPEED_SCALE）
+            float t = Math.min(timeAlive / 120f, 1f);
+            float over = Math.max(0f, timeAlive - 120f) / 300f;
+            spawnInterval = Math.max(0.15f, (1.05f - 0.80f * t) / (1f + 0.2f * over));
+            enemySpeedScale = (1f + 0.85f * t + 0.3f * over) * ECHO_SPEED_SCALE;
+            formationPeriod = Math.max(0.6f, 1.1f - 0.42f * t - 0.1f * Math.min(over, 1f));
+        } else if (mode == GameMode.ENDLESS) {
             float t = Math.min(timeAlive / 90f, 1f);
             float over = Math.max(0f, timeAlive - 90f) / 240f; // uncapped creep
             spawnInterval = Math.max(0.16f, (1.0f - 0.68f * t) / (1f + 0.35f * over));
@@ -2550,6 +2610,7 @@ public class GameWorld {
     /** 异变波与今日规则对新登场敌机的属性修正：只动血量，速度已经走 {@link #updateDifficulty}。 */
     private void applyMutatorToEnemy(Enemy e) {
         float hp = hpScaleOf();
+        if (echo()) hp *= ECHO_HP_SCALE;
         if (hp == 1f) return;
         e.hp = Math.max(0.5f, e.hp * hp);
         e.maxHp = e.hp;
@@ -2568,6 +2629,8 @@ public class GameWorld {
         if (achieveBanner > 0f) achieveBanner = Math.max(0f, achieveBanner - dt);
         if (dailyBanner > 0f) dailyBanner = Math.max(0f, dailyBanner - dt);
         if (bossRushBanner > 0f) bossRushBanner = Math.max(0f, bossRushBanner - dt);
+        if (echoBanner > 0f) echoBanner = Math.max(0f, echoBanner - dt);
+        if (echoShardFlash > 0f) echoShardFlash = Math.max(0f, echoShardFlash - dt);
         if (novaFlash > 0f) novaFlash = Math.max(0f, novaFlash - dt * 2.2f);
         if (breakPulse > 0f) breakPulse = Math.max(0f, breakPulse - dt * 3.2f);
         if (mutatorBanner > 0f) mutatorBanner = Math.max(0f, mutatorBanner - dt);
@@ -4886,6 +4949,8 @@ public class GameWorld {
         // 日常挑战命少分高：只有 DAILY 会 >1，其它模式恒等于 1
         float bonus = dailyScoreBonus();
         if (bonus != 1f) gained = Math.round(gained * bonus);
+        // 回声周目：敌机更硬、弹更密，回报同样抬高；与双倍 / 难度 / 异变各自叠乘
+        if (echo()) gained = Math.round(gained * ECHO_SCORE_SCALE);
         // 连杀狂热：乘在最后，和双倍分数 / 难度 / 异变各自叠乘，不互相顶掉
         if (frenzyTimer > 0f) gained = Math.round(gained * FRENZY_SCORE_SCALE);
         score += gained;
@@ -4972,6 +5037,17 @@ public class GameWorld {
 
     /** 测试用：直接击杀指定敌人（走完整计分/掉落路径）。 */
     void killEnemyForTest(Enemy e) { killEnemy(e); }
+
+    /** 测试缝：按真实生成路径放一架指定敌机（含异变 / 回声的数值修正），不动生成节奏。 */
+    Enemy spawnEnemyForTest(EnemyType type, float x) {
+        Enemy e = freeEnemy();
+        if (e == null) return null;
+        recordEnemyInCodex(type);
+        e.init(type, x, -type.radius - 10f, enemySpeedScale);
+        applyMutatorToEnemy(e);
+        spawnedCount++;
+        return e;
+    }
 
     /** 测试缝：单独掷一次暴击伤害判定（会推进 RNG 并累计 crits）。 */
     int damageOrCritForTest(int base) { return damageOrCrit(base); }
@@ -5150,6 +5226,8 @@ public class GameWorld {
             for (int i = 0; i < leaderboardEndless.length && i < elb.length; i++) leaderboardEndless[i] = elb[i];
             int[] rlb = s.leaderboard(GameMode.RUSH);
             for (int i = 0; i < leaderboardRush.length && i < rlb.length; i++) leaderboardRush[i] = rlb[i];
+            int[] eclb = s.leaderboard(GameMode.ECHO);
+            for (int i = 0; i < leaderboardEcho.length && i < eclb.length; i++) leaderboardEcho[i] = eclb[i];
         }
     }
 
@@ -5158,6 +5236,7 @@ public class GameWorld {
         // 日常局不进分数榜：它的榜单是"最近 14 天日历"，见 {@link #dailyHistory()}
         if (m == GameMode.DAILY) return new int[5];
         if (m == GameMode.RUSH) return leaderboardRush;
+        if (m == GameMode.ECHO) return leaderboardEcho;
         return m == GameMode.ENDLESS ? leaderboardEndless : leaderboard;
     }
 
@@ -5200,6 +5279,15 @@ public class GameWorld {
             case START_RUSH:
                 closePanels();
                 restart(GameMode.RUSH);
+                break;
+            case START_ECHO:
+                // 锁住时不给开局：只把菜单铭牌点亮一下，告诉玩家解锁条件
+                if (settings.echoUnlocked()) {
+                    closePanels();
+                    restart(GameMode.ECHO);
+                } else {
+                    echoLockedFlash = 2.2f;
+                }
                 break;
             case CHECK_UPDATE:
                 // IDLE/最新/失败 -> 重新检查；已发现新版本 -> 开始下载；忙碌中忽略
@@ -5499,6 +5587,11 @@ public class GameWorld {
                 if (store != null) store.save(settings);
             }
             scoreRank = insertScore(score, mode);
+        } else if (echo()) {
+            // 回声周目只写自己的榜与通关记录：不碰 CAMPAIGN 的历史最高分
+            int previousEchoBest = board(GameMode.ECHO)[0];
+            scoreRank = insertScore(score, mode);
+            newBest = score > previousEchoBest;
         } else {
             if (score > bestScore) {
                 bestScore = score;
@@ -5587,6 +5680,14 @@ public class GameWorld {
         if (bossRush()) {
             events.add(new GameEvent(EventType.BOSS_RUSH_START,
                     WIDTH / 2f, HEIGHT - 140f, RUSH_LIVES));
+        }
+        // v1.49：回声周目开局横幅 + 碎片读数
+        echoBanner = echo() ? ECHO_BANNER_TIME : 0f;
+        echoShardFlash = 0f;
+        echoLockedFlash = 0f;
+        if (echo()) {
+            events.add(new GameEvent(EventType.ECHO_START,
+                    WIDTH / 2f, HEIGHT - 140f, settings.echoShards));
         }
         score = 0;
         lives = startLivesOf();
@@ -5785,6 +5886,11 @@ public class GameWorld {
         return mode == GameMode.RUSH;
     }
 
+    /** 当前是否在回声周目里（NG+）。 */
+    public boolean echo() {
+        return mode == GameMode.ECHO;
+    }
+
     /** 下一场 Boss 的编号（0 起；HUD 展示用 1 起）。 */
     public int bossRushNext() {
         return bossesDefeated + 1;
@@ -5848,9 +5954,10 @@ public class GameWorld {
 
     // ---- 本局生效系数：日常挑战锁标准难度、屏蔽 LAB，保证全球同一把尺 ----
     // BOSS RUSH 同理：它有自己的榜，不能让 LAB 或难度档位改写别人的成绩。
+    // 回声周目也一样：NG+ 的难度由模式自己的倍率负责，外部旋钮会污染它那张榜。
 
     private boolean competitive() {
-        return daily() || bossRush();
+        return daily() || bossRush() || echo();
     }
 
     private Difficulty difficultyOf() {
@@ -5868,12 +5975,14 @@ public class GameWorld {
     private int startPowerOf() {
         if (daily()) return 1;
         if (bossRush()) return 2;   // 开局就敢当面刚 Boss：两路火力，且第一场必掉装备
+        if (echo()) return ECHO_START_POWER;
         return settings.startPower;
     }
 
     private int startLivesOf() {
         if (daily()) return dailyLives;
         if (bossRush()) return RUSH_LIVES;
+        if (echo()) return ECHO_LIVES;
         return settings.startLives;
     }
 

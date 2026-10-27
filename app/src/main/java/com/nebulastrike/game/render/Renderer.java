@@ -2877,6 +2877,10 @@ public class Renderer {
             paint.setColor(0xFFFFB03A);
             c.drawText("BOSS RUSH · 第 " + w.bossRushNext() + " 个",
                     VW / 2f - 70f, 60f, paint);
+        } else if (w.echo()) {
+            // 回声周目：wave 照旧推进，但颜色与普通战役区分开
+            paint.setColor(0xFF9FE8FF);
+            c.drawText("ECHO · W" + w.wave, VW / 2f - 70f, 60f, paint);
         } else {
             paint.setColor(w.mode == GameMode.ENDLESS ? 0xFFB08FFF : 0xFF8FA3C8);
             c.drawText((w.mode == GameMode.ENDLESS ? "ENDLESS " : "WAVE ") + w.wave,
@@ -2890,6 +2894,13 @@ public class Renderer {
             paint.setColor(0xFF8FA3C8);
             paint.setTextAlign(Paint.Align.RIGHT);
             c.drawText(Story.sectorShort(w.stageNumber()), VW - 40f, 88f, paint);
+            // v1.49：回声碎片常驻读数，刚到手时转金并放大一档
+            if (w.echo()) {
+                float flash = w.echoShardFlash / GameWorld.ECHO_SHARD_FLASH_TIME;
+                paint.setTextSize(flash > 0f ? 20f + 4f * flash : 18f);
+                paint.setColor(flash > 0f ? 0xFFFFD166 : 0x889FE8FF);
+                c.drawText("回声碎片 " + w.settings.echoShards, VW - 40f, 120f, paint);
+            }
             paint.setTextAlign(Paint.Align.LEFT);
         }
 
@@ -3308,6 +3319,29 @@ public class Renderer {
             c.drawText("没有小怪 · 打完一个喘息片刻，下一位随即入场", VW / 2f, 622f, paint);
             c.drawText("开局 " + GameWorld.RUSH_LIVES + " 条命 · 火力 2 · 越深赏金越高",
                     VW / 2f, 652f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+        // v1.49：回声周目开局横幅：把这一周目的倍率一次讲清楚
+        if (w.echoBanner > 0f && w.echo()) {
+            float k = Math.min(1f, w.echoBanner / 0.4f);
+            float in = Math.min(1f, (GameWorld.ECHO_BANNER_TIME - w.echoBanner) / 0.3f);
+            float s = 0.75f + 0.25f * in;
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(42f * s);
+            paint.setFakeBoldText(true);
+            paint.setColor(((int) (0xFF * k) << 24) | 0x009FE8FF);
+            c.drawText("ECHO LOOP · 回声周目", VW / 2f, 545f, paint);
+            paint.setTextSize(30f * s);
+            paint.setColor(((int) (0xF0 * k) << 24) | 0xFF7A9CFF);
+            c.drawText("第 " + (w.settings.echoClears + 1) + " 周目 · 8 段航程重开",
+                    VW / 2f, 586f, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextSize(23f * s);
+            paint.setColor(((int) (0xE0 * k) << 24) | 0xFFC8D6F0);
+            c.drawText("敌机血量 ×1.3 · 移速 ×1.12 · 得分 ×1.5", VW / 2f, 620f, paint);
+            c.drawText("开局 " + GameWorld.ECHO_LIVES + " 命 · 火力 "
+                            + GameWorld.ECHO_START_POWER + " · 每场 Boss 掉 1 枚回声碎片",
+                    VW / 2f, 650f, paint);
             paint.setTextAlign(Paint.Align.LEFT);
         }
         if (w.mutatorBanner > 0f && w.mutator.isActive()) {
@@ -3777,6 +3811,7 @@ public class Renderer {
 
         drawUpdateButton(c, w);
         drawDualBoard(c, w, VW / 2f - 165f, 830f, 330f, 44f, 22f);
+        drawEchoEntry(c, w);
 
         paint.setTextSize(26f);
         paint.setColor(0x668FA3C8);
@@ -3797,6 +3832,7 @@ public class Renderer {
                 "达成成就当场 +300 分并涨军衔 · 单局取历史最佳、生涯只累加，进度永远不倒退",
                 "每日挑战 DAILY 由当天日期决定规则、命数与种子 · 同一天重开就是同一条时间线，可以刷分",
                 "BOSS RUSH 只打 Boss，没有小怪只有喘息 · 越深赏金越高",
+                "打穿主线后解锁 ECHO LOOP 回声周目 · 敌机更硬、得分 ×1.5，还有自己的一张榜",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
@@ -5061,8 +5097,8 @@ public class Renderer {
 
         if (w.campaignVictory) {
             paint.setTextSize(84f);
-            paint.setColor(0xFFFFD166);
-            c.drawText("CAMPAIGN CLEAR", VW / 2f, 400f, paint);
+            paint.setColor(w.echo() ? 0xFF9FE8FF : 0xFFFFD166);
+            c.drawText(w.echo() ? "ECHO CLEAR" : "CAMPAIGN CLEAR", VW / 2f, 400f, paint);
         } else {
             paint.setTextSize(96f);
             paint.setColor(0xFFFF3355);
@@ -5073,12 +5109,16 @@ public class Renderer {
         paint.setColor(0xFFFFFFFF);
         String modeTag;
         if (w.campaignVictory) {
-            modeTag = Story.SECTOR_COUNT + " 段航程 · "
-                    + (w.campaignFirstClear ? "首次通关" : "再次通关");
+            modeTag = w.echo()
+                    ? Story.SECTOR_COUNT + " 段回响 · 第 " + w.settings.echoClears + " 周目"
+                    : Story.SECTOR_COUNT + " 段航程 · "
+                            + (w.campaignFirstClear ? "首次通关" : "再次通关");
         } else if (w.daily()) {
             modeTag = "日常 " + DailyChallenge.display(w.dailyKey) + " · " + w.dailyRule.label;
         } else if (w.bossRush()) {
             modeTag = "BOSS RUSH · 连破 " + w.bossRushKills + " 个";
+        } else if (w.echo()) {
+            modeTag = "ECHO LOOP · 得分 ×" + GameWorld.ECHO_SCORE_SCALE;
         } else {
             modeTag = (w.mode == GameMode.ENDLESS ? "ENDLESS" : "WAVE " + w.wave)
                     + "   •   " + w.settings.difficulty.label();
@@ -5113,6 +5153,20 @@ public class Renderer {
                 c.drawText("最深纪录 " + w.settings.rushBest + " 个  ·  本局 "
                         + w.bossRushKills + " 个", VW / 2f, 518f, paint);
             }
+        } else if (w.echo()) {
+            // 回声周目看自己的榜：不读 CAMPAIGN 的历史最高分
+            int echoBest = w.board(GameMode.ECHO)[0];
+            if (w.newBest) {
+                float pulse = 1f + 0.06f * (float) Math.sin(w.stateTimer * 6f);
+                paint.setTextSize(38f * pulse);
+                paint.setColor(0xFFFFD166);
+                c.drawText("★ 回声新纪录 " + echoBest + " ★", VW / 2f, 520f, paint);
+            } else {
+                paint.setTextSize(34f);
+                paint.setColor(0xFF8FA3C8);
+                c.drawText("回声最佳 " + echoBest + "  ·  碎片 " + w.settings.echoShards,
+                        VW / 2f, 518f, paint);
+            }
         } else if (w.newBest) {
             float pulse = 1f + 0.06f * (float) Math.sin(w.stateTimer * 6f);
             paint.setTextSize(38f * pulse);
@@ -5136,7 +5190,9 @@ public class Renderer {
         paint.setTextSize(40f);
         float alpha = 0.4f + 0.6f * Math.abs((float) Math.sin(w.stateTimer * 2.2f));
         paint.setColor(((int) (255 * alpha) << 24) | 0x8FA3C8);
-        c.drawText(w.campaignVictory ? "Tap to fly again · 结局已写入档案" : "Tap to fly again",
+        c.drawText(w.campaignVictory
+                        ? (w.echo() ? "Tap to fly again · 回响已写入档案" : "Tap to fly again · 结局已写入档案")
+                        : "Tap to fly again",
                 VW / 2f, 1230f, paint);
         paint.setTextAlign(Paint.Align.LEFT);
     }
@@ -5160,7 +5216,7 @@ public class Renderer {
         paint.setTextAlign(Paint.Align.CENTER);
         paint.setTextSize(26f);
         paint.setColor(((int) (0xC0 * titleIn) << 24) | 0x00B08FFF);
-        c.drawText("ENDING · 终章", VW / 2f, 268f, paint);
+        c.drawText(w.echo() ? "ENDING · 回响" : "ENDING · 终章", VW / 2f, 268f, paint);
         paint.setFakeBoldText(true);
         paint.setTextSize(66f);
         paint.setColor(((int) (0xFF * titleIn) << 24) | 0x00FFD166);
@@ -5195,10 +5251,14 @@ public class Renderer {
             paint.setTextAlign(Paint.Align.CENTER);
             paint.setTextSize(24f);
             paint.setColor(((int) (0xC8 * foot * pulse) << 24) | 0x008FA3C8);
-            c.drawText("—— 档案到此为止 · 点击继续 ——", VW / 2f, 1160f, paint);
+            c.drawText(w.echo() ? "—— 回声到此归档 · 点击继续 ——" : "—— 档案到此为止 · 点击继续 ——",
+                    VW / 2f, 1160f, paint);
             paint.setTextSize(20f);
             paint.setColor(((int) (0x88 * foot) << 24) | 0x00FFD166);
-            c.drawText("CAMPAIGN CLEAR · " + w.score + " 分", VW / 2f, 1200f, paint);
+            c.drawText((w.echo()
+                            ? "ECHO CLEAR · 第 " + w.settings.echoClears + " 周目 · "
+                            : "CAMPAIGN CLEAR · ") + w.score + " 分",
+                    VW / 2f, 1200f, paint);
         }
         paint.setTextAlign(Paint.Align.LEFT);
     }
@@ -5353,6 +5413,71 @@ public class Renderer {
         c.drawText(score <= 0 ? "—" : String.valueOf(score), edge, y, paint);
     }
 
+    /**
+     * v1.49：回声周目的菜单铭牌。锁住时只做预告（点一下会提示解锁条件），
+     * 解锁后显示碎片 / 通关次数 / 自己的榜，并在外圈呼吸发光。
+     */
+    private void drawEchoEntry(Canvas c, GameWorld w) {
+        Ui.Rect r = Ui.START_ECHO;
+        boolean unlocked = w.settings.echoUnlocked();
+        float pulse = 0.5f + 0.5f * (float) Math.sin(w.stateTimer * 2.2f);
+        int accent = unlocked ? 0xFF9FE8FF : 0xFF47566B;
+
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(unlocked ? 0xE00A1A2E : 0xB30C1629);
+        c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 20f, 20f, paint);
+
+        if (unlocked) {
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(3f);
+            paint.setColor(((int) (0x38 + 0x48 * pulse) << 24) | 0x009FE8FF);
+            c.drawRoundRect(r.x - 3f, r.y - 3f, r.x + r.w + 3f, r.y + r.h + 3f,
+                    23f, 23f, paint);
+        }
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(0xB0000000 | accent);
+        c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 20f, 20f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setFakeBoldText(true);
+        paint.setTextSize(30f);
+        paint.setColor(unlocked ? 0xFFE8F1FF : 0xFF6B7E95);
+        c.drawText("ECHO LOOP · 回声周目", r.x + 26f, r.y + 40f, paint);
+        paint.setFakeBoldText(false);
+
+        int best = w.board(GameMode.ECHO)[0];
+        paint.setTextAlign(Paint.Align.RIGHT);
+        paint.setTextSize(20f);
+        paint.setColor(unlocked ? 0xFF9FE8FF : 0xFF55677D);
+        c.drawText(unlocked ? (best > 0 ? "最高 " + best : "尚无纪录") : "LOCKED",
+                r.x + r.w - 26f, r.y + 38f, paint);
+
+        paint.setTextAlign(Paint.Align.LEFT);
+        paint.setTextSize(19f);
+        if (unlocked) {
+            paint.setColor(0xFFC8D6F0);
+            c.drawText("敌机血量 ×1.3 · 移速 ×1.12 · 得分 ×1.5",
+                    r.x + 26f, r.y + 66f, paint);
+            paint.setTextSize(16f);
+            paint.setColor(0xFFFFD166);
+            c.drawText("回声碎片 " + w.settings.echoShards + " · 通关 "
+                    + w.settings.echoClears + " 次 · 后日谈档案用它解锁",
+                    r.x + 26f, r.y + 88f, paint);
+        } else {
+            boolean flash = w.echoLockedFlash > 0f;
+            paint.setColor(flash ? 0xFFFFB0C0 : 0xFF8FA3C8);
+            c.drawText(flash ? "还没解锁：先打穿主线 8 段航程" : "通关 8 段航程后解锁",
+                    r.x + 26f, r.y + 66f, paint);
+            paint.setTextSize(16f);
+            paint.setColor(0xFF55677D);
+            c.drawText("打完主线，再来一遍更强的星海", r.x + 26f, r.y + 88f, paint);
+        }
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
     /** Compact one-board panel (game-over screen): the board of the run's mode. */
     /**
      * 日常局的"榜单"就是日历本身：最近 14 天各格一天，打过显示当日最佳、没打过留空。
@@ -5426,9 +5551,11 @@ public class Renderer {
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setTextSize(size * 0.92f);
         paint.setColor(mode == GameMode.ENDLESS ? 0xFFB08FFF
-                : mode == GameMode.RUSH ? 0xFFFFB03A : 0xFF7DF9FF);
+                : mode == GameMode.RUSH ? 0xFFFFB03A
+                : mode == GameMode.ECHO ? 0xFF9FE8FF : 0xFF7DF9FF);
         c.drawText(mode == GameMode.ENDLESS ? "ENDLESS TOP 5"
-                        : mode == GameMode.RUSH ? "BOSS RUSH TOP 5" : "CAMPAIGN TOP 5",
+                        : mode == GameMode.RUSH ? "BOSS RUSH TOP 5"
+                        : mode == GameMode.ECHO ? "ECHO LOOP TOP 5" : "CAMPAIGN TOP 5",
                 x + 20f, y + rowH, paint);
 
         paint.setTextSize(size);

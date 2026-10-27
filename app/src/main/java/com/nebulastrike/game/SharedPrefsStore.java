@@ -50,6 +50,8 @@ public class SharedPrefsStore implements SettingsStore {
         into.bestWave = prefs.getInt("bestWave", 0);
         into.storyUnlocked = prefs.getInt("storyUnlocked", 1);
         into.campaignCleared = prefs.getBoolean("campaignCleared", false);
+        into.echoShards = prefs.getInt("echoShards", 0);
+        into.echoClears = prefs.getInt("echoClears", 0);
         into.sanitize();
     }
 
@@ -81,11 +83,12 @@ public class SharedPrefsStore implements SettingsStore {
         e.apply();
     }
 
-    /** 每种模式一张独立的榜：WAVES=lb，ENDLESS=elb，BOSS RUSH=brb。 */
+    /** 每种模式一张独立的榜：WAVES=lb，ENDLESS=elb，BOSS RUSH=brb，ECHO=ecb。 */
     private static String leaderboardPrefix(GameMode mode) {
         switch (mode) {
             case ENDLESS: return "elb";
             case RUSH: return "brb";
+            case ECHO: return "ecb";
             default: return "lb";
         }
     }
@@ -124,7 +127,9 @@ public class SharedPrefsStore implements SettingsStore {
                 .putInt("deaths", s.deaths)
                 .putInt("bestWave", s.bestWave)
                 .putInt("storyUnlocked", s.storyUnlocked)
-                .putBoolean("campaignCleared", s.campaignCleared);
+                .putBoolean("campaignCleared", s.campaignCleared)
+                .putInt("echoShards", s.echoShards)
+                .putInt("echoClears", s.echoClears);
         e.apply();
     }
 }

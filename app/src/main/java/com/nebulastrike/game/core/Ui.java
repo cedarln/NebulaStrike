@@ -38,6 +38,11 @@ public final class Ui {
     /** v1.32：STORY 与检查更新并排（各 210 宽），空出菜单第五行。 */
     public static final Rect STORY = new Rect(GameWorld.WIDTH / 2f - 220f, 712f, 210f, 56f);
     public static final Rect CHECK_UPDATE = new Rect(GameWorld.WIDTH / 2f + 10f, 712f, 210f, 56f);
+    /**
+     * v1.49：回声周目。主菜单前五行已经被占满，这张 NG+ 入口做成榜单下方的
+     * 一条宽幅铭牌（未解锁时显示锁住的预告，解锁后可点）。
+     */
+    public static final Rect START_ECHO = new Rect(GameWorld.WIDTH / 2f - 260f, 1248f, 520f, 96f);
 
     // playing: floating joystick is position-free (handled by GameView);
     // the bomb / dash buttons are mirrored for left-handed play
@@ -141,7 +146,7 @@ public final class Ui {
 
     /** Logical UI actions produced by taps. */
     public enum Action {
-        START, START_ENDLESS, START_DAILY, START_RUSH,
+        START, START_ENDLESS, START_DAILY, START_RUSH, START_ECHO,
         OPEN_SETTINGS, TOGGLE_SOUND, TOGGLE_PARTICLES, TOGGLE_HAPTICS,
         TOGGLE_REDUCED_FX, TOGGLE_LEFT_HAND, SETTINGS_BACK, RESUME, RESTART, QUIT_TO_MENU, PAUSE,
         CHECK_UPDATE,
@@ -254,6 +259,8 @@ public final class Ui {
                 if (CAREER.contains(x, y)) return Action.OPEN_CAREER;
                 if (STORY.contains(x, y)) return Action.OPEN_STORY;
                 if (CHECK_UPDATE.contains(x, y)) return Action.CHECK_UPDATE;
+                // 回声周目：锁住时也接收点击，交给 GameWorld 决定是开局还是提示解锁
+                if (START_ECHO.contains(x, y)) return Action.START_ECHO;
                 return null;
             case PAUSED:
                 if (RESUME.contains(x, y)) return Action.RESUME;

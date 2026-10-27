@@ -490,6 +490,14 @@ public class AudioEngine {
                     // 枢链者通电：压低一档的电弧声，提示"现在这条线是烫的"
                     play(SfxId.CHAIN_ZAP, 0.56f, 0.82f, panFor(e.x));
                     break;
+                case ECHO_START:
+                    // 回声周目开场：奖励音降一档、拖长一点，像从很远的地方传回来
+                    play(SfxId.BONUS, 0.62f, 0.84f, 0f);
+                    break;
+                case ECHO_SHARD:
+                    // 碎片到手：比解密档案更短更亮，和 Boss 爆炸的余响错开
+                    play(SfxId.RELIC, 0.38f, 1.24f, panFor(e.x));
+                    break;
             }
         }
     }
