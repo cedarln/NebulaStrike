@@ -125,14 +125,16 @@ public class Renderer {
         drawOrbitSpheres(c, w);
         drawFloatTexts(c, w);   // 伤害/得分飘字，跟随震屏一起位移
 
-        // 连击边缘辉光：combo 越高，四边越亮（reducedFx 下关闭）
+        // 连击边缘辉光：combo 越高，四边越亮（reducedFx 下关闭）；
+        // 狂热期间换成余烬橙并加快脉动，光凭余光就能知道射速加成还在
         if (!w.settings.reducedFx && w.comboKills > 1 && w.state == GameWorld.State.PLAYING) {
             int mult = Math.min(4, w.comboMultiplier());
-            float pulse = 0.55f + 0.45f * (float) Math.sin(w.timeAlive * 7f);
+            boolean frenzy = w.frenzyActive();
+            float pulse = 0.55f + 0.45f * (float) Math.sin(w.timeAlive * (frenzy ? 13f : 7f));
             paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(10f);
-            paint.setColor(((int) ((0x30 + 0x18 * mult) * pulse) << 24)
-                    | (mult >= 3 ? 0xFFFFD166 : 0xFF7DF9FF));
+            paint.setStrokeWidth(frenzy ? 14f : 10f);
+            paint.setColor(((int) ((0x30 + 0x18 * mult + (frenzy ? 0x20 : 0)) * pulse) << 24)
+                    | (frenzy ? 0xFFFF8A4C : mult >= 3 ? 0xFFFFD166 : 0xFF7DF9FF));
             c.drawRect(5f, 5f, VW - 5f, VH - 5f, paint);
             paint.setStyle(Paint.Style.FILL);
         }
@@ -2839,10 +2841,25 @@ public class Renderer {
         // combo counter
         if (w.comboKills > 1) {
             int mult = w.comboMultiplier();
-            paint.setTextSize(26f + mult * 2f);
-            paint.setColor(mult >= 3 ? 0xFFFFD166 : 0xFF7DF9FF);
+            boolean frenzy = w.frenzyActive();
+            float pop = frenzy ? 1f + 0.055f * (float) Math.sin(w.timeAlive * 15f) : 1f;
+            paint.setTextSize((26f + mult * 2f) * pop);
+            paint.setColor(frenzy ? 0xFFFF9A5C
+                    : mult >= 3 ? 0xFFFFD166 : 0xFF7DF9FF);
             paint.setTextAlign(Paint.Align.CENTER);
             c.drawText("COMBO x" + mult + "  (" + w.comboKills + ")", VW / 2f, 100f, paint);
+            if (frenzy) {
+                // 狂热读数：一行状态字 + 一条剩余时间细条，不靠数字也知道还剩多久
+                float frac = Math.max(0f, Math.min(1f, w.frenzyTimer / GameWorld.FRENZY_TIME));
+                paint.setTextSize(22f);
+                paint.setColor(0xFFFFC08A);
+                c.drawText("FRENZY  ·  射速 +" + Math.round((1f - GameWorld.FRENZY_FIRE_SCALE) * 100f)
+                        + "%  ·  得分 ×" + GameWorld.FRENZY_SCORE_SCALE, VW / 2f, 126f, paint);
+                paint.setColor(0x35FFC08A);
+                c.drawRect(VW / 2f - 110f, 136f, VW / 2f + 110f, 141f, paint);
+                paint.setColor(0xFFFF7A3C);
+                c.drawRect(VW / 2f - 110f, 136f, VW / 2f - 110f + 220f * frac, 141f, paint);
+            }
             paint.setTextAlign(Paint.Align.LEFT);
         }
 

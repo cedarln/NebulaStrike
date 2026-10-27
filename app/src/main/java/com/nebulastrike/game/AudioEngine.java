@@ -309,6 +309,14 @@ public class AudioEngine {
                 case BOSS_CORE_CLOSE:
                     play(SfxId.UI, 0.26f, 0.72f, panFor(e.x));
                     break;
+                case FRENZY_START:
+                    // 连杀点着：硬朗的上扬和弦，压在其它战斗音上面但不盖过大招
+                    play(SfxId.OVERDRIVE, 0.62f, 1.18f, panFor(e.x));
+                    play(SfxId.ULT_READY, 0.34f, 1.3f, panFor(e.x));
+                    break;
+                case FRENZY_END:
+                    play(SfxId.UI, 0.2f, 0.6f, panFor(e.x));
+                    break;
                 case ULT_READY:
                     play(SfxId.ULT_READY, 0.75f, 1f, 0f);
                     break;

@@ -129,7 +129,11 @@ public class GameWorld {
         /** v1.45：Boss 核心暴露（code = 窗口整秒数） */
         BOSS_CORE_OPEN,
         /** v1.45：Boss 核心合拢 */
-        BOSS_CORE_CLOSE
+        BOSS_CORE_CLOSE,
+        /** v1.46：连杀狂热点着（code = 点着时的连杀数） */
+        FRENZY_START,
+        /** v1.46：连杀狂热结束 */
+        FRENZY_END
     }
     public static final class GameEvent {
         public final EventType type;
@@ -493,6 +497,20 @@ public class GameWorld {
     public int comboKills;
     public float comboTimer;
     public static final float COMBO_WINDOW = 3f;
+
+    // ---- v1.46：连杀狂热 FRENZY ----
+    /** 连杀到这个数就点着狂热（之后每再攒这么多杀再点一次）。 */
+    public static final int FRENZY_KILLS = 12;
+    /** 狂热持续时间。 */
+    public static final float FRENZY_TIME = 6f;
+    /** 狂热期开火冷却倍率（越小越快）。 */
+    public static final float FRENZY_FIRE_SCALE = 0.72f;
+    /** 狂热期得分倍率。 */
+    public static final float FRENZY_SCORE_SCALE = 1.25f;
+    /** 狂热剩余秒数（>0 时射速与得分同时加成）。 */
+    public float frenzyTimer;
+    /** 下一次点着狂热所需的连杀数：狂热结束后要重新攒满一整组。 */
+    int frenzyNextAt = FRENZY_KILLS;
 
     // screen shake
     public float shakeTime;
@@ -1033,7 +1051,18 @@ public class GameWorld {
 
         if (comboTimer > 0f) {
             comboTimer -= dt;
-            if (comboTimer <= 0f) comboKills = 0;
+            if (comboTimer <= 0f) {
+                comboKills = 0;
+                // 连杀断了，下一次狂热也从头攒：不会因为上一轮的进度白等
+                frenzyNextAt = FRENZY_KILLS;
+            }
+        }
+        if (frenzyTimer > 0f) {
+            frenzyTimer -= dt;
+            if (frenzyTimer <= 0f) {
+                frenzyTimer = 0f;
+                events.add(new GameEvent(EventType.FRENZY_END, ship.x, ship.y));
+            }
         }
         if (x2Timer > 0f) {
             x2Timer -= dt;
@@ -4013,6 +4042,7 @@ public class GameWorld {
         weaponCd[i] = type.cooldown
                 * (ship.rapidTimer > 0f ? 0.5f : 1f)
                 * (ship.overdriveTimer > 0f ? Ship.OVERDRIVE_FIRE_MULT : 1f)
+                * (frenzyTimer > 0f ? FRENZY_FIRE_SCALE : 1f)
                 * (hasSynergy(Synergy.OVERCHARGE) ? 0.62f : 1f);
     }
 
@@ -4711,6 +4741,8 @@ public class GameWorld {
         // 日常挑战命少分高：只有 DAILY 会 >1，其它模式恒等于 1
         float bonus = dailyScoreBonus();
         if (bonus != 1f) gained = Math.round(gained * bonus);
+        // 连杀狂热：乘在最后，和双倍分数 / 难度 / 异变各自叠乘，不互相顶掉
+        if (frenzyTimer > 0f) gained = Math.round(gained * FRENZY_SCORE_SCALE);
         score += gained;
         int idx = source >= 0 && source < SCORE_SOURCES ? source : SCORE_OTHER;
         scoreBySource[idx] += gained;
@@ -4779,6 +4811,20 @@ public class GameWorld {
         return Math.min(1 + comboKills / 5, 5);
     }
 
+    /** 狂热点着或熄灭的统一入口：连杀攒到阈值就点着，一场内可以反复点。 */
+    private void maybeIgniteFrenzy() {
+        if (frenzyTimer > 0f || comboKills < frenzyNextAt) return;
+        frenzyTimer = FRENZY_TIME;
+        frenzyNextAt = comboKills + FRENZY_KILLS;
+        addShake(0.18f, 7f);
+        events.add(new GameEvent(EventType.FRENZY_START, ship.x, ship.y, comboKills));
+    }
+
+    /** 狂热是否在线（HUD / 渲染层读它）。 */
+    public boolean frenzyActive() {
+        return frenzyTimer > 0f;
+    }
+
     /** 测试用：直接击杀指定敌人（走完整计分/掉落路径）。 */
     void killEnemyForTest(Enemy e) { killEnemy(e); }
 
@@ -4799,6 +4845,7 @@ public class GameWorld {
         comboKills++;
         if (comboKills > maxCombo) maxCombo = comboKills;
         comboTimer = COMBO_WINDOW;
+        maybeIgniteFrenzy();
         int gained = addScore(type.score * (elite ? Enemy.ELITE_SCORE_MULT : 1)
                 * comboMultiplier(), SCORE_ENEMY);
         // 击杀得分飘字：精英与重甲用大号，普通小怪只在分数可观时飘
@@ -5263,6 +5310,12 @@ public class GameWorld {
         }
         comboKills = 0;
         comboTimer = 0f;
+        // 狂热靠连杀撑着：挨了一下就当场熄火，重新从 12 连攒起
+        if (frenzyTimer > 0f) {
+            frenzyTimer = 0f;
+            events.add(new GameEvent(EventType.FRENZY_END, ship.x, ship.y));
+        }
+        frenzyNextAt = FRENZY_KILLS;
         hitsTaken++;
         addShake(0.4f, 16f);
         addHitStop(0.09f);
@@ -5422,6 +5475,8 @@ public class GameWorld {
         scoreRank = -1;
         comboKills = 0;
         comboTimer = 0f;
+        frenzyTimer = 0f;
+        frenzyNextAt = FRENZY_KILLS;
         shakeTime = 0f;
         shakeMag = 0f;
         bombFlash = 0f;

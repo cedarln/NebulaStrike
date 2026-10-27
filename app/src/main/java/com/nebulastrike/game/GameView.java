@@ -325,6 +325,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case DECOY_BURST: haptics.impact(); break;
                     // 核心暴露：轻点一下把视线拉到舰体正中；合拢不再震动
                     case BOSS_CORE_OPEN: haptics.tick(); break;
+                    // 连杀点着狂热：中震确认"节奏起来了"，结束不再震动
+                    case FRENZY_START: haptics.impact(); break;
                     case MIRAGE_REVEAL: haptics.tick(); break;
                     // 分数奖励命：和大招同档的长震，让"跨过阈值"这件事被身体记住
                     case EXTRA_LIFE: haptics.bomb(); break;
