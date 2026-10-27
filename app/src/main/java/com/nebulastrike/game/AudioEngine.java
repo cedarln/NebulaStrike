@@ -498,6 +498,10 @@ public class AudioEngine {
                     // 碎片到手：比解密档案更短更亮，和 Boss 爆炸的余响错开
                     play(SfxId.RELIC, 0.38f, 1.24f, panFor(e.x));
                     break;
+                case ECHO_ARCHIVE_UNLOCK:
+                    // 后日谈解密：档案音压低一档，越靠后的片段音高越沉，像翻到更旧的一页
+                    play(SfxId.RELIC, 0.5f, 1.02f - Math.min(0.18f, e.code * 0.024f), 0f);
+                    break;
             }
         }
     }

@@ -52,6 +52,7 @@ public class SharedPrefsStore implements SettingsStore {
         into.campaignCleared = prefs.getBoolean("campaignCleared", false);
         into.echoShards = prefs.getInt("echoShards", 0);
         into.echoClears = prefs.getInt("echoClears", 0);
+        into.echoArchiveMask = prefs.getLong("echoArchiveMask", 0L);
         into.sanitize();
     }
 
@@ -129,7 +130,8 @@ public class SharedPrefsStore implements SettingsStore {
                 .putInt("storyUnlocked", s.storyUnlocked)
                 .putBoolean("campaignCleared", s.campaignCleared)
                 .putInt("echoShards", s.echoShards)
-                .putInt("echoClears", s.echoClears);
+                .putInt("echoClears", s.echoClears)
+                .putLong("echoArchiveMask", s.echoArchiveMask);
         e.apply();
     }
 }

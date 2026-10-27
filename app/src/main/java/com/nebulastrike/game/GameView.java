@@ -334,6 +334,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     // 回声周目开场给一记中震；碎片到手轻点一下
                     case ECHO_START: haptics.impact(); break;
                     case ECHO_SHARD: haptics.tick(); break;
+                    case ECHO_ARCHIVE_UNLOCK: haptics.impact(); break;
                     case MIRAGE_REVEAL: haptics.tick(); break;
                     // 分数奖励命：和大招同档的长震，让"跨过阈值"这件事被身体记住
                     case EXTRA_LIFE: haptics.bomb(); break;

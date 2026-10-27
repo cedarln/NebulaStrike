@@ -131,6 +131,22 @@ public final class Ui {
     public static final Rect STORY_PREV = new Rect(110f, 1262f, 200f, 80f);
     public static final Rect STORY_NEXT = new Rect(590f, 1262f, 200f, 80f);
     public static final Rect STORY_BACK = new Rect(GameWorld.WIDTH / 2f - 140f, 1420f, 280f, 64f);
+    /**
+     * v1.50：剧情档案分两页签——主线九章 / 回声后日谈。
+     * 后日谈用碎片逐段解密，最后一段是完成奖励。
+     */
+    public static final Rect STORY_TAB_MAIN = new Rect(GameWorld.WIDTH / 2f - 260f, 270f, 250f, 54f);
+    public static final Rect STORY_TAB_ECHO = new Rect(GameWorld.WIDTH / 2f + 10f, 270f, 250f, 54f);
+    public static final Rect STORY_ARCHIVE_UNLOCK =
+            new Rect(GameWorld.WIDTH / 2f + 80f, 806f, 230f, 54f);
+    /** 后日谈目录行（7 段，0 起）；选中行由当前页决定，点击用上一段/下一段。 */
+    public static final float STORY_ARCHIVE_ROW_Y = 380f;
+    public static final float STORY_ARCHIVE_ROW_H = 56f;
+
+    public static Rect storyArchiveRow(int index) {
+        return new Rect(110f, STORY_ARCHIVE_ROW_Y + index * STORY_ARCHIVE_ROW_H,
+                680f, STORY_ARCHIVE_ROW_H - 6f);
+    }
 
     /** 成就某一行（0 起，按当前页内的序号）的命中矩形。 */
     public static Rect achieveRow(int index) {
@@ -157,6 +173,7 @@ public final class Ui {
         OPEN_ACHIEVEMENTS, ACHIEVEMENTS_BACK, ACHIEVEMENTS_TAB,
         OPEN_CAREER, CAREER_BACK,
         OPEN_STORY, STORY_BACK, STORY_PREV, STORY_NEXT,
+        STORY_TAB_MAIN, STORY_TAB_ECHO, STORY_ARCHIVE_UNLOCK,
         SET_DIFF_CASUAL, SET_DIFF_STANDARD, SET_DIFF_HARDCORE
     }
 
@@ -198,6 +215,9 @@ public final class Ui {
             case MENU:
                 if (storyOpen) {
                     if (STORY_BACK.contains(x, y)) return Action.STORY_BACK;
+                    if (STORY_TAB_MAIN.contains(x, y)) return Action.STORY_TAB_MAIN;
+                    if (STORY_TAB_ECHO.contains(x, y)) return Action.STORY_TAB_ECHO;
+                    if (STORY_ARCHIVE_UNLOCK.contains(x, y)) return Action.STORY_ARCHIVE_UNLOCK;
                     if (STORY_PREV.contains(x, y)) return Action.STORY_PREV;
                     if (STORY_NEXT.contains(x, y)) return Action.STORY_NEXT;
                     return null;

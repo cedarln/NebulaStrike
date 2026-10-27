@@ -141,7 +141,9 @@ public class GameWorld {
         /** v1.49：回声周目开局（code = 已持有的回声碎片总数） */
         ECHO_START,
         /** v1.49：获得回声碎片（code = 本次获得后的碎片总数） */
-        ECHO_SHARD
+        ECHO_SHARD,
+        /** v1.50：解密一段后日谈（code = 片段下标，0 起） */
+        ECHO_ARCHIVE_UNLOCK
     }
     public static final class GameEvent {
         public final EventType type;
@@ -643,6 +645,10 @@ public class GameWorld {
     public volatile boolean storyOpen;
     /** 剧情档案当前页（0 起）。 */
     public volatile int storyPage;
+    /** v1.50 档案页签：0 = 主线九章，1 = 回声后日谈。 */
+    public volatile int storyTab;
+    /** 回声后日谈当前片段（0 起）。 */
+    public volatile int echoArchivePage;
     /** 刚解锁剧情的横幅倒计时（秒）与章节号。 */
     public float storyBanner;
     public int storyBannerChapter;
@@ -1338,6 +1344,30 @@ public class GameWorld {
         if (store != null) store.save(settings);
         echoShardFlash = ECHO_SHARD_FLASH_TIME;
         events.add(new GameEvent(EventType.ECHO_SHARD, x, y, settings.echoShards));
+    }
+
+    /**
+     * v1.50：当前选中的后日谈片段能否立即解密。
+     * 只看余额、前置片段与隐藏条件，供渲染层决定按钮状态；真正的入口还会校验页签。
+     */
+    public boolean echoArchiveCanUnlock() {
+        int i = echoArchivePage;
+        long mask = settings.echoArchiveMask;
+        return !EchoArchive.unlocked(mask, i)
+                && EchoArchive.reachable(mask, i, settings.echoClears)
+                && settings.echoShards >= EchoArchive.cost(i);
+    }
+
+    /** 解密一段后日谈：扣碎片、置位、立即落盘，并播一条档案音。 */
+    private void unlockEchoArchivePage() {
+        if (!storyOpen || storyTab != 1) return;
+        if (!echoArchiveCanUnlock()) return;
+        int i = echoArchivePage;
+        settings.echoShards -= EchoArchive.cost(i);
+        settings.echoArchiveMask = EchoArchive.unlock(settings.echoArchiveMask, i);
+        saveSettings();
+        events.add(new GameEvent(EventType.ECHO_ARCHIVE_UNLOCK,
+                WIDTH / 2f, HEIGHT - 140f, i));
     }
 
     /**
@@ -5379,16 +5409,34 @@ public class GameWorld {
                 // 默认停在最近解密的一章：玩家点进来最想看的是刚解锁的那段
                 storyPage = Math.max(0, Math.min(Story.CHAPTER_COUNT - 1,
                         settings.storyUnlocked - 1));
+                echoArchivePage = Math.max(0, Math.min(EchoArchive.COUNT - 1, echoArchivePage));
                 flushCodex();
                 break;
             case STORY_BACK:
                 storyOpen = false;
                 break;
+            case STORY_TAB_MAIN:
+                storyTab = 0;
+                break;
+            case STORY_TAB_ECHO:
+                storyTab = 1;
+                break;
+            case STORY_ARCHIVE_UNLOCK:
+                unlockEchoArchivePage();
+                break;
             case STORY_PREV:
-                if (storyPage > 0) storyPage--;
+                if (storyTab == 1) {
+                    if (echoArchivePage > 0) echoArchivePage--;
+                } else if (storyPage > 0) {
+                    storyPage--;
+                }
                 break;
             case STORY_NEXT:
-                if (storyPage < Story.CHAPTER_COUNT - 1) storyPage++;
+                if (storyTab == 1) {
+                    if (echoArchivePage < EchoArchive.COUNT - 1) echoArchivePage++;
+                } else if (storyPage < Story.CHAPTER_COUNT - 1) {
+                    storyPage++;
+                }
                 break;
             case ACHIEVEMENTS_TAB:
                 achieveTab = achieveTab == 0 ? 1 : 0;

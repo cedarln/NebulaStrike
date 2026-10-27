@@ -76,10 +76,12 @@ public class Settings {
     public volatile boolean campaignCleared;
 
     // ---- 回声周目（v1.49）：通关主线后解锁的 NG+ ----
-    /** 回声碎片：每一场回声 Boss 掉一枚，是后日谈档案的解锁货币。只增不减。 */
+    /** 回声碎片：每场回声 Boss 掉一枚、通关再给三枚；解密后日谈会消耗，余额不为负。 */
     public volatile int echoShards;
     /** 回声周目通关次数。 */
     public volatile int echoClears;
+    /** v1.50：后日谈档案已解密位图（第 n 位 = {@link EchoArchive} 第 n 段）。 */
+    public volatile long echoArchiveMask;
 
     /** 是否已经可以进入回声周目（主线通关即解锁）。 */
     public boolean echoUnlocked() {
@@ -269,6 +271,7 @@ public class Settings {
         if (bestWave < 0) bestWave = 0;
         if (echoShards < 0) echoShards = 0;
         if (echoClears < 0) echoClears = 0;
+        echoArchiveMask &= (1L << EchoArchive.COUNT) - 1L;
         storyUnlocked = clamp(storyUnlocked, 1, Story.CHAPTER_COUNT);
     }
 

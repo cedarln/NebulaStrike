@@ -18,6 +18,7 @@ import com.nebulastrike.game.core.Bullet;
 import com.nebulastrike.game.core.Career;
 import com.nebulastrike.game.core.DailyChallenge;
 import com.nebulastrike.game.core.Difficulty;
+import com.nebulastrike.game.core.EchoArchive;
 import com.nebulastrike.game.core.Enemy;
 import com.nebulastrike.game.core.EnemyType;
 import com.nebulastrike.game.core.Escort;
@@ -4335,10 +4336,6 @@ public class Renderer {
 
     /** 剧情档案（v1.32）：顶部时间线 + 当前章节卡，锁定章节也能翻看解密条件。 */
     private void drawStory(Canvas c, GameWorld w) {
-        int unlocked = w.settings.storyUnlocked;
-        int page = Math.max(0, Math.min(Story.CHAPTER_COUNT - 1, w.storyPage));
-        boolean open = page < unlocked;
-
         paint.setShader(null);
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(0xE60A1024);
@@ -4357,14 +4354,51 @@ public class Renderer {
         paint.setColor(0xFFB08FFF);
         c.drawText("STORY 星海档案", VW / 2f, 226f, paint);
         paint.setFakeBoldText(false);
+
+        // v1.50：两页签——主线九章 / 回声后日谈
+        boolean archive = w.storyTab == 1;
+        drawStoryTab(c, Ui.STORY_TAB_MAIN, "主线档案", !archive);
+        drawStoryTab(c, Ui.STORY_TAB_ECHO, "回声后日谈", archive);
+
+        if (archive) drawEchoArchiveBody(c, w);
+        else drawMainStoryBody(c, w);
+
+        button(c, Ui.STORY_BACK, "BACK", 0xFF182040, 0xFFE8F1FF, false, 30f);
+    }
+
+    private void drawStoryTab(Canvas c, Ui.Rect r, String label, boolean active) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(active ? 0x33B08FFF : 0x101A2E);
+        c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 14f, 14f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(active ? 3f : 2f);
+        paint.setColor(active ? 0xFFB08FFF : 0x33475A78);
+        c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 14f, 14f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setTextAlign(Paint.Align.CENTER);
         paint.setTextSize(24f);
+        paint.setFakeBoldText(active);
+        paint.setColor(active ? 0xFFE8F1FF : 0xFF6B7E95);
+        c.drawText(label, r.cx(), r.cy() + 8f, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /** 主线九章：时间线 + 当前章节卡 + 上一章 / 下一章。 */
+    private void drawMainStoryBody(Canvas c, GameWorld w) {
+        int unlocked = w.settings.storyUnlocked;
+        int page = Math.max(0, Math.min(Story.CHAPTER_COUNT - 1, w.storyPage));
+        boolean open = page < unlocked;
+
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(22f);
         paint.setColor(0xFF8FA3C8);
         c.drawText("时间线 " + unlocked + "/" + Story.CHAPTER_COUNT
-                + "  ·  击破一位 Boss 解密下一章", VW / 2f, 268f, paint);
+                + "  ·  击破一位 Boss 解密下一章", VW / 2f, 358f, paint);
         paint.setTextAlign(Paint.Align.LEFT);
 
         // 时间线：已解密亮紫、当前页金色、未解密暗格
-        float dotY = 322f;
+        float dotY = 408f;
         float step = 660f / (Story.CHAPTER_COUNT - 1);
         paint.setStrokeWidth(3f);
         paint.setColor(0x33FFFFFF);
@@ -4388,26 +4422,26 @@ public class Renderer {
         paint.setColor(0xFF8FA3C8);
         paint.setTextSize(22f);
         paint.setFakeBoldText(true);
-        c.drawText(Story.tag(page), 110f, 392f, paint);
+        c.drawText(Story.tag(page), 110f, 472f, paint);
         paint.setTextSize(40f);
         paint.setColor(open ? 0xFFE8F1FF : 0xFF4A5470);
-        c.drawText(Story.title(page), 110f, 442f, paint);
+        c.drawText(Story.title(page), 110f, 522f, paint);
         paint.setFakeBoldText(false);
 
         paint.setColor(0x22FFFFFF);
-        c.drawRect(110f, 464f, 790f, 466f, paint);
+        c.drawRect(110f, 544f, 790f, 546f, paint);
 
         if (!open) {
             paint.setTextAlign(Paint.Align.CENTER);
             paint.setTextSize(34f);
             paint.setColor(0xFF5A647F);
-            c.drawText("··· 档案未解密 ···", VW / 2f, 700f, paint);
+            c.drawText("··· 档案未解密 ···", VW / 2f, 760f, paint);
             paint.setTextSize(26f);
             paint.setColor(0xFF8FA3C8);
-            c.drawText(Story.unlockHint(page), VW / 2f, 748f, paint);
+            c.drawText(Story.unlockHint(page), VW / 2f, 808f, paint);
             paint.setTextAlign(Paint.Align.LEFT);
         } else {
-            float y = 512f;
+            float y = 588f;
             paint.setTextSize(29f);
             paint.setColor(0xFFC8D6F0);
             for (String paragraph : Story.body(page)) {
@@ -4416,8 +4450,7 @@ public class Renderer {
             }
         }
 
-        boolean ending = Story.isEnding(page);
-        if (open && ending) {
+        if (open && Story.isEnding(page)) {
             paint.setTextAlign(Paint.Align.CENTER);
             paint.setTextSize(24f);
             paint.setColor(0xFFFFD166);
@@ -4434,8 +4467,138 @@ public class Renderer {
         paint.setColor(0xFF8FA3C8);
         c.drawText((page + 1) + " / " + Story.CHAPTER_COUNT, VW / 2f, 1314f, paint);
         paint.setTextAlign(Paint.Align.LEFT);
+    }
 
-        button(c, Ui.STORY_BACK, "BACK", 0xFF182040, 0xFFE8F1FF, false, 30f);
+    /**
+     * 回声后日谈（v1.50）：上部是七段目录，下部是当前片段卡；
+     * 未解密的片段也能翻看条件与费用，解密按钮只在对齐前置、碎片足够时点亮。
+     */
+    private void drawEchoArchiveBody(Canvas c, GameWorld w) {
+        long mask = w.settings.echoArchiveMask;
+        int page = Math.max(0, Math.min(EchoArchive.COUNT - 1, w.echoArchivePage));
+        boolean open = EchoArchive.unlocked(mask, page);
+        boolean reachable = EchoArchive.reachable(mask, page, w.settings.echoClears);
+
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(22f);
+        paint.setColor(0xFF8FA3C8);
+        c.drawText("回声碎片 " + w.settings.echoShards + "  ·  已解密 "
+                        + EchoArchive.unlockedCount(mask) + "/" + EchoArchive.COUNT
+                        + "  ·  每场旗舰 +1，通关 +3",
+                VW / 2f, 358f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+
+        // 七段目录：已解密亮青、当前页金色、未解密暗格
+        for (int i = 0; i < EchoArchive.COUNT; i++) {
+            Ui.Rect row = Ui.storyArchiveRow(i);
+            boolean seen = EchoArchive.unlocked(mask, i);
+            boolean cur = i == page;
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(cur ? 0x2A9FE8FF : (seen ? 0x14143A52 : 0x0E101A2E));
+            c.drawRoundRect(row.x, row.y, row.x + row.w, row.y + row.h, 10f, 10f, paint);
+            if (cur) {
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2f);
+                paint.setColor(0x889FE8FF);
+                c.drawRoundRect(row.x, row.y, row.x + row.w, row.y + row.h, 10f, 10f, paint);
+                paint.setStyle(Paint.Style.FILL);
+            }
+
+            paint.setTextSize(18f);
+            paint.setColor(seen ? 0xFF7DF9FF : (cur ? 0xFF9FE8FF : 0xFF4F5F78));
+            paint.setFakeBoldText(true);
+            c.drawText(EchoArchive.tag(i), row.x + 16f, row.y + 34f, paint);
+            paint.setFakeBoldText(false);
+
+            paint.setTextAlign(Paint.Align.RIGHT);
+            paint.setTextSize(21f);
+            paint.setColor(seen ? 0xFFE8F1FF : (cur ? 0xFF9FE8FF : 0xFF6B7E95));
+            String right = seen ? "✓ " + EchoArchive.title(i)
+                    : EchoArchive.title(i) + "  ·  "
+                    + (EchoArchive.hidden(i) ? "隐藏" : EchoArchive.cost(i) + " 碎片");
+            c.drawText(right, row.x + row.w - 16f, row.y + 35f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+
+        // 片段卡
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0x99000011);
+        c.drawRoundRect(110f, 790f, 790f, 1200f, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(2f);
+        paint.setColor(open ? 0x669FE8FF : 0x33475A78);
+        c.drawRoundRect(110f, 790f, 790f, 1200f, 18f, 18f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        paint.setTextSize(18f);
+        paint.setColor(open ? 0xFF7DF9FF : 0xFF4F5F78);
+        paint.setFakeBoldText(true);
+        c.drawText(EchoArchive.tag(page), 130f, 824f, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextSize(32f);
+        paint.setColor(open ? 0xFFE8F1FF : 0xFF4A5470);
+        c.drawText(EchoArchive.title(page), 130f, 864f, paint);
+
+        // 解密按钮：四种状态各用一套配色
+        Ui.Rect un = Ui.STORY_ARCHIVE_UNLOCK;
+        if (open) {
+            button(c, un, "已解密", 0xFF12281E, 0xFF7CFF6B, false, 22f);
+        } else if (!reachable) {
+            button(c, un, "未开放", 0xFF101526, 0xFF3A4260, false, 22f);
+        } else if (w.echoArchiveCanUnlock()) {
+            button(c, un, "解密 · " + EchoArchive.cost(page) + " 碎片",
+                    0xFFFFD166, 0xFF241A05, true, 22f);
+        } else {
+            button(c, un, "碎片不足 · " + EchoArchive.cost(page), 0xFF101526,
+                    0xFF5A647F, false, 20f);
+        }
+
+        paint.setColor(0x22FFFFFF);
+        c.drawRect(130f, 884f, 770f, 886f, paint);
+
+        if (open) {
+            float y = 916f;
+            paint.setTextSize(23f);
+            paint.setColor(0xFFC8D6F0);
+            for (String paragraph : EchoArchive.body(page)) {
+                y = drawWrapped(c, paragraph, 130f, y, 660f, 36f);
+                y += 14f;
+            }
+        } else {
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(30f);
+            paint.setColor(0xFF5A647F);
+            c.drawText("··· 后日谈尚未解密 ···", VW / 2f, 980f, paint);
+            paint.setTextSize(24f);
+            paint.setColor(0xFF8FA3C8);
+            c.drawText(EchoArchive.unlockHint(page), VW / 2f, 1032f, paint);
+            if (!EchoArchive.hidden(page) && reachable) {
+                paint.setTextSize(22f);
+                paint.setColor(0xFF9FE8FF);
+                c.drawText("需要 " + EchoArchive.cost(page) + " 枚回声碎片 · 当前持有 "
+                        + w.settings.echoShards, VW / 2f, 1080f, paint);
+            }
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+
+        boolean complete = EchoArchive.complete(mask);
+        if (complete) {
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(22f);
+            paint.setColor(0xFFFFD166);
+            c.drawText("—— 后日谈 · 完 ——", VW / 2f, 1230f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+
+        button(c, Ui.STORY_PREV, "上一段", page > 0 ? 0xFF182040 : 0xFF101526,
+                page > 0 ? 0xFF8FA3C8 : 0xFF3A4260, false, 26f);
+        button(c, Ui.STORY_NEXT, "下一段", page < EchoArchive.COUNT - 1 ? 0xFF182040 : 0xFF101526,
+                page < EchoArchive.COUNT - 1 ? 0xFF8FA3C8 : 0xFF3A4260, false, 26f);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(26f);
+        paint.setColor(0xFF8FA3C8);
+        c.drawText((page + 1) + " / " + EchoArchive.COUNT, VW / 2f, 1314f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
     }
 
     /** 逐字换行（中文没有空格可断），返回下一行的基线 Y。 */
@@ -5420,8 +5583,9 @@ public class Renderer {
     private void drawEchoEntry(Canvas c, GameWorld w) {
         Ui.Rect r = Ui.START_ECHO;
         boolean unlocked = w.settings.echoUnlocked();
+        boolean complete = EchoArchive.complete(w.settings.echoArchiveMask);
         float pulse = 0.5f + 0.5f * (float) Math.sin(w.stateTimer * 2.2f);
-        int accent = unlocked ? 0xFF9FE8FF : 0xFF47566B;
+        int accent = complete ? 0xFFFFD166 : (unlocked ? 0xFF9FE8FF : 0xFF47566B);
 
         paint.setShader(null);
         paint.setStyle(Paint.Style.FILL);
@@ -5431,7 +5595,8 @@ public class Renderer {
         if (unlocked) {
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(3f);
-            paint.setColor(((int) (0x38 + 0x48 * pulse) << 24) | 0x009FE8FF);
+            paint.setColor(((int) (0x38 + 0x48 * pulse) << 24)
+                    | (complete ? 0x00FFD166 : 0x009FE8FF));
             c.drawRoundRect(r.x - 3f, r.y - 3f, r.x + r.w + 3f, r.y + r.h + 3f,
                     23f, 23f, paint);
         }
@@ -5445,14 +5610,16 @@ public class Renderer {
         paint.setFakeBoldText(true);
         paint.setTextSize(30f);
         paint.setColor(unlocked ? 0xFFE8F1FF : 0xFF6B7E95);
-        c.drawText("ECHO LOOP · 回声周目", r.x + 26f, r.y + 40f, paint);
+        c.drawText(complete ? "ECHO LOOP · 档案完整" : "ECHO LOOP · 回声周目",
+                r.x + 26f, r.y + 40f, paint);
         paint.setFakeBoldText(false);
 
         int best = w.board(GameMode.ECHO)[0];
         paint.setTextAlign(Paint.Align.RIGHT);
         paint.setTextSize(20f);
-        paint.setColor(unlocked ? 0xFF9FE8FF : 0xFF55677D);
-        c.drawText(unlocked ? (best > 0 ? "最高 " + best : "尚无纪录") : "LOCKED",
+        paint.setColor(complete ? 0xFFFFD166 : (unlocked ? 0xFF9FE8FF : 0xFF55677D));
+        c.drawText(complete ? "档案 " + EchoArchive.COUNT + "/" + EchoArchive.COUNT
+                        : unlocked ? (best > 0 ? "最高 " + best : "尚无纪录") : "LOCKED",
                 r.x + r.w - 26f, r.y + 38f, paint);
 
         paint.setTextAlign(Paint.Align.LEFT);
@@ -5463,8 +5630,10 @@ public class Renderer {
                     r.x + 26f, r.y + 66f, paint);
             paint.setTextSize(16f);
             paint.setColor(0xFFFFD166);
-            c.drawText("回声碎片 " + w.settings.echoShards + " · 通关 "
-                    + w.settings.echoClears + " 次 · 后日谈档案用它解锁",
+            c.drawText("回声碎片 " + w.settings.echoShards + " · 后日谈 "
+                            + EchoArchive.unlockedCount(w.settings.echoArchiveMask)
+                            + "/" + EchoArchive.COUNT
+                            + " · 通关 " + w.settings.echoClears + " 次",
                     r.x + 26f, r.y + 88f, paint);
         } else {
             boolean flash = w.echoLockedFlash > 0f;
