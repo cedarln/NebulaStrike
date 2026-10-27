@@ -853,6 +853,10 @@ public class Renderer {
     private void drawEnemies(Canvas c, GameWorld w) {
         for (Enemy e : w.enemies) {
             if (!e.active) continue;
+            if (e.type == EnemyType.LINKER && e.linkSide < 0 && e.hasLinkTether()) {
+                Enemy mate = linkMate(w, e);
+                if (mate != null) drawLinkTether(c, w, e, mate);
+            }
             boolean flashing = e.flash > 0f;
             int base = palette(e.type.colorHint, flashing ? 255 : 235);
             paint.setStyle(Paint.Style.FILL);
@@ -1485,9 +1489,94 @@ public class Renderer {
                     c.drawCircle(e.x, e.y, r * (0.18f + 0.14f * e.gyreCharge()), paint);
                     break;
                 }
+                case LINKER: {
+                    // 枢链者：菱形机体 + 四角锚点。左右两只互为镜像，
+                    // 中间的锁链由 drawLinkTether 单独画（只从左侧那只画一次）
+                    boolean charging = e.isLinkCharging();
+                    boolean live = e.isLinkLive();
+                    diamond(c, e.x, e.y, r * 0.9f, base);
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeWidth(2.5f);
+                    paint.setColor(live ? 0xFFFFFFFF : charging ? 0xFFD6FFF6 : 0xFF6FF7E0);
+                    c.drawCircle(e.x, e.y, r * 0.62f, paint);
+                    paint.setStyle(Paint.Style.FILL);
+                    float pulse = 0.5f + 0.5f * (float) Math.sin(w.timeAlive * 9f);
+                    paint.setColor(live ? 0xFFFFFFFF
+                            : charging ? 0xFFD6FFF6 : 0xFF3FB7B0);
+                    c.drawCircle(e.x, e.y, r * (0.16f + 0.12f * pulse), paint);
+                    // 锚点：朝搭档方向的小刺，让"它们是一对"在没有锁链时也读得出来
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeWidth(3f);
+                    paint.setColor(charging || live ? 0xFFD6FFF6 : 0xAA6FF7E0);
+                    float tip = r * 1.45f;
+                    float sx = e.linkSide < 0 ? 1f : -1f;
+                    c.drawLine(e.x, e.y, e.x + sx * tip, e.y, paint);
+                    paint.setStyle(Paint.Style.FILL);
+                    paint.setColor(charging || live ? 0xFFFFFFFF : 0xFF6FF7E0);
+                    c.drawCircle(e.x + sx * tip, e.y, r * 0.14f, paint);
+                    break;
+                }
             }
             if (e.bounty) drawBountyMark(c, w, e);
         }
+    }
+
+    /** 找同一对里还活着的搭档（渲染层只负责画，不参与判定）。 */
+    private Enemy linkMate(GameWorld w, Enemy e) {
+        if (e.linkId < 0) return null;
+        for (Enemy o : w.enemies) {
+            if (o != e && o.active && o.type == EnemyType.LINKER && o.linkId == e.linkId) {
+                return o;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * v1.48 电弧锁链：充能期是一条越来越亮的细直线，通电后抖成多段折线，
+     * 三层描边（外晕 / 青体 / 白芯）+ 两端锚点亮斑——"整条线都烫"必须一眼看懂。
+     */
+    private void drawLinkTether(Canvas c, GameWorld w, Enemy a, Enemy b) {
+        boolean live = a.isLinkLive();
+        float p = live ? 1f : a.linkCharge();
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        if (!live) {
+            paint.setStrokeWidth(1.5f + 2.5f * p);
+            paint.setColor(((int) (0x30 + 0x90 * p) << 24) | 0x006FF7E0);
+            c.drawLine(a.x, a.y, b.x, b.y, paint);
+            int ga = (int) (0x30 + 0x50 * p);
+            glow.setColor((ga << 24) | 0x006FF7E0);
+            c.drawCircle(a.x, a.y, 13f + 9f * p, glow);
+            c.drawCircle(b.x, b.y, 13f + 9f * p, glow);
+        } else {
+            float amp = 8f + 4f * (float) Math.sin(w.timeAlive * 31f);
+            shapePath.rewind();
+            final int segs = 10;
+            for (int i = 0; i <= segs; i++) {
+                float f = i / (float) segs;
+                float x = a.x + (b.x - a.x) * f;
+                float y = a.y + (b.y - a.y) * f;
+                float off = (i == 0 || i == segs) ? 0f
+                        : (float) Math.sin(w.timeAlive * 46f + i * 2.3f) * amp;
+                if (i == 0) shapePath.moveTo(x, y);
+                else shapePath.lineTo(x, y + off);
+            }
+            paint.setStrokeWidth(16f);
+            paint.setColor(0x4066F2FF);
+            c.drawPath(shapePath, paint);
+            paint.setStrokeWidth(6.5f);
+            paint.setColor(0xC06FF7E0);
+            c.drawPath(shapePath, paint);
+            paint.setStrokeWidth(2.2f);
+            paint.setColor(0xFFFFFFFF);
+            c.drawPath(shapePath, paint);
+            glow.setColor(0x8066F2FF);
+            c.drawCircle(a.x, a.y, 22f, glow);
+            c.drawCircle(b.x, b.y, 22f, glow);
+        }
+        paint.setStyle(Paint.Style.FILL);
+        paint.setStrokeCap(Paint.Cap.BUTT);
     }
 
     /** 赏金目标：头顶旋转菱形 + 倒计时环，全场只此一个，扫一眼就能找到。 */
@@ -4732,6 +4821,24 @@ public class Renderer {
                 c.drawCircle(x, y, r * 0.17f, paint);
                 break;
             }
+            case LINKER: {
+                // 一对菱形 + 中间的电弧：图鉴里就直接画出"它们之间那条线"
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2.5f);
+                paint.setColor(known ? 0xFF6FF7E0 : 0x406B7A99);
+                c.drawLine(x - r * 1.35f, y, x + r * 1.35f, y, paint);
+                paint.setStyle(Paint.Style.FILL);
+                diamond(c, x - r * 1.75f, y, r * 0.55f,
+                        known ? base : 0x406B7A99);
+                diamond(c, x + r * 1.75f, y, r * 0.55f,
+                        known ? base : 0x406B7A99);
+                paint.setColor(known ? 0xFF1A1206 : 0x336B7A99);
+                c.drawCircle(x - r * 1.75f, y, r * 0.2f, paint);
+                c.drawCircle(x + r * 1.75f, y, r * 0.2f, paint);
+                paint.setColor(known ? 0xFFEFFFF8 : 0x406B7A99);
+                c.drawCircle(x, y, r * 0.22f, paint);
+                break;
+            }
             default:
                 break;
         }
@@ -4798,6 +4905,7 @@ public class Renderer {
             case HELIX: return "螺旋炮台 HELIX";
             case CUTTER: return "切割者 CUTTER";
             case GYRE: return "旋翼者 GYRE";
+            case LINKER: return "枢链者 LINKER";
             default: return t.name();
         }
     }
@@ -4825,6 +4933,7 @@ public class Renderer {
             case HELIX: return "三臂螺旋连吐 9 拍，缺口随旋臂移动；每轮之间歇 2 秒";
             case CUTTER: return "锁定一列后切下贯穿光柱，点弹/弹反/反射都挡不住，只能让开";
             case GYRE: return "预警后甩出双头光刃旋转 158°，光刃扫过的整条线都会灼伤，绕着扫向躲";
+            case LINKER: return "成对登场，两者间拉起电弧锁链；充能后一起下扫，整条线都会灼伤，先拆一端就断链";
             default: return "未知机型";
         }
     }
@@ -5511,6 +5620,7 @@ public class Renderer {
             case 18: rgb = 0x7DF9FF; break;   // 螺旋炮台：旋臂青
             case 19: rgb = 0x8CFFC1; break;   // 切割者：切痕薄荷
             case 20: rgb = 0xFFC46B; break;   // 旋翼者：旋刃金
+            case 21: rgb = 0x6FF7E0; break;   // 枢链者：链电青
             default: rgb = 0x5CE1FF; break;
         }
         return (alpha << 24) | rgb;

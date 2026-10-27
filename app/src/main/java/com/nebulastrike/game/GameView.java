@@ -307,6 +307,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case ESCORT_LOST: haptics.impact(); break;
                     // 旋转光刃起转：一次中震，提示"这条线马上要动了"
                     case GYRE_SPIN: haptics.impact(); break;
+                    // 锁链通电：一记短促的"麻"，和光刃起转区分开
+                    case LINK_PULSE: haptics.tick(); break;
                     // 棱镜召唤：比横冲轻，像"多了两个东西在绕圈"
                     case BOSS_PRISM: haptics.tick(); break;
                     // 祭坛降临只是提示；吸弹太频繁不给震，免得整场都在嗡嗡

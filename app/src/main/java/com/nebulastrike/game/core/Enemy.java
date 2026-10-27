@@ -46,6 +46,20 @@ public class Enemy {
     public boolean gyreHit;
     /** 旋翼者刚起转（一次性标记，由 GameWorld 消费并播表现）。 */
     public boolean gyreJustStarted;
+    /** v1.48 枢链者：同一对的编号（-1 = 没有搭档）。 */
+    public int linkId = -1;
+    /** 枢链者的左右位置：-1 左 / +1 右，决定占位与表现只播一次。 */
+    public int linkSide = 1;
+    /** 锁链阶段：0 悬停蓄势 1 充能预警 2 通电下扫 3 回收。 */
+    public int linkPhase;
+    /** 当前阶段剩余时间。 */
+    public float linkTimer;
+    /** 搭档已不在：锁链断开，本体失稳俯冲离场。 */
+    public boolean linkLost;
+    /** 本次通电刚起（一次性标记，由 GameWorld 消费并播表现）。 */
+    public boolean linkJustFired;
+    /** 本次下扫是否已经命中过飞船（一次只结算一次伤害）。 */
+    public boolean linkHit;
     /** 坦克的齐射计数：每第 3 轮改成五连扇形扫射。 */
     public int volley;
     /** 分裂舱被击毁时生成的子机层数（防止无限分裂）。 */
@@ -215,6 +229,30 @@ public class Enemy {
     /** 光刃半宽（伤害判定用）；比切割者的光柱细，穿过它只需要一次果断的横移。 */
     public static final float GYRE_HALF_WIDTH = 16f;
 
+    // ---- v1.48 枢链者 ----
+    /** 悬停高度：锁链架在玩家头顶，蓄势期缓慢横移贴住玩家的横向位置。 */
+    public static final float LINK_HOVER_Y = 620f;
+    /** 下扫落点：锁链扫到玩家常用的活动带，逼玩家离开这条走廊。 */
+    public static final float LINK_DIVE_Y = 1300f;
+    /** 一对枢链者的左右半距：走廊宽 300，横移一个身位就能出去。 */
+    public static final float LINK_HALF_SEP = 150f;
+    /** 锁链通电半宽（伤害判定用）。 */
+    public static final float LINK_HALF_WIDTH = 12f;
+    /** 悬停期贴着玩家横移的速度：比飞船慢得多，玩家一横移就能把它拖开。 */
+    public static final float LINK_TRACK = 110f;
+    /** 第一次蓄势：刚到位就给玩家看清"它在跟着我"的时间。 */
+    public static final float LINK_FIRST_REST = 1.2f;
+    /** 之后两轮之间的蓄势时长。 */
+    public static final float LINK_REST = 1.8f;
+    /** 充能预警：细线亮起，锁定当前横向位置不再跟船。 */
+    public static final float LINK_CHARGE = 0.9f;
+    /** 通电下扫时长：从悬停高度扫到玩家活动带。 */
+    public static final float LINK_DIVE_TIME = 1.6f;
+    /** 回收时长（锁链已断电，留一个可读的收势动作）。 */
+    public static final float LINK_RISE_TIME = 1.0f;
+    /** 入场下降速度：一对成员用同一速度，保证锁链水平。 */
+    public static final float LINK_DESCENT = 190f;
+
     // ---- v1.33 追猎者 ----
     /** 悬停高度：在弹幕层上方，玩家能清楚看到两侧发射管亮起。 */
     public static final float SEEKER_HOVER_Y = 340f;
@@ -261,6 +299,13 @@ public class Enemy {
         this.gyreTimer = 0f;
         this.gyreHit = false;
         this.gyreJustStarted = false;
+        this.linkId = -1;
+        this.linkSide = 1;
+        this.linkPhase = 0;
+        this.linkTimer = LINK_FIRST_REST;
+        this.linkLost = false;
+        this.linkJustFired = false;
+        this.linkHit = false;
         this.volley = 0;
         this.splitDepth = 0;
         this.mineCd = type == EnemyType.MINER ? 1.2f : 0f;
@@ -302,6 +347,7 @@ public class Enemy {
             case HELIX: fireCd = 1.8f + GameWorld.RNG.get().nextFloat() * 0.5f; break;
             case CUTTER: fireCd = 1.6f + GameWorld.RNG.get().nextFloat() * 0.5f; break;
             case GYRE: fireCd = -1f; break;   // 不开炮：全部威胁都在光刃上
+            case LINKER: fireCd = -1f; break; // 不开炮：全部威胁都在锁链上
             default: fireCd = -1f; // does not fire
         }
     }
@@ -639,6 +685,69 @@ public class Enemy {
                 }
                 break;
             }
+            case LINKER: {
+                // 枢链者：一对从上方压到中场，锁链架在玩家头顶并缓慢横移贴住玩家；
+                // 充能 0.9 秒（细线预警、停止跟船）后一起俯冲，通电的锁链扫过整片活动带。
+                // 拆掉任意一端锁链立刻断开——先点掉一侧，比硬躲两轮更省事。
+                if (linkLost) {
+                    // 失去搭档：锁链失稳，本体顺势俯冲离场
+                    y += speed() * 1.5f * dt;
+                    x += dir * 90f * dt;
+                    break;
+                }
+                if (y < LINK_HOVER_Y) {
+                    y += LINK_DESCENT * dt;
+                    break;
+                }
+                if (linkPhase == 0) {
+                    if (!Float.isNaN(shipX)) {
+                        float center = clamp(shipX, LINK_HALF_SEP + type.radius,
+                                worldW - LINK_HALF_SEP - type.radius);
+                        float target = center + linkSide * LINK_HALF_SEP;
+                        float step = Math.min(Math.abs(target - x), LINK_TRACK * dt);
+                        x += target > x ? step : -step;
+                    }
+                    // 收势后可能还差几像素才回到悬停高度，缓慢吸回去
+                    y += (LINK_HOVER_Y - y) * Math.min(1f, 6f * dt);
+                    linkTimer -= dt;
+                    if (linkTimer <= 0f) {
+                        linkPhase = 1;
+                        linkTimer = LINK_CHARGE;
+                    }
+                    break;
+                }
+                if (linkPhase == 1) {
+                    // 充能期锁定：玩家在这 0.9 秒里横移出去，锁链就扫不到人
+                    linkTimer -= dt;
+                    if (linkTimer <= 0f) {
+                        linkPhase = 2;
+                        linkTimer = LINK_DIVE_TIME;
+                        linkHit = false;
+                        // 一对只播一次：由左端（linkSide < 0）负责报点
+                        linkJustFired = linkSide < 0;
+                    }
+                    break;
+                }
+                if (linkPhase == 2) {
+                    linkTimer -= dt;
+                    float p = 1f - Math.max(0f, linkTimer) / LINK_DIVE_TIME;
+                    y = LINK_HOVER_Y + (LINK_DIVE_Y - LINK_HOVER_Y) * p;
+                    if (linkTimer <= 0f) {
+                        linkPhase = 3;
+                        linkTimer = LINK_RISE_TIME;
+                    }
+                    break;
+                }
+                linkTimer -= dt;
+                float p = 1f - Math.max(0f, linkTimer) / LINK_RISE_TIME;
+                y = LINK_DIVE_Y + (LINK_HOVER_Y - LINK_DIVE_Y) * p;
+                if (linkTimer <= 0f) {
+                    linkPhase = 0;
+                    linkTimer = LINK_REST;
+                    y = LINK_HOVER_Y;
+                }
+                break;
+            }
             case GYRE: {
                 // 旋翼者：压到高位后左右巡游蓄能，预警 0.9 秒后甩出双头光刃旋转约半圈。
                 // 起手线直接指向飞船，光刃又长到够穿整个屏幕——躲法只有"绕着扫向走位"，
@@ -789,6 +898,28 @@ public class Enemy {
     /** 旋翼者本次旋转剩余比例 1..0，渲染层据此收细光刃尾焰。 */
     public float gyreRemain() {
         return isGyreSpinning() ? Math.max(0f, gyreTimer) / GYRE_SPIN_TIME : 0f;
+    }
+
+    /** 枢链者的锁链正在充能（渲染层画细线预警，伤害还不生效）。 */
+    public boolean isLinkCharging() {
+        return type == EnemyType.LINKER && !linkLost && linkPhase == 1;
+    }
+
+    /** 枢链者的锁链已经通电（渲染层画电弧，GameWorld 结算伤害）。 */
+    public boolean isLinkLive() {
+        return type == EnemyType.LINKER && !linkLost && linkPhase == 2;
+    }
+
+    /** 枢链者的锁链已经拉起（充能或通电，渲染层据此决定画不画）。 */
+    public boolean hasLinkTether() {
+        return type == EnemyType.LINKER && !linkLost && linkId >= 0
+                && linkPhase >= 1 && linkPhase <= 2;
+    }
+
+    /** 充能进度 0..1，预警线随它变亮。 */
+    public float linkCharge() {
+        if (!isLinkCharging()) return isLinkLive() ? 1f : 0f;
+        return 1f - Math.max(0f, linkTimer) / LINK_CHARGE;
     }
 
     /** 伪装者是否还藏在道具外形里。 */

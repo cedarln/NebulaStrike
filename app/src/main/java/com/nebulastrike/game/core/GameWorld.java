@@ -135,7 +135,9 @@ public class GameWorld {
         /** v1.46：连杀狂热结束 */
         FRENZY_END,
         /** v1.47：Boss 词缀揭晓（code = 词缀序号，0 表示无词缀） */
-        BOSS_AFFIX
+        BOSS_AFFIX,
+        /** v1.48：枢链者的锁链通电下扫（code = 锁链全长） */
+        LINK_PULSE
     }
     public static final class GameEvent {
         public final EventType type;
@@ -733,6 +735,8 @@ public class GameWorld {
     private long affixSeed = 0x2545F4914F6CDD1DL;
     /** 本局种子：词缀序列按它起头，同一局可复现、不同局不重样。 */
     private long runSeed;
+    /** v1.48：枢链者对编号发号器，重开归零。 */
+    private int nextLinkId = 1;
     /** boss dead-flash timer for the renderer */
     public float bossFlash;
     /** 每种特殊武器独立的开火冷却，实现真正的同时叠加。 */
@@ -3107,6 +3111,14 @@ public class GameWorld {
         altarsSpawned++;
     }
 
+    /** 测试用：在指定位置直接放一对枢链者（走与常规刷新相同的配对逻辑）。 */
+    void spawnLinkerPairForTest(float x) {
+        Enemy a = freeEnemy();
+        if (a == null) throw new IllegalStateException("敌机池已满");
+        a.init(EnemyType.LINKER, x, -EnemyType.LINKER.radius - 10f, enemySpeedScale);
+        spawnLinkMate(a);
+    }
+
     /** 吞掉一颗敌弹：小额分数 + 紫色飘字，同时给一点擦弹充能（贴脸吸弹也是走位）。 */
     private void absorbIntoWell(GravityWell g, EnemyBullet b) {
         b.active = false;
@@ -3475,6 +3487,18 @@ public class GameWorld {
                 events.add(new GameEvent(EventType.GYRE_SPIN, e.x, e.y,
                         e.gyreSpinDir > 0f ? 1 : -1));
             }
+            if (e.type == EnemyType.LINKER) {
+                // 搭档被拆掉：锁链立刻断开，剩下那只失稳俯冲——
+                // 玩家因此有"先点一端"的解法，而不是只能等它扫完
+                if (linkPartner(e) == null) e.linkLost = true;
+                if (e.linkJustFired) {
+                    e.linkJustFired = false;
+                    addShake(0.1f, 4f);
+                    spark(e.x, e.y, 6, 21);
+                    events.add(new GameEvent(EventType.LINK_PULSE, e.x, e.y,
+                            (int) (Enemy.LINK_HALF_SEP * 2f)));
+                }
+            }
         }
     }
 
@@ -3555,8 +3579,20 @@ public class GameWorld {
             case HELIX: return 18;
             case CUTTER: return 19;
             case GYRE: return 20;
+            case LINKER: return 21;
             default: return 4;
         }
+    }
+
+    /** 找同一对里还活着的那一只；没有搭档返回 null。 */
+    private Enemy linkPartner(Enemy e) {
+        if (e == null || e.linkId < 0) return null;
+        for (Enemy o : enemies) {
+            if (o != e && o.active && o.type == EnemyType.LINKER && o.linkId == e.linkId) {
+                return o;
+            }
+        }
+        return null;
     }
 
     // ---- v1.18 成就 ----
@@ -3973,7 +4009,6 @@ public class GameWorld {
     private void spawnEnemy() {
         Enemy e = freeEnemy();
         if (e == null) return;
-        spawnedCount++;
         EnemyType type = pickEnemyType();
         recordEnemyInCodex(type);
         float margin = type.radius + 30f;
@@ -3981,6 +4016,31 @@ public class GameWorld {
         e.init(type, x, -type.radius - 10f, enemySpeedScale);
         applyMutatorToEnemy(e);
         maybeElite(e, type);
+        spawnedCount++;
+        if (type == EnemyType.LINKER) spawnLinkMate(e);
+    }
+
+    /**
+     * v1.48：枢链者成对登场。两只共用一条锁链编号，左右各半距；
+     * 池子只剩一个空位时第二只放不出来，第一只顺势离场（不会留下一条没搭档的孤链）。
+     */
+    private void spawnLinkMate(Enemy a) {
+        Enemy b = freeEnemy();
+        if (b == null) {
+            a.linkLost = true;
+            return;
+        }
+        int id = nextLinkId++;
+        float center = clamp(a.x, Enemy.LINK_HALF_SEP + a.type.radius,
+                WIDTH - Enemy.LINK_HALF_SEP - a.type.radius);
+        a.linkId = id;
+        a.linkSide = -1;
+        a.x = center - Enemy.LINK_HALF_SEP;
+        b.init(EnemyType.LINKER, center + Enemy.LINK_HALF_SEP, a.y, enemySpeedScale);
+        b.linkId = id;
+        b.linkSide = 1;
+        applyMutatorToEnemy(b);
+        spawnedCount++;
     }
 
     /**
@@ -3990,6 +4050,8 @@ public class GameWorld {
     private void maybeElite(Enemy e, EnemyType type) {
         float t = mode == GameMode.ENDLESS ? timeAlive * 1.6f : timeAlive;
         if (t < 45f || type == EnemyType.DRONE) return;
+        // 枢链者不加精英：两端厚薄不一会让"先拆哪一端"的解法变得不可读
+        if (type == EnemyType.LINKER) return;
         float chance = ELITE_BASE_CHANCE * difficultyOf().eliteScale;
         if (RNG.get().nextFloat() >= chance) return;
         e.makeElite();
@@ -4050,10 +4112,13 @@ public class GameWorld {
         // v1.42：旋翼者 170s 解锁——它不发射弹，压力全在"这一整条线正在扫过来"，
         // 权重比切割者再低一点：两把光刃同场时安全角度会碎成四块
         float wGyre = t > 170f ? Math.min(0.035f, 0.016f + (t - 170f) / 3800f) : 0f;
+        // v1.48：枢链者 185s 解锁——一次登场就是两条命与一条断不了的线，
+        // 权重压到 4%：同场两对就足以把下半屏切成三块
+        float wLinker = t > 185f ? Math.min(0.04f, 0.02f + (t - 185f) / 4200f) : 0f;
         // 保留至少 15% 无人机当"炮灰"：非无人机权重整体归一
         float sum = wTank + wHunter + wWeaver + wSui + wSplit + wHeal + wSnipe
                 + wMiner + wShield + wCarrier + wMirage + wMagnet + wQueen + wRammer
-                + wPhaser + wSeeker + wSnarer + wHelix + wCutter + wGyre;
+                + wPhaser + wSeeker + wSnarer + wHelix + wCutter + wGyre + wLinker;
         if (sum > 0.85f) {
             float k = 0.85f / sum;
             wTank *= k; wHunter *= k; wWeaver *= k;
@@ -4065,6 +4130,7 @@ public class GameWorld {
             wHelix *= k;
             wCutter *= k;
             wGyre *= k;
+            wLinker *= k;
         }
         float c = 0f;
         if (r < (c += wTank)) return EnemyType.TANK;
@@ -4087,6 +4153,7 @@ public class GameWorld {
         if (r < (c += wHelix)) return EnemyType.HELIX;
         if (r < (c += wCutter)) return EnemyType.CUTTER;
         if (r < (c += wGyre)) return EnemyType.GYRE;
+        if (r < (c += wLinker)) return EnemyType.LINKER;
         return EnemyType.DRONE;
     }
 
@@ -4445,6 +4512,23 @@ public class GameWorld {
                 if (Math.min(dA, dB) > Ship.RADIUS * 0.5f + Enemy.GYRE_HALF_WIDTH) continue;
                 e.gyreHit = true;
                 spark(ship.x, ship.y, 9, 20);
+                onPlayerHit();
+                break;
+            }
+        }
+        // v1.48：枢链者的电弧锁链——通电下扫时，两端之间的整条线都会灼伤。
+        // 一次下扫只结算一次；打掉任意一端，锁链立刻断电
+        if (!ship.isSafe()) {
+            for (Enemy e : enemies) {
+                if (!e.active || !e.isLinkLive()) continue;
+                Enemy mate = linkPartner(e);
+                if (mate == null || e.linkHit) continue;
+                float d = distToSegment(ship.x, ship.y, e.x, e.y, mate.x, mate.y);
+                if (d > Ship.RADIUS * 0.5f + Enemy.LINK_HALF_WIDTH) continue;
+                e.linkHit = true;
+                mate.linkHit = true;
+                spark(ship.x, ship.y, 9, 21);
+                addShake(0.16f, 6f);
                 onPlayerHit();
                 break;
             }
@@ -5624,6 +5708,8 @@ public class GameWorld {
         bountyNextAt = BOUNTY_FIRST_AT;
         bountySeed = 0x9E3779B97F4A7C15L;
         affixSeed = runSeed * 0x9E3779B97F4A7C15L + 0x2545F4914F6CDD1DL;
+        // v1.48：枢链者编号重来，旧的一对不会残留成"孤链"
+        nextLinkId = 1;
         bountyStreak = 0;
         bountyBestStreak = 0;
         bountiesClaimed = 0;

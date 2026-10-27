@@ -486,6 +486,10 @@ public class AudioEngine {
                     // 旋转光刃起转：比切割者更薄更高；扫向决定音高微差，听感上能分出起手方向
                     play(SfxId.BOSS_LASER, 0.44f, e.code > 0 ? 1.34f : 1.22f, panFor(e.x));
                     break;
+                case LINK_PULSE:
+                    // 枢链者通电：压低一档的电弧声，提示"现在这条线是烫的"
+                    play(SfxId.CHAIN_ZAP, 0.56f, 0.82f, panFor(e.x));
+                    break;
             }
         }
     }
