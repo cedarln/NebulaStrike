@@ -510,6 +510,11 @@ public class AudioEngine {
                     // 选中强化：奖励音的短促版本，和成就长音区分开
                     play(SfxId.ACHIEVEMENT, 0.72f, 1.06f, 0f);
                     break;
+                case MAGNET_PULSE:
+                    // 磁力脉冲：由抑到扬的短爆，弹数越多音越高（最多抬 3 档）
+                    play(SfxId.GRAVITY_BURST, 0.38f,
+                            1.08f + Math.min(3, e.code) * 0.035f, 0f);
+                    break;
             }
         }
     }

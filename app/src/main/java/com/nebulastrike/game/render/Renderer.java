@@ -126,6 +126,7 @@ public class Renderer {
         drawBullets(c, w);
         drawArcs(c, w);
         drawShip(c, w);
+        drawMagnetField(c, w);
         drawOrbitSpheres(c, w);
         drawFloatTexts(c, w);   // 伤害/得分飘字，跟随震屏一起位移
 
@@ -549,6 +550,7 @@ public class Renderer {
                 case BOOMERANG: color = 0xFFFFB36B; label = "BM"; break;
                 case DECOY: color = 0xFF57E8FF; label = "DC"; break;
                 case LOCKON: color = 0xFFE0FF6B; label = "LK"; break;
+                case MAGNET: color = 0xFF6BE8FF; label = "MG"; break;
                 default: color = 0xFFFF5C7A; label = "B"; break;
             }
             boolean hot = p.attracted;
@@ -2634,6 +2636,34 @@ public class Renderer {
         paint.setStyle(Paint.Style.FILL);
     }
 
+    /**
+     * v1.55：磁力核心的被动场——一圈随呼吸亮暗的边界，四个向内的小刻度说明"往这里吸"；
+     * 真正吃到弹时再叠一圈向外扩散的亮环。字段本身只在有核心时画，避免默认画面变嘈杂。
+     */
+    private void drawMagnetField(Canvas c, GameWorld w) {
+        if (w.magnetStacks() <= 0) return;
+        float radius = w.magnetPulseRadius();
+        float breathe = 0.5f + 0.5f * (float) Math.sin(w.timeAlive * 3.1f);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(1.6f);
+        paint.setColor(((int) (0x1E + 0x16 * breathe) << 24) | 0x6BE8FF);
+        c.drawCircle(w.ship.x, w.ship.y, radius, paint);
+        paint.setStrokeWidth(3f);
+        paint.setColor(((int) (0x3A + 0x22 * breathe) << 24) | 0x9FF7FF);
+        for (int i = 0; i < 4; i++) {
+            float a = (float) (Math.PI / 2 * i + w.timeAlive * 0.7f);
+            c.drawCircle(w.ship.x + (float) Math.cos(a) * radius,
+                    w.ship.y + (float) Math.sin(a) * radius, 5f, paint);
+        }
+        if (w.magnetFlash > 0f) {
+            float t = 1f - w.magnetFlash / GameWorld.MAGNET_FLASH_TIME;
+            paint.setStrokeWidth(1f + 3.5f * (1f - t));
+            paint.setColor(((int) (0xB4 * (1f - t)) << 24) | 0x9FF7FF);
+            c.drawCircle(w.ship.x, w.ship.y, radius * (0.35f + 0.85f * t), paint);
+        }
+        paint.setStyle(Paint.Style.FILL);
+    }
+
     private void drawShip(Canvas c, GameWorld w) {
         Ship s = w.ship;
         if (w.state == GameWorld.State.GAME_OVER) return;
@@ -3917,6 +3947,7 @@ public class Renderer {
                 "拖动时再用一根手指按住空白处 = FOCUS 聚焦 · 移速减半、射速更快、散射收束",
                 "LK 锁定激光会自动点名最近的敌机 · 光柱从顶端落下，每叠一层多锁一个目标",
                 "每击破一场旗舰会弹出三张强化卡 · 同类可叠 3 层，选卡时战场完全冻结",
+                "磁力核心 MG 会把附近道具吸过来 · 每 4.2 秒把贴身敌弹直接转成分数",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
@@ -5429,7 +5460,8 @@ public class Renderer {
         for (Perk p : Perk.values()) {
             if (w.perkStacksOf(p) > 0) perkRows++;
         }
-        if (perkRows == 0) return;
+        int magnetRows = w.magnetStacks() > 0 ? 1 : 0;
+        if (perkRows == 0 && magnetRows == 0) return;
         int relicRows = 0;
         for (Relic r : Relic.values()) {
             if (w.hasRelic(r)) relicRows++;
@@ -5458,6 +5490,22 @@ public class Renderer {
             c.drawText(p.badge() + " ×" + stacks, VW - 34f, y + 23f, paint);
             paint.setFakeBoldText(false);
             y += 38f;
+        }
+        if (magnetRows > 0) {
+            int rgb = 0x6BE8FF;
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(0x99121A2E);
+            c.drawRoundRect(VW - 160f, y, VW - 22f, y + 32f, 8f, 8f, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2f);
+            paint.setColor(0x88 << 24 | rgb);
+            c.drawRoundRect(VW - 160f, y, VW - 22f, y + 32f, 8f, 8f, paint);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setTextSize(21f);
+            paint.setFakeBoldText(true);
+            paint.setColor((0xE6 << 24) | rgb);
+            c.drawText("MG ×" + w.magnetStacks(), VW - 34f, y + 23f, paint);
+            paint.setFakeBoldText(false);
         }
         paint.setTextAlign(Paint.Align.LEFT);
     }

@@ -71,7 +71,9 @@ public class LockOnV153Test {
     public void lockOnIsAppendedAndDroppable() {
         PowerUp.Kind[] kinds = PowerUp.Kind.values();
         assertEquals("新道具只追加在末尾，保证既有 ordinal 不变",
-                PowerUp.Kind.LOCKON, kinds[kinds.length - 1]);
+                PowerUp.Kind.LOCKON, kinds[kinds.length - 2]);
+        assertEquals("v1.55 的 MAGNET 追加在 LOCKON 之后",
+                PowerUp.Kind.MAGNET, kinds[kinds.length - 1]);
         assertEquals(PowerUp.Kind.LOCKON, GameWorld.dropKind(0.895f));
         // 既有区段全部原地不动
         assertEquals(PowerUp.Kind.DECOY, GameWorld.dropKind(0.885f));
@@ -79,7 +81,7 @@ public class LockOnV153Test {
         assertEquals(PowerUp.Kind.GRAVITY, GameWorld.dropKind(0.94f));
         assertEquals(PowerUp.Kind.ARC, GameWorld.dropKind(0.96f));
         assertEquals(PowerUp.Kind.REFLECT, GameWorld.dropKind(0.98f));
-        assertEquals(PowerUp.Kind.TURRET, GameWorld.dropKind(0.999f));
+        assertEquals(PowerUp.Kind.TURRET, GameWorld.dropKind(0.994f));
         assertEquals("LOCKON", WeaponType.LOCKON.label());
         assertFalse("锁定激光是掉落武器，不是融合武器", WeaponType.LOCKON.isFused());
     }

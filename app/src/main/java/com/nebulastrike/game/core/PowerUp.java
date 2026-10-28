@@ -22,7 +22,9 @@ public class PowerUp {
         /** v1.44：诱饵浮标（9 秒内把敌人的瞄准骗到浮标上，吃满或到期时爆散清弹）。 */
         DECOY,
         /** v1.53：锁定激光（武器类，叠加不替换；自动点名最近目标，从顶端落下贯穿光柱）。 */
-        LOCKON }
+        LOCKON,
+        /** v1.55：磁力核心（被动，叠加不替换；扩大道具吸附范围，并周期性把贴身敌弹转成分数）。 */
+        MAGNET }
 
     public Kind kind;
     public float x, y;
@@ -40,6 +42,14 @@ public class PowerUp {
     }
 
     public void update(float dt, float shipX, float shipY) {
+        update(dt, shipX, shipY, 260f);
+    }
+
+    /**
+     * @param magnetRadius 吸附半径：默认 260；拾取磁力核心后由 GameWorld 传更大的值。
+     *                     半径变大只影响"被吸过来的距离"，不改变下落速度。
+     */
+    public void update(float dt, float shipX, float shipY, float magnetRadius) {
         age += dt;
         // gentle fall + sway
         y += 110f * dt;
@@ -48,7 +58,7 @@ public class PowerUp {
         attracted = false;
         float dx = shipX - x, dy = shipY - y;
         float d2 = dx * dx + dy * dy;
-        if (d2 < 260f * 260f) {
+        if (d2 < magnetRadius * magnetRadius) {
             attracted = true;
             float d = (float) Math.sqrt(d2);
             if (d > 1f) {

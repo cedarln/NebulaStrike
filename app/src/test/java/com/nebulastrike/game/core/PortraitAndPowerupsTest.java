@@ -196,14 +196,14 @@ public class PortraitAndPowerupsTest {
         // （BONUS 只由突袭奖励波投放，不进入随机掉落表）
         float[] probe = {0.06f, 0.18f, 0.30f, 0.42f, 0.50f, 0.57f, 0.62f, 0.67f,
                 0.72f, 0.755f, 0.785f, 0.81f, 0.83f, 0.858f, 0.872f, 0.887f, 0.895f, 0.90f, 0.92f,
-                0.945f, 0.965f, 0.985f, 0.997f};
+                0.945f, 0.965f, 0.985f, 0.992f, 0.997f};
         java.util.Set<PowerUp.Kind> seen = java.util.EnumSet.noneOf(PowerUp.Kind.class);
         for (float r : probe) seen.add(GameWorld.dropKind(r));
         java.util.Set<PowerUp.Kind> expected = java.util.EnumSet.allOf(PowerUp.Kind.class);
         expected.remove(PowerUp.Kind.BONUS);
         assertEquals(expected, seen);
         assertEquals(PowerUp.Kind.SPREAD, GameWorld.dropKind(0.0f));
-        assertEquals(PowerUp.Kind.TURRET, GameWorld.dropKind(1.0f));
+        assertEquals(PowerUp.Kind.MAGNET, GameWorld.dropKind(1.0f));
         assertEquals(PowerUp.Kind.ORBIT, GameWorld.dropKind(0.62f));
         assertEquals(PowerUp.Kind.CHAIN, GameWorld.dropKind(0.67f));
     }
@@ -393,7 +393,7 @@ public class PortraitAndPowerupsTest {
         int spawned = 0;
         for (PowerUp p : w.powerups) if (p.active) spawned++;
         assertEquals(PowerUp.Kind.values().length, spawned);
-        assertEquals(24, spawned);
+        assertEquals(25, spawned);
     }
 
     @Test

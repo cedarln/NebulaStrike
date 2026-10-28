@@ -61,6 +61,12 @@ public class Ship {
     public final float[] reflectCd = new float[MAX_REFLECT_LAYERS];
     /** 反射充能倍率（由 GameWorld 按连携每帧刷新）。 */
     public float reflectRechargeScale = 1f;
+    /**
+     * v1.55 磁力核心层数：被动扩大道具吸附范围，并按层数强化周期脉冲（清弹半径与上限）。
+     * 和反射护罩一样是叠加型被动，拾取只涨层数、不替换。
+     */
+    public int magnetStacks;
+    public static final int MAX_MAGNET_STACKS = 3;
     public int bombs = 1;
     public static final int MAX_BOMBS = 3;
     /**
@@ -155,6 +161,7 @@ public class Ship {
         reflectLayers = 0;
         for (int i = 0; i < reflectCd.length; i++) reflectCd[i] = 0f;
         reflectRechargeScale = 1f;
+        magnetStacks = 0;
         bombs = 1;
         bombCap = MAX_BOMBS;
         rapidTimer = 0f;
@@ -292,6 +299,13 @@ public class Ship {
         if (reflectLayers >= MAX_REFLECT_LAYERS) return false;
         reflectCd[reflectLayers] = 0f;
         reflectLayers++;
+        return true;
+    }
+
+    /** 叠加一层磁力核心；满层时返回 false（由调用方折算奖励分）。 */
+    public boolean addMagnet() {
+        if (magnetStacks >= MAX_MAGNET_STACKS) return false;
+        magnetStacks++;
         return true;
     }
 

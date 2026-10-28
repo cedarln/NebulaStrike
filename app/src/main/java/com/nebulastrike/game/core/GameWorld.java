@@ -147,7 +147,9 @@ public class GameWorld {
         /** v1.54：击破旗舰后弹出三选一强化（code = 本次可选卡数） */
         PERK_OFFER,
         /** v1.54：玩家选中一项强化（code = {@link Perk#ordinal()}） */
-        PERK_CHOSEN
+        PERK_CHOSEN,
+        /** v1.55：磁力核心脉冲把贴身敌弹转成分数（code = 本次转化的弹数） */
+        MAGNET_PULSE
     }
     public static final class GameEvent {
         public final EventType type;
@@ -182,7 +184,7 @@ public class GameWorld {
     public final EnemyBullet[] enemyBullets = new EnemyBullet[72];
     public final Enemy[] enemies = new Enemy[48];
     public final Particle[] particles = new Particle[256];
-    public final PowerUp[] powerups = new PowerUp[24];
+    public final PowerUp[] powerups = new PowerUp[32];
     /** 玩家部署的炮台（TURRET 道具），最多同时 3 座。 */
     public final Turret[] turrets = new Turret[3];
     /** v1.15：重力井（GRAVITY 道具）同时最多 2 口，避免整屏敌弹被吸干净。 */
@@ -646,6 +648,29 @@ public class GameWorld {
     private final float[] lockPickX = new float[LOCKON_MAX_TARGETS];
     private final float[] lockPickY = new float[LOCKON_MAX_TARGETS];
     private final float[] lockPickD = new float[LOCKON_MAX_TARGETS];
+
+    // ---- v1.55：磁力核心 MAGNET ----
+    /** 基础拾取吸附半径（无核心时 PowerUp 自带 260）。 */
+    public static final float MAGNET_PICKUP_RADIUS = 340f;
+    public static final float MAGNET_PICKUP_PER_STACK = 150f;
+    /** 脉冲清弹的基础半径与每层增量。 */
+    public static final float MAGNET_PULSE_RADIUS = 200f;
+    public static final float MAGNET_PULSE_RADIUS_PER_STACK = 40f;
+    /** 两次脉冲的间隔：够频繁到"值得往弹幕里钻"，又不至于让贴身弹永远不存在。 */
+    public static final float MAGNET_PULSE_PERIOD = 4.2f;
+    /** 单次脉冲最多转化的弹数（按层数提高上限，防止满屏弹一帧清空）。 */
+    public static final int MAGNET_PULSE_BASE_CAP = 10;
+    public static final int MAGNET_PULSE_CAP_PER_STACK = 2;
+    /** 每转化一发敌弹的分数：贴脸清弹本身是防守收益，分数只是添头。 */
+    public static final int MAGNET_PULSE_SCORE = 15;
+    /** 脉冲没吃到弹时的重试间隔：不浪费一整轮冷却。 */
+    public static final float MAGNET_EMPTY_RETRY = 0.8f;
+    /** 脉冲余晖（1 → 0），渲染层画一圈扩散环。 */
+    public static final float MAGNET_FLASH_TIME = 0.55f;
+    public float magnetPulseTimer;
+    public float magnetFlash;
+    /** 本局累计转化的敌弹数（结算/HUD 可用）。 */
+    public int magnetSwept;
 
     // ---- v1.54：局内三选一 PERK ----
     /** 击破旗舰到弹出强化卡的短暂延迟：先让爆炸演完，再把画面交给选择。 */
@@ -1164,7 +1189,7 @@ public class GameWorld {
         }
         for (PowerUp p : powerups) {
             if (!p.active) continue;
-            p.update(dt, ship.x, ship.y);
+            p.update(dt, ship.x, ship.y, magnetPickupRadius());
             if (p.offscreen(HEIGHT)) p.active = false;
         }
         for (Enemy e : enemies) {
@@ -1200,6 +1225,7 @@ public class GameWorld {
             if (!b.homing) b.update(dt * timeScale);
             if (b.offscreen(WIDTH, HEIGHT)) b.active = false;
         }
+        updateMagnet(dt);
         for (Particle p : particles) if (p.active) p.update(dt);
         floatBudget = FLOAT_BUDGET_PER_FRAME;   // 每帧重新放行少量飘字
         for (FloatText f : floatTexts) if (f.active) f.update(dt);
@@ -4218,6 +4244,75 @@ public class GameWorld {
         if (p == Perk.ARSENAL && ship.bombs < ship.bombCap) ship.bombs++;
     }
 
+    // ---- v1.55：磁力核心 MAGNET ----
+    /** 当前磁力核心层数（0–3）。 */
+    public int magnetStacks() {
+        return ship.magnetStacks;
+    }
+
+    /** 道具吸附半径：没核心时沿用道具自带的 260，有核心后逐层扩大。 */
+    public float magnetPickupRadius() {
+        int n = ship.magnetStacks;
+        return n <= 0 ? 260f : MAGNET_PICKUP_RADIUS + MAGNET_PICKUP_PER_STACK * (n - 1);
+    }
+
+    /** 脉冲清弹半径（0 层时不存在脉冲）。 */
+    public float magnetPulseRadius() {
+        int n = ship.magnetStacks;
+        return n <= 0 ? 0f : MAGNET_PULSE_RADIUS + MAGNET_PULSE_RADIUS_PER_STACK * (n - 1);
+    }
+
+    /** 单次脉冲最多转化的弹数。 */
+    public int magnetPulseCap() {
+        int n = ship.magnetStacks;
+        return n <= 0 ? 0 : MAGNET_PULSE_BASE_CAP + MAGNET_PULSE_CAP_PER_STACK * (n - 1);
+    }
+
+    private void updateMagnet(float dt) {
+        if (magnetFlash > 0f) magnetFlash = Math.max(0f, magnetFlash - dt);
+        if (ship.magnetStacks <= 0) {
+            magnetPulseTimer = 0f;
+            return;
+        }
+        if (magnetPulseTimer > 0f) {
+            magnetPulseTimer = Math.max(0f, magnetPulseTimer - dt);
+            if (magnetPulseTimer > 0f) return;
+        }
+        fireMagnetPulse();
+    }
+
+    /**
+     * 磁力脉冲：把贴身范围内的敌弹直接转成分数（不是反弹、也不是消弹）——
+     * 玩家往弹幕里钻的收益被明码标价，但半径有限，远处弹幕照旧要躲。
+     * @return 本次转化的弹数
+     */
+    int fireMagnetPulse() {
+        float radius = magnetPulseRadius();
+        if (radius <= 0f) return 0;
+        int cap = magnetPulseCap();
+        int converted = 0;
+        for (EnemyBullet b : enemyBullets) {
+            if (!b.active) continue;
+            float dx = b.x - ship.x, dy = b.y - ship.y;
+            if (dx * dx + dy * dy > radius * radius) continue;
+            b.active = false;
+            converted++;
+            spark(b.x, b.y, 2, 2);
+            if (converted >= cap) break;
+        }
+        magnetFlash = MAGNET_FLASH_TIME;
+        if (converted > 0) {
+            magnetSwept += converted;
+            addScore(converted * MAGNET_PULSE_SCORE, SCORE_OTHER);
+            events.add(new GameEvent(EventType.MAGNET_PULSE, ship.x, ship.y, converted));
+            magnetPulseTimer = MAGNET_PULSE_PERIOD;
+        } else {
+            // 空转不占满一轮冷却：0.8 秒后再试，贴着弹幕飞时不会白等
+            magnetPulseTimer = MAGNET_EMPTY_RETRY;
+        }
+        return converted;
+    }
+
     /** 坠机惩罚：按难度决定掉什么。 */
     private void applyDeathPenalty() {
         Difficulty.Penalty p = difficultyOf().penalty;
@@ -5234,6 +5329,11 @@ public class GameWorld {
                 // 叠加而不是替换：满 2 层后折算奖励分，已有层照常工作
                 if (!ship.addReflect()) addScore(200, SCORE_PICKUP);
                 break;
+            case MAGNET:
+                // 叠加而不是替换：满 3 层后折算奖励分；新拾取时 0.35 秒后先来一次脉冲
+                if (!ship.addMagnet()) addScore(200, SCORE_PICKUP);
+                else magnetPulseTimer = 0.35f;
+                break;
             case BONUS:
                 // 突袭奖励：大量分数 + 双倍分数 + 随机武器 + 清空敌弹
                 addScore(400 + 60 * wave, SCORE_PICKUP);
@@ -5523,12 +5623,12 @@ public class GameWorld {
 
     /**
      * 掉落分布（v1.15，v1.23 加入 REFLECT，v1.24 加入 ARC，v1.43 加入 BOOMERANG，
-     * v1.44 加入 DECOY，v1.53 加入 LOCKON）。
+     * v1.44 加入 DECOY，v1.53 加入 LOCKON，v1.55 加入 MAGNET）。
      * BONUS 只由突袭奖励波投放，不在常规掉落表内。
      * 追踪弹 MISSILE 14%（用户反馈"想要更多追踪弹"），
      * 尾部"特殊道具"区（0.85~1.0，共 15%）：
      * BOUNCE 1.5%、BOOMERANG 1.5%、DECOY 1%、LOCKON 1%、NOVA 1.5%、NANITE 2%、
-     * GRAVITY 2%、ARC 2%、REFLECT 1.5%、TURRET 1%。
+     * GRAVITY 2%、ARC 2%、REFLECT 1.5%、TURRET 0.5%、MAGNET 0.5%。
      * LOCKON 的份额由 DECOY 让出（诱饵本身效果不变，只是出现频率略降），
      * 核心武器权重一律不动。
      * 独立成纯函数便于测试边界。
@@ -5556,7 +5656,8 @@ public class GameWorld {
         if (roll < 0.955f) return PowerUp.Kind.GRAVITY;
         if (roll < 0.975f) return PowerUp.Kind.ARC;
         if (roll < 0.99f) return PowerUp.Kind.REFLECT;
-        return PowerUp.Kind.TURRET;
+        if (roll < 0.995f) return PowerUp.Kind.TURRET;
+        return PowerUp.Kind.MAGNET;
     }
 
     /** Public for tests; spawns a pickup at the given spot. */
@@ -6184,6 +6285,10 @@ public class GameWorld {
         for (int i = 0; i < LOCK_MARK_MAX; i++) lockMarkTime[i] = 0f;
         lockMarkCursor = 0;
         lockPickCount = 0;
+        // v1.55：磁力核心的脉冲与余晖归零（层数随 ship.reset() 一起清）
+        magnetPulseTimer = 0f;
+        magnetFlash = 0f;
+        magnetSwept = 0;
         // v1.45：Boss 核心节拍归零
         bossCoreTimer = 0f;
         bossCoreCooldown = 0f;
