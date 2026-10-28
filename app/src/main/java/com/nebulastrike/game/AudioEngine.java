@@ -505,6 +505,14 @@ public class AudioEngine {
                     // 三环全碎：碎金属炸开，比普通护盾破裂更闷更长
                     play(SfxId.SHIELD_BREAK, 0.58f, 0.78f, panFor(e.x));
                     break;
+                case TIME_BONUS:
+                    // 买到时间：清亮的奖励铃，秒数越多音越高一点
+                    play(SfxId.BONUS, 0.52f, 1.02f + Math.min(10, e.code) * 0.02f, 0f);
+                    break;
+                case TIME_UP:
+                    // 时间耗尽：用旗舰击破的余响收尾，落到结算而不是"坠机"的刺耳低鸣
+                    play(SfxId.BOSS_DOWN, 0.62f, 0.74f, 0f);
+                    break;
                 case ECHO_START:
                     // 回声周目开场：奖励音降一档、拖长一点，像从很远的地方传回来
                     play(SfxId.BONUS, 0.62f, 0.84f, 0f);

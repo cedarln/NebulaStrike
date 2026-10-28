@@ -155,7 +155,11 @@ public class GameWorld {
         /** v1.57：禁卫护环吃掉一发直射弹（code = 剩余护环数） */
         AEGIS_HIT,
         /** v1.57：禁卫三环全碎、核心暴露（code = 暴露时长，百分之一秒） */
-        AEGIS_BREAK
+        AEGIS_BREAK,
+        /** v1.58：限时抢分买到加时（code = 本次加时整秒） */
+        TIME_BONUS,
+        /** v1.58：限时抢分时间耗尽（code = 本局总加时秒数） */
+        TIME_UP
     }
     public static final class GameEvent {
         public final EventType type;
@@ -716,11 +720,12 @@ public class GameWorld {
     // persistence-backed state
     public int bestScore;
     public boolean newBest;
-    /** local top-5 scores, descending; 0 = empty slot. Four boards: WAVES / ENDLESS / RUSH / ECHO */
+    /** local top-5 scores, descending; 0 = empty slot. Five boards: WAVES / ENDLESS / RUSH / ECHO / TIME */
     public final int[] leaderboard = new int[5];
     public final int[] leaderboardEndless = new int[5];
     public final int[] leaderboardRush = new int[5];
     public final int[] leaderboardEcho = new int[5];
+    public final int[] leaderboardTime = new int[5];
     /** 0-based rank of the last finished run on the board for the active mode; -1 = not on board */
     public int scoreRank = -1;
     public final Settings settings = new Settings();
@@ -995,6 +1000,29 @@ public class GameWorld {
     /** 菜单里点锁住的铭牌时，提示"还没解锁"的余量。 */
     public float echoLockedFlash;
 
+    // ---- v1.58 限时抢分 TIME ATTACK ----
+    /** 基础时限：两分钟。 */
+    public static final float TIME_LIMIT = 120f;
+    /** 固定命数与开局火力（它有自己的一张榜，不吃 LAB）。 */
+    public static final int TIME_LIVES = 3;
+    public static final int TIME_START_POWER = 2;
+    /** 加时：击破旗舰 +15 秒，精英 +2 秒，赏金兑现 +3 秒。 */
+    public static final float TIME_BOSS_SECONDS = 15f;
+    public static final float TIME_ELITE_SECONDS = 2f;
+    public static final float TIME_BOUNTY_SECONDS = 3f;
+    /** 剩余时间低于此值时 HUD 开始告警闪烁。 */
+    public static final float TIME_WARN = 15f;
+    /** 本局剩余秒数；非限时局恒为 0。 */
+    public float timeLeft;
+    /** 本局是否因时间耗尽而结束（结算页据此改标题）。 */
+    public boolean timeUp;
+    /** 本局总共买到的加时秒数（结算页展示）。 */
+    public float timeExtended;
+    /** HUD 上"+N 秒"提示的余量。 */
+    public float timeBonusFlash;
+    /** 最近一次加时的整秒数。 */
+    public int timeBonusLast;
+
     // ---- 得分构成（结算图用） ----
     public static final int SCORE_ENEMY = 0;
     public static final int SCORE_BOSS = 1;
@@ -1126,6 +1154,17 @@ public class GameWorld {
             return;
         }
         timeAlive += dt;
+        // v1.58：限时局的钟一直走（强化卡冻结期间除外，上面已经 return 了）。
+        // 归零即收盘：不看剩几条命，这一局的时间用完了
+        if (timeAttack()) {
+            timeLeft -= dt;
+            if (timeBonusFlash > 0f) timeBonusFlash = Math.max(0f, timeBonusFlash - dt);
+            if (timeLeft <= 0f) {
+                timeLeft = 0f;
+                endTimeAttack();
+                return;
+            }
+        }
         float realDt = dt;   // 时停与余晖按真实时间流逝，不受 hit-stop 缩放影响
         // hit-stop：大事件后短暂慢放（残影、爆炸与电弧仍按缩放后的时间推进，视觉上就是"凝滞一瞬"）
         if (hitStopTimer > 0f) {
@@ -1315,7 +1354,7 @@ public class GameWorld {
                 // 高分玩家一场 Boss 拖几十秒就能攒够下一场的额度，只加步长会让下一场
                 // 在上一场尸体凉透前立刻接上（实测后期 endless 会退化成无间断 Boss 链，
                 // 普通刷新、突袭波和新舰型全被挤掉）。BOSS_MIN_GAP 再兜一层，留出喘息。
-                if (!bossRush()) nextBossWave = wave + (mode == GameMode.ENDLESS ? 3 : 4);
+                if (!bossRush()) nextBossWave = wave + (fastRamp() ? 3 : 4);
                 boolean finalFight = finalBossDue();
                 int bossLevel = finalFight ? FINAL_BOSS_LEVEL : bossesDefeated;
                 boss.init(bossLevel);
@@ -1403,8 +1442,10 @@ public class GameWorld {
             clearBattlefieldForInterlude();
             // 打完立刻上表：下一场至少等这段喘息，别让高分把 Boss 战连成一片
             bossGapTimer = bossRush() ? BOSS_RUSH_GAP
-                    : mode == GameMode.ENDLESS ? BOSS_MIN_GAP : BOSS_MIN_GAP * 1.5f;
+                    : fastRamp() ? BOSS_MIN_GAP : BOSS_MIN_GAP * 1.5f;
             bossesDefeated++;
+            // 限时局：旗舰是最值钱的加时，15 秒够打完下一轮
+            extendTime(TIME_BOSS_SECONDS, boss.x, boss.y);
             int storyChapter = Story.chaptersForSector(stageNumber());
             if (settings.noteStory(storyChapter)) {
                 codexDirty = true;
@@ -2338,7 +2379,7 @@ public class GameWorld {
         if (bossRush()) return;   // 连战局没有小怪，只剩 Boss 与它召来的僚机
         rushTimer -= dt;
         if (rushTimer > 0f) return;
-        rushTimer = mode == GameMode.ENDLESS ? 24f : 32f;
+        rushTimer = fastRamp() ? 24f : 32f;
         rushesTriggered++;
         rushActive = true;
         rushBanner = 2.4f;
@@ -3232,6 +3273,8 @@ public class GameWorld {
         }
         spawnPowerUp(kind, x, y);
         ultCharge(ULT_GAIN_ELITE * 0.8f, x, y);
+        // 限时局：兑现一张悬赏顺带买 3 秒，鼓励"敢接单"而不是只苟着
+        extendTime(TIME_BOUNTY_SECONDS, x, y);
         bountyBanner = 2.2f;
         bountyBannerKind = 2;
         bountyBannerType = null;
@@ -3779,7 +3822,7 @@ public class GameWorld {
         if (bossRush()) return;   // 连战局只打 Boss：保底投放会抢走 Boss 战的空间
         v117EncounterTimer -= dt;
         if (v117EncounterTimer > 0f) return;
-        float t = mode == GameMode.ENDLESS ? timeAlive * 1.6f : timeAlive;
+        float t = fastRamp() ? timeAlive * 1.6f : timeAlive;
         EnemyType pick = null;
         int fewest = Integer.MAX_VALUE;
         for (int i = 0; i < V117_TYPES.length; i++) {
@@ -3804,7 +3847,7 @@ public class GameWorld {
         }
         // 计时只在"没有 Boss 的空档"里走（和突袭波同一套规矩），后期一局里这种空档
         // 只占一成时间，所以周期本身必须短——6 秒空档就该有一艘新舰露面
-        v117EncounterTimer = mode == GameMode.ENDLESS ? 6f : 8f;
+        v117EncounterTimer = fastRamp() ? 6f : 8f;
         boolean fresh = !settings.enemySeen(pick);
         recordEnemyInCodex(pick);
         float margin = pick.radius + 40f;
@@ -4488,8 +4531,8 @@ public class GameWorld {
             spawnTimer = spawnInterval;
             spawnEnemy();
             // late-game pressure: occasional paired spawns (sooner and more often in endless)
-            double chance = mode == GameMode.ENDLESS ? 0.40f : 0.25f;
-            float after = mode == GameMode.ENDLESS ? 40f : 60f;
+            double chance = fastRamp() ? 0.40f : 0.25f;
+            float after = fastRamp() ? 40f : 60f;
             if (timeAlive > after && RNG.get().nextFloat() < chance) spawnEnemy();
         }
     }
@@ -4550,7 +4593,7 @@ public class GameWorld {
      * 炮灰无人机不当精英（一屏 5 架的编队会突然变成硬骨头，节奏会崩）。
      */
     private void maybeElite(Enemy e, EnemyType type) {
-        float t = mode == GameMode.ENDLESS ? timeAlive * 1.6f : timeAlive;
+        float t = fastRamp() ? timeAlive * 1.6f : timeAlive;
         if (t < 45f || type == EnemyType.DRONE) return;
         // 枢链者不加精英：两端厚薄不一会让"先拆哪一端"的解法变得不可读
         if (type == EnemyType.LINKER) return;
@@ -4578,7 +4621,7 @@ public class GameWorld {
 
     /** Enemy-type mix drifts heavier as the run goes on (1.6x faster in endless). */
     private EnemyType pickEnemyType() {
-        float t = mode == GameMode.ENDLESS ? timeAlive * 1.6f : timeAlive;
+        float t = fastRamp() ? timeAlive * 1.6f : timeAlive;
         float r = RNG.get().nextFloat();
         float wTank = t > 35f ? Math.min(0.20f, 0.12f + (t - 35f) / 600f) : 0f;
         float wHunter = t > 20f ? Math.min(0.32f, 0.25f + (t - 20f) / 800f) : 0f;
@@ -5623,7 +5666,11 @@ public class GameWorld {
                 elite || type.score >= 25 || comboMultiplier() >= 3);
         kills++;
         typeKills[type.ordinal()]++;
-        if (elite) elitesKilled++;
+        if (elite) {
+            elitesKilled++;
+            // 限时局：精英是用来买时间的，不是用来刷分的
+            extendTime(TIME_ELITE_SECONDS, ex, ey);
+        }
         ultCharge(elite ? ULT_GAIN_ELITE : ULT_GAIN_KILL, ex, ey);
         if (mutator.isActive()) mutatorKills++;
         explode(ex, ey, type.colorHint);
@@ -5780,6 +5827,8 @@ public class GameWorld {
             for (int i = 0; i < leaderboardRush.length && i < rlb.length; i++) leaderboardRush[i] = rlb[i];
             int[] eclb = s.leaderboard(GameMode.ECHO);
             for (int i = 0; i < leaderboardEcho.length && i < eclb.length; i++) leaderboardEcho[i] = eclb[i];
+            int[] tlb = s.leaderboard(GameMode.TIME);
+            for (int i = 0; i < leaderboardTime.length && i < tlb.length; i++) leaderboardTime[i] = tlb[i];
         }
     }
 
@@ -5789,6 +5838,7 @@ public class GameWorld {
         if (m == GameMode.DAILY) return new int[5];
         if (m == GameMode.RUSH) return leaderboardRush;
         if (m == GameMode.ECHO) return leaderboardEcho;
+        if (m == GameMode.TIME) return leaderboardTime;
         return m == GameMode.ENDLESS ? leaderboardEndless : leaderboard;
     }
 
@@ -5831,6 +5881,10 @@ public class GameWorld {
             case START_RUSH:
                 closePanels();
                 restart(GameMode.RUSH);
+                break;
+            case START_TIME:
+                closePanels();
+                restart(GameMode.TIME);
                 break;
             case START_ECHO:
                 // 锁住时不给开局：只把菜单铭牌点亮一下，告诉玩家解锁条件
@@ -6110,6 +6164,31 @@ public class GameWorld {
         }
     }
 
+    /**
+     * v1.58 限时抢分：时间到点，直接收盘。和坠机不同，这里不扣命、不计阵亡——
+     * 抢分局的失败条件是钟，而不是血条。
+     */
+    private void endTimeAttack() {
+        timeUp = true;
+        state = State.GAME_OVER;
+        stateTimer = 0f;
+        clearShipInput();
+        addShake(0.5f, 18f);
+        recordRunResult();
+        events.add(new GameEvent(EventType.TIME_UP, ship.x, ship.y, (int) timeExtended));
+    }
+
+    /** 限时局加时：写进钟面、HUD 闪光并报一声。非限时局静默忽略。 */
+    void extendTime(float seconds, float x, float y) {
+        if (!timeAttack() || seconds <= 0f) return;
+        timeLeft += seconds;
+        timeExtended += seconds;
+        timeBonusLast = Math.round(seconds);
+        timeBonusFlash = 1.4f;
+        spark(x, y, 8, 4);
+        events.add(new GameEvent(EventType.TIME_BONUS, x, y, timeBonusLast));
+    }
+
     private void onPlayerHit() {
         if (godModeOf()) return;
         if (ship.consumeShield()) { // 每一层护盾各挡一次伤害
@@ -6171,6 +6250,11 @@ public class GameWorld {
             int previousEchoBest = board(GameMode.ECHO)[0];
             scoreRank = insertScore(score, mode);
             newBest = score > previousEchoBest;
+        } else if (timeAttack()) {
+            // 限时局同理：两分钟的高分不该改写战役的历史最高分
+            int previousTimeBest = board(GameMode.TIME)[0];
+            scoreRank = insertScore(score, mode);
+            newBest = score > previousTimeBest;
         } else {
             if (score > bestScore) {
                 bestScore = score;
@@ -6293,6 +6377,12 @@ public class GameWorld {
         mutatorKills = 0;
         maxParryStreak = 0;
         timeAlive = 0f;
+        // v1.58：限时局从满表开始；其余模式把读数清零，HUD 不会读到上一局的残值
+        timeLeft = m == GameMode.TIME ? TIME_LIMIT : 0f;
+        timeUp = false;
+        timeExtended = 0f;
+        timeBonusFlash = 0f;
+        timeBonusLast = 0;
         stateTimer = 0f;
         wave = 1;
         settings.noteWave(wave);   // 哪怕开局即退，波次纪录也至少是 1
@@ -6309,19 +6399,19 @@ public class GameWorld {
         slowTimer = 0f;
         wingmanCd = 0f;
         hitStopTimer = 0f;
-        rushTimer = m == GameMode.ENDLESS ? 20f : 26f;
+        rushTimer = (m == GameMode.ENDLESS || m == GameMode.TIME) ? 20f : 26f;
         rushActive = false;
         rushBanner = 0f;
         rushesTriggered = 0;
         // v1.17：特化遭遇保底倒计时与轮换计数归零
-        v117EncounterTimer = m == GameMode.ENDLESS ? 6f : 9f;
+        v117EncounterTimer = (m == GameMode.ENDLESS || m == GameMode.TIME) ? 6f : 9f;
         v117Encounters = 0;
         debutBanner = 0f;
         debutBannerType = null;
         storyBanner = 0f;
         storyBannerChapter = 0;
         // 开局即从第一段航程的标题进场；连战局有自己的入场横幅，不叠两层
-        stageIntroTimer = bossRush() ? 0f : STAGE_INTRO_TIME;
+        stageIntroTimer = (bossRush() || timeAttack()) ? 0f : STAGE_INTRO_TIME;
         stageIntroStage = 1;
         for (int i = 0; i < v117EncounterCounts.length; i++) v117EncounterCounts[i] = 0;
         // v1.18：本局成就读数归零（Settings 里的历史最佳与累计账本不动）
@@ -6444,9 +6534,9 @@ public class GameWorld {
         finalBossRebirthed = false;
         campaignVictory = false;
         campaignFirstClear = false;
-        nextBossWave = m == GameMode.ENDLESS ? 3 : 4; // endless: bosses come faster
+        nextBossWave = (m == GameMode.ENDLESS || m == GameMode.TIME) ? 3 : 4; // fast modes: bosses come sooner
         bossGapTimer = bossRush() ? BOSS_RUSH_OPENING : 0f;   // 连战局开场 2.6 秒后第一位入场
-        formationTimer = m == GameMode.ENDLESS ? 6f : 8f;
+        formationTimer = (m == GameMode.ENDLESS || m == GameMode.TIME) ? 6f : 8f;
         spawnTimer = 0f;
         // v1.54：局内强化随一局结束清零，下一局重新构筑
         perkOpen = false;
@@ -6487,6 +6577,16 @@ public class GameWorld {
     /** 当前是否在回声周目里（NG+）。 */
     public boolean echo() {
         return mode == GameMode.ECHO;
+    }
+
+    /** 当前是否在限时抢分局里。 */
+    public boolean timeAttack() {
+        return mode == GameMode.TIME;
+    }
+
+    /** 难度爬坡是否走"快档"：无尽与限时局按 1.6 倍速推进。 */
+    private boolean fastRamp() {
+        return mode == GameMode.ENDLESS || timeAttack();
     }
 
     /** 下一场 Boss 的编号（0 起；HUD 展示用 1 起）。 */
@@ -6555,7 +6655,7 @@ public class GameWorld {
     // 回声周目也一样：NG+ 的难度由模式自己的倍率负责，外部旋钮会污染它那张榜。
 
     private boolean competitive() {
-        return daily() || bossRush() || echo();
+        return daily() || bossRush() || echo() || timeAttack();
     }
 
     private Difficulty difficultyOf() {
@@ -6574,6 +6674,7 @@ public class GameWorld {
         if (daily()) return 1;
         if (bossRush()) return 2;   // 开局就敢当面刚 Boss：两路火力，且第一场必掉装备
         if (echo()) return ECHO_START_POWER;
+        if (timeAttack()) return TIME_START_POWER;
         return settings.startPower;
     }
 
@@ -6581,6 +6682,7 @@ public class GameWorld {
         if (daily()) return dailyLives;
         if (bossRush()) return RUSH_LIVES;
         if (echo()) return ECHO_LIVES;
+        if (timeAttack()) return TIME_LIVES;
         return settings.startLives;
     }
 

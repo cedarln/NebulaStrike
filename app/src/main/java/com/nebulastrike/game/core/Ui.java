@@ -20,12 +20,13 @@ public final class Ui {
     // menu
     public static final Rect START = new Rect(GameWorld.WIDTH / 2f - 220f, 372f, 440f, 76f);
     /**
-     * 三种特殊模式并排一行（v1.20 加入 BOSS RUSH 后菜单只剩这一行能放下三个入口）。
-     * 每个 140 宽，右缘 670 与 START 对齐。
+     * 四种特殊模式并排一行（v1.58 加入限时抢分后收窄到四格）。
+     * 每个 105 宽、间 6，右缘 669 与 START 对齐；文案在窄格里缩字号而不是截断。
      */
-    public static final Rect START_ENDLESS = new Rect(GameWorld.WIDTH / 2f - 220f, 462f, 140f, 76f);
-    public static final Rect START_DAILY = new Rect(GameWorld.WIDTH / 2f - 70f, 462f, 140f, 76f);
-    public static final Rect START_RUSH = new Rect(GameWorld.WIDTH / 2f + 80f, 462f, 140f, 76f);
+    public static final Rect START_ENDLESS = new Rect(GameWorld.WIDTH / 2f - 219f, 462f, 105f, 76f);
+    public static final Rect START_DAILY = new Rect(GameWorld.WIDTH / 2f - 108f, 462f, 105f, 76f);
+    public static final Rect START_RUSH = new Rect(GameWorld.WIDTH / 2f + 3f, 462f, 105f, 76f);
+    public static final Rect START_TIME = new Rect(GameWorld.WIDTH / 2f + 114f, 462f, 105f, 76f);
     public static final Rect SETTINGS = new Rect(GameWorld.WIDTH / 2f - 220f, 552f, 210f, 64f);
     public static final Rect CHEATS = new Rect(GameWorld.WIDTH / 2f + 10f, 552f, 210f, 64f);
     /**
@@ -190,7 +191,7 @@ public final class Ui {
 
     /** Logical UI actions produced by taps. */
     public enum Action {
-        START, START_ENDLESS, START_DAILY, START_RUSH, START_ECHO,
+        START, START_ENDLESS, START_DAILY, START_RUSH, START_TIME, START_ECHO,
         HULL_SPARK, HULL_FALCON, HULL_BULWARK,
         OPEN_SETTINGS, TOGGLE_SOUND, TOGGLE_PARTICLES, TOGGLE_HAPTICS,
         TOGGLE_REDUCED_FX, TOGGLE_LEFT_HAND, SETTINGS_BACK, RESUME, RESTART, QUIT_TO_MENU, PAUSE,
@@ -300,6 +301,7 @@ public final class Ui {
                 if (START.contains(x, y)) return Action.START;
                 if (START_ENDLESS.contains(x, y)) return Action.START_ENDLESS;
                 if (START_RUSH.contains(x, y)) return Action.START_RUSH;
+                if (START_TIME.contains(x, y)) return Action.START_TIME;
                 if (START_DAILY.contains(x, y)) return Action.START_DAILY;
                 if (SETTINGS.contains(x, y)) return Action.OPEN_SETTINGS;
                 if (CHEATS.contains(x, y)) return Action.OPEN_CHEATS;

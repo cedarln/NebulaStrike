@@ -3064,6 +3064,28 @@ public class Renderer {
         paint.setColor(0xB0FFD166);
         c.drawText("+1 LIFE " + w.nextLifeScore, 248f, 84f, paint);
 
+        // v1.58：限时局钟面。最后 15 秒转红并闪烁；买到加时时旁边弹一下 "+N s"
+        if (w.timeAttack()) {
+            paint.setTextAlign(Paint.Align.LEFT);
+            int secs = (int) Math.ceil(w.timeLeft);
+            boolean warn = w.timeLeft <= GameWorld.TIME_WARN;
+            float blink = warn ? 0.55f + 0.45f * Math.abs((float) Math.sin(w.timeAlive * 8f)) : 1f;
+            paint.setFakeBoldText(true);
+            paint.setTextSize(38f);
+            paint.setColor(((int) (255 * blink) << 24) | (warn ? 0xFF6B8A : 0x9FE8FF));
+            String clock = "TIME " + (secs / 60) + ":"
+                    + (secs % 60 < 10 ? "0" : "") + (secs % 60);
+            c.drawText(clock, 40f, 132f, paint);
+            if (w.timeBonusFlash > 0f) {
+                float f = Math.min(1f, w.timeBonusFlash / 0.7f);
+                paint.setTextSize(24f + 10f * f);
+                paint.setColor(((int) (255 * f) << 24) | 0xFFD166);
+                c.drawText("+" + w.timeBonusLast + "s",
+                        40f + paint.measureText(clock) + 16f, 130f, paint);
+            }
+            paint.setFakeBoldText(false);
+        }
+
         paint.setTextSize(30f);
         if (w.daily()) {
             // 日常局的顶部标签就是"今天的规则"：常驻、不闪烁，和随机异变波区分开
@@ -3078,6 +3100,10 @@ public class Renderer {
             // 回声周目：wave 照旧推进，但颜色与普通战役区分开
             paint.setColor(0xFF9FE8FF);
             c.drawText("ECHO · W" + w.wave, VW / 2f - 70f, 60f, paint);
+        } else if (w.timeAttack()) {
+            // 限时局：wave 照常推进，顶栏用告警色提醒"这是一局两分钟"
+            paint.setColor(0xFFFF6B8A);
+            c.drawText("TIME · W" + w.wave, VW / 2f - 70f, 60f, paint);
         } else {
             paint.setColor(w.mode == GameMode.ENDLESS ? 0xFFB08FFF : 0xFF8FA3C8);
             c.drawText((w.mode == GameMode.ENDLESS ? "ENDLESS " : "WAVE ") + w.wave,
@@ -4064,6 +4090,7 @@ public class Renderer {
                 "磁力核心 MG 会把附近道具吸过来 · 每 4.2 秒把贴身敌弹直接转成分数",
                 "枪骑 LANCER 架枪时整条枪线会跟着你走 · 锁定后横穿全屏，纵向让开而不是横向逃",
                 "禁卫 WARDEN 的三片护环会挡直射弹 · 全打碎后核心暴露受击双倍，激光和长枪直接穿环",
+                "TIME 限时抢分只有 120 秒 · 击破旗舰加 15 秒、精英加 2 秒，钟不走完不结算",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
@@ -4074,7 +4101,7 @@ public class Renderer {
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
-    /** 三种非主线模式并排：ENDLESS / DAILY / RUSH，副标题把"点下去会发生什么"写清楚。 */
+    /** 四种非主线模式并排：ENDLESS / DAILY / RUSH / TIME，副标题把"点下去会发生什么"写清楚。 */
     private void drawModeRow(Canvas c, GameWorld w) {
         int endlessBest = w.board(GameMode.ENDLESS)[0];
         drawModeButton(c, Ui.START_ENDLESS, "ENDLESS", 0xFFB08FFF,
@@ -4088,16 +4115,18 @@ public class Renderer {
         drawModeButton(c, Ui.START_DAILY, played ? "DAILY ✓" : "DAILY",
                 played ? 0xFF6FE38B : 0xFF7DF9FF,
                 DailyChallenge.display(key) + " · " + lives + "命",
-                played ? "最佳 " + best + " · 连胜 " + w.settings.dailyStreak(key)
-                        : rule.label + " · 待打卡");
+                played ? "最佳 " + best : rule.label + " · 待打卡");
 
         int rushBest = w.settings.rushBest;
         drawModeButton(c, Ui.START_RUSH, "RUSH", 0xFFFFB03A,
-                "Boss 连战 · " + GameWorld.RUSH_LIVES + "命",
-                rushBest > 0 ? "深入 " + rushBest + " 个" : "未挑战");
+                "Boss 连战", rushBest > 0 ? "深入 " + rushBest + " 个" : "未挑战");
+
+        int timeBest = w.board(GameMode.TIME)[0];
+        drawModeButton(c, Ui.START_TIME, "TIME", 0xFFFF6B8A,
+                "120 秒抢分", timeBest > 0 ? "最高 " + timeBest : "暂无纪录");
     }
 
-    /** 竖排三行的小号模式按钮：标题 + 两行说明，三个并排时也不会挤字。 */
+    /** 竖排三行的小号模式按钮：标题 + 两行说明。四格并排时按宽度自动缩字号。 */
     private void drawModeButton(Canvas c, Ui.Rect r, String title, int accent,
                                 String sub1, String sub2) {
         paint.setShader(null);
@@ -4109,18 +4138,19 @@ public class Renderer {
         paint.setColor(0xCC000000 | accent);
         c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 16f, 16f, paint);
         paint.setStyle(Paint.Style.FILL);
+        boolean compact = r.w < 120f;
         paint.setTextAlign(Paint.Align.CENTER);
         paint.setFakeBoldText(true);
-        paint.setTextSize(28f);
+        paint.setTextSize(compact ? 20f : 28f);
         paint.setColor(0xFFE8F1FF);
-        c.drawText(title, r.cx(), r.cy() - 11f, paint);
+        c.drawText(title, r.cx(), r.cy() - (compact ? 12f : 11f), paint);
         paint.setFakeBoldText(false);
-        paint.setTextSize(15f);
+        paint.setTextSize(compact ? 13f : 15f);
         paint.setColor(accent);
-        c.drawText(sub1, r.cx(), r.cy() + 15f, paint);
-        paint.setTextSize(13f);
+        c.drawText(sub1, r.cx(), r.cy() + (compact ? 10f : 15f), paint);
+        paint.setTextSize(compact ? 11f : 13f);
         paint.setColor(0x99C8D6F0);
-        c.drawText(sub2, r.cx(), r.cy() + 35f, paint);
+        c.drawText(sub2, r.cx(), r.cy() + (compact ? 28f : 35f), paint);
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
@@ -5689,6 +5719,11 @@ public class Renderer {
             paint.setTextSize(84f);
             paint.setColor(w.echo() ? 0xFF9FE8FF : 0xFFFFD166);
             c.drawText(w.echo() ? "ECHO CLEAR" : "CAMPAIGN CLEAR", VW / 2f, 400f, paint);
+        } else if (w.timeUp) {
+            // 时间到点不是坠机：标题改用琥珀色，别把"打完了两分钟"说成失败
+            paint.setTextSize(96f);
+            paint.setColor(0xFFFFB03A);
+            c.drawText("TIME UP", VW / 2f, 400f, paint);
         } else {
             paint.setTextSize(96f);
             paint.setColor(0xFFFF3355);
@@ -5709,6 +5744,8 @@ public class Renderer {
             modeTag = "BOSS RUSH · 连破 " + w.bossRushKills + " 个";
         } else if (w.echo()) {
             modeTag = "ECHO LOOP · 得分 ×" + GameWorld.ECHO_SCORE_SCALE;
+        } else if (w.timeAttack()) {
+            modeTag = "TIME ATTACK · 加时 +" + (int) w.timeExtended + " 秒";
         } else {
             modeTag = (w.mode == GameMode.ENDLESS ? "ENDLESS" : "WAVE " + w.wave)
                     + "   •   " + w.settings.difficulty.label();
@@ -5756,6 +5793,20 @@ public class Renderer {
                 paint.setColor(0xFF8FA3C8);
                 c.drawText("回声最佳 " + echoBest + "  ·  碎片 " + w.settings.echoShards,
                         VW / 2f, 518f, paint);
+            }
+        } else if (w.timeAttack()) {
+            // 限时局看自己的榜：两分钟的分数不与战役最高分混在一起
+            int timeBest = w.board(GameMode.TIME)[0];
+            if (w.newBest) {
+                float pulse = 1f + 0.06f * (float) Math.sin(w.stateTimer * 6f);
+                paint.setTextSize(38f * pulse);
+                paint.setColor(0xFFFFD166);
+                c.drawText("★ 抢分新纪录 " + timeBest + " ★", VW / 2f, 520f, paint);
+            } else {
+                paint.setTextSize(34f);
+                paint.setColor(0xFF8FA3C8);
+                c.drawText("抢分最佳 " + timeBest + "  ·  加时 +"
+                        + (int) w.timeExtended + " 秒", VW / 2f, 518f, paint);
             }
         } else if (w.newBest) {
             float pulse = 1f + 0.06f * (float) Math.sin(w.stateTimer * 6f);
@@ -6182,10 +6233,12 @@ public class Renderer {
         paint.setTextSize(size * 0.92f);
         paint.setColor(mode == GameMode.ENDLESS ? 0xFFB08FFF
                 : mode == GameMode.RUSH ? 0xFFFFB03A
-                : mode == GameMode.ECHO ? 0xFF9FE8FF : 0xFF7DF9FF);
+                : mode == GameMode.ECHO ? 0xFF9FE8FF
+                : mode == GameMode.TIME ? 0xFFFF6B8A : 0xFF7DF9FF);
         c.drawText(mode == GameMode.ENDLESS ? "ENDLESS TOP 5"
                         : mode == GameMode.RUSH ? "BOSS RUSH TOP 5"
-                        : mode == GameMode.ECHO ? "ECHO LOOP TOP 5" : "CAMPAIGN TOP 5",
+                        : mode == GameMode.ECHO ? "ECHO LOOP TOP 5"
+                        : mode == GameMode.TIME ? "TIME ATTACK TOP 5" : "CAMPAIGN TOP 5",
                 x + 20f, y + rowH, paint);
 
         paint.setTextSize(size);

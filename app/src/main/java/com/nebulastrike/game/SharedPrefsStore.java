@@ -85,12 +85,13 @@ public class SharedPrefsStore implements SettingsStore {
         e.apply();
     }
 
-    /** 每种模式一张独立的榜：WAVES=lb，ENDLESS=elb，BOSS RUSH=brb，ECHO=ecb。 */
+    /** 每种模式一张独立的榜：WAVES=lb，ENDLESS=elb，BOSS RUSH=brb，ECHO=ecb，TIME=tab。 */
     private static String leaderboardPrefix(GameMode mode) {
         switch (mode) {
             case ENDLESS: return "elb";
             case RUSH: return "brb";
             case ECHO: return "ecb";
+            case TIME: return "tab";
             default: return "lb";
         }
     }
