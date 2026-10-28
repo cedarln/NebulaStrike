@@ -2171,13 +2171,28 @@ public class Renderer {
     private void drawBoss(Canvas c, GameWorld w) {
         Boss b = w.boss;
         boolean flashing = b.flash > 0f;
+        // v1.60 残响：青白幽灵色，和本体的紫/琥珀/红三阶段一眼分开
         int hullColor = flashing ? 0xFFFFFFFF
+                : w.echoBossFight ? (b.phase >= 2 ? 0xFFFF9CFF : 0xFFB9F0FF)
                 : b.phase == 3 ? 0xFFFF5C7A : b.phase == 2 ? 0xFFFFB84D : 0xFFB44DFF;
         float r = b.radius;
 
         // engine glow under the hull
-        glow.setColor(0x55B44DFF);
+        glow.setColor(w.echoBossFight ? 0x66E86BFF : 0x55B44DFF);
         c.drawCircle(b.x, b.y + r * 0.8f, r * 0.65f, glow);
+
+        // 残响外晕：两圈呼吸的幽灵环 + 一层错位虚影，强调"这不是本体"
+        if (w.echoBossFight) {
+            float pulse = 0.5f + 0.5f * (float) Math.sin(b.age * 4.2f);
+            glow.setColor(((int) (0x20 + 0x18 * pulse) << 24) | 0x00E86BFF);
+            c.drawCircle(b.x, b.y, r * 1.85f, glow);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2f);
+            paint.setColor(0x66E86BFF);
+            c.drawCircle(b.x, b.y, r * 1.6f + 6f * pulse, paint);
+            paint.setStyle(Paint.Style.FILL);
+            hexagon(c, b.x - 16f * pulse, b.y + 9f * pulse, r * 0.94f, 0x1FB9F0FF);
+        }
 
         // 横冲：舰体拖出速度线，落点方向画红色瞄准带
         if (b.isRamming()) {
@@ -2288,7 +2303,8 @@ public class Renderer {
         paint.setColor(0xFF3A1040);
         c.drawRect(bx, by, bx + barW, by + barH, paint);
         float frac = Math.max(0f, b.hp / b.maxHp);
-        paint.setColor(b.phase == 3 ? 0xFFFF5C7A : b.phase == 2 ? 0xFFFFB84D : 0xFFB44DFF);
+        paint.setColor(w.echoBossFight ? 0xFFE86BFF
+                : b.phase == 3 ? 0xFFFF5C7A : b.phase == 2 ? 0xFFFFB84D : 0xFFB44DFF);
         c.drawRect(bx, by, bx + barW * frac, by + barH, paint);
         paint.setColor(0xFFE8F1FF);
         paint.setTextSize(22f);
@@ -2299,6 +2315,8 @@ public class Renderer {
                 + (b.prismsAlive() > 0 ? "   PRISM" : "");
         String barName = w.finalBossFight
                 ? "FINAL · " + Story.bossName(w.stageNumber())
+                : w.echoBossFight
+                ? "残响 · " + b.title() + "  MK-" + (b.level + 1)
                 : b.title() + "  MK-" + (b.level + 1);
         String head = barName + "   PHASE " + b.phase + "/3" + status;
         String affixTxt = b.affix == BossAffix.NONE ? ""
@@ -3149,6 +3167,16 @@ public class Renderer {
                 paint.setColor(flash > 0f ? 0xFFFFD166 : 0x889FE8FF);
                 c.drawText("回声碎片 " + w.settings.echoShards, VW - 40f, 120f, paint);
             }
+            // v1.60：旗舰残响。待临时报下一艘的名字，击破过就报累计数
+            if (w.echoBossMode() && (w.echoPendingTier >= 0 || w.echoDefeats > 0)) {
+                float flash = Math.min(1f, w.echoFlash / 2f);
+                paint.setTextSize(flash > 0f ? 20f + 4f * flash : 18f);
+                paint.setColor(flash > 0f ? 0xFFFFD166 : 0x88E86BFF);
+                c.drawText(w.echoPendingTier >= 0
+                                ? "残响待临 · " + Boss.titleFor(w.echoPendingTier)
+                                : "残响 ×" + w.echoDefeats,
+                        VW - 40f, 120f, paint);
+            }
             paint.setTextAlign(Paint.Align.LEFT);
         }
 
@@ -3762,8 +3790,9 @@ public class Renderer {
         if (w.bossWarningTimer > 0f && w.bossActive) {
             float k = Math.min(1f, w.bossWarningTimer / 0.5f);
             float pulse = 0.55f + 0.45f * (float) Math.abs(Math.sin(w.timeAlive * 6.5f));
-            // 屏幕四周压一层红边：不看文字也知道"有东西要来了"
-            paint.setColor(((int) (0x30 * pulse) << 24) | 0x00FF4D5C);
+            // 屏幕四周压一层红边：不看文字也知道"有东西要来了"；残响换成幽灵紫
+            paint.setColor(((int) (0x30 * pulse) << 24)
+                    | (w.echoBossFight ? 0x00E86BFF : 0x00FF4D5C));
             c.drawRect(0f, 0f, VW, 18f, paint);
             c.drawRect(0f, VH - 18f, VW, VH, paint);
             c.drawRect(0f, 0f, 16f, VH, paint);
@@ -3771,13 +3800,17 @@ public class Renderer {
             paint.setTextAlign(Paint.Align.CENTER);
             paint.setTextSize(62f);
             paint.setFakeBoldText(true);
-            paint.setColor(((int) (0xFF * k) << 24) | 0x00FF5C6E);
-            c.drawText(w.finalBossFight ? "FINAL WARNING" : "WARNING", VW / 2f, 556f, paint);
+            paint.setColor(((int) (0xFF * k) << 24)
+                    | (w.echoBossFight ? 0x00E86BFF : 0x00FF5C6E));
+            c.drawText(w.echoBossFight ? "ECHO WARNING"
+                    : w.finalBossFight ? "FINAL WARNING" : "WARNING", VW / 2f, 556f, paint);
             paint.setTextSize(30f);
             paint.setColor(((int) (0xF0 * k) << 24) | 0x00FFC8D0);
             if (w.practice()) {
                 int tier = Math.max(0, Math.min(3, w.practiceTier));
                 c.drawText("模拟战 · " + Boss.titleFor(tier), VW / 2f, 600f, paint);
+            } else if (w.echoBossFight) {
+                c.drawText("残响 · " + Boss.titleFor(w.boss.tier), VW / 2f, 600f, paint);
             } else {
                 c.drawText((w.finalBossFight ? "最终旗舰 · " : "强敌接近 · ")
                         + Story.bossName(w.stageNumber()), VW / 2f, 600f, paint);
@@ -3786,6 +3819,7 @@ public class Renderer {
             paint.setTextSize(24f);
             paint.setColor(((int) (0xD8 * k) << 24) | 0xFFC8D6F0);
             c.drawText(w.practice() ? "已解锁舰体 · 不掉命 · 同一艘船可反复打"
+                            : w.echoBossFight ? "无伤击沉的旗舰留下的影子 · 更脆、更快"
                             : Story.sectorTag(w.stageNumber()) + " · 炮口已锁定",
                     VW / 2f, 634f, paint);
             float barW = 360f;
@@ -3795,7 +3829,8 @@ public class Renderer {
             paint.setColor((0x55 << 24) | 0x00661A24);
             c.drawRoundRect(VW / 2f - barW / 2f, 652f,
                     VW / 2f + barW / 2f, 660f, 4f, 4f, paint);
-            paint.setColor(((int) (0xE0 * k) << 24) | 0x00FF5C6E);
+            paint.setColor(((int) (0xE0 * k) << 24)
+                    | (w.echoBossFight ? 0x00E86BFF : 0x00FF5C6E));
             c.drawRoundRect(VW / 2f - barW / 2f, 652f,
                     VW / 2f - barW / 2f + barW * (1f - frac), 660f, 4f, 4f, paint);
             paint.setTextAlign(Paint.Align.LEFT);
@@ -4123,6 +4158,7 @@ public class Renderer {
                 "禁卫 WARDEN 的三片护环会挡直射弹 · 全打碎后核心暴露受击双倍，激光和长枪直接穿环",
                 "TIME 限时抢分只有 120 秒 · 击破旗舰加 15 秒、精英加 2 秒，钟不走完不结算",
                 "图鉴 BOSS 页点已解锁的旗舰就能开练 · 不掉命、不进榜，同一艘船可反复打",
+                "旗舰战全程不掉血，两段航程后它会以残响姿态回来 · 更脆更快，赏金照给",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);

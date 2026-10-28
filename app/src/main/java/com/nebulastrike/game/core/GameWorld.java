@@ -1042,6 +1042,33 @@ public class GameWorld {
     static final float PRACTICE_GAP = 2.2f;
     static final float PRACTICE_WARNING = 1.4f;
 
+    // ---- v1.60 旗舰残响 BOSS ECHO ----
+    /**
+     * 无伤击破的旗舰会在两段航程后以残影姿态回来。-1 表示没有待临的残响。
+     * 残响不是新航段：它不推进 bossesDefeated、不写图鉴、不解锁剧情，
+     * 只是一次"打得干净就多一场"的加餐。
+     */
+    public int echoPendingTier = -1;
+    /** 残响预定登场的波次（<=0 表示没有）。 */
+    public int echoSpawnWave = -1;
+    /** 当前这一场是不是残响战（渲染层与测试共用）。 */
+    public boolean echoBossFight;
+    /** 本局已击破的残响数（HUD 读数）。 */
+    public int echoDefeats;
+    /** 残响击破提示的余辉。 */
+    public float echoFlash;
+    /** 残响只有本体的 55% 血，但出招更快：同一套招式，更紧的节拍。 */
+    public static final float ECHO_SHADE_HP_SCALE = 0.55f;
+    public static final float ECHO_SHADE_TEMPO = 1.18f;
+    /** 残响与本体的间隔（按 wave 数）。 */
+    public static final int ECHO_DELAY_WAVES = 2;
+    /** 击破残响的赏金：320 + 120 × 舰级。 */
+    public static final int ECHO_SCORE_BASE = 320;
+    /** 击破残响后的喘息：它不算一段航程，下一场旗舰可以很快接上。 */
+    static final float ECHO_GAP = 1.8f;
+    /** 本场旗舰战里真正掉血的次数：0 才留下残响。 */
+    int bossFightHits;
+
 
     // ---- 得分构成（结算图用） ----
     public static final int SCORE_ENEMY = 0;
@@ -1371,33 +1398,55 @@ public class GameWorld {
             // trigger at wave milestones when the screen is calm-ish
             // BOSS RUSH：不看 wave，喘息一结束下一位立刻入场（连战没有普通节拍）
             // PRACTICE：整局只有同一艘船，喘息结束就重来
-            boolean due = (bossRush() || practice()) ? bossGapTimer <= 0f
+            // v1.60：残响优先于下一场旗舰，但不能抢掉本该登场的正式旗舰。
+            // 它只在 wave 到期、喘息结束、且下一场旗舰还没到期时现身；
+            // 不占 nextBossWave，所以击破它之后正常航段节奏原样继续。
+            boolean normalDue = (bossRush() || practice())
+                    ? bossGapTimer <= 0f
                     : wave >= nextBossWave && bossGapTimer <= 0f;
+            boolean echoDue = echoBossMode() && echoPendingTier >= 0
+                    && wave >= echoSpawnWave && bossGapTimer <= 0f && !normalDue;
+            boolean due = normalDue || echoDue;
             if (due) {
-                // 从"当前节拍"跳档，而不是在旧档位上加固定步长：wave 由分数驱动，
-                // 高分玩家一场 Boss 拖几十秒就能攒够下一场的额度，只加步长会让下一场
-                // 在上一场尸体凉透前立刻接上（实测后期 endless 会退化成无间断 Boss 链，
-                // 普通刷新、突袭波和新舰型全被挤掉）。BOSS_MIN_GAP 再兜一层，留出喘息。
-                if (!bossRush() && !practice()) nextBossWave = wave + (fastRamp() ? 3 : 4);
-                boolean finalFight = finalBossDue();
-                int bossLevel = practice()
-                        ? Math.max(0, Math.min(3, practiceTier))
-                        : finalFight ? FINAL_BOSS_LEVEL : bossesDefeated;
-                boss.init(bossLevel);
-                resetBossCore();
-                // 练功固定招式：词缀会把同一艘船改成另一场，失去"反复练这一招"的意义
-                if (!practice()) rollBossAffix(bossLevel);
-                if (echo()) {
-                    // 回声旗舰：舰体更厚、出招略快；词缀与护盾仍在它之上叠乘
-                    boss.maxHp *= ECHO_BOSS_HP_SCALE;
+                if (echoDue) {
+                    // 残响不掷词缀、不算航段：血薄一点、节拍快一点，招式与本体完全相同
+                    int echoTier = Math.max(0, Math.min(3, echoPendingTier));
+                    echoPendingTier = -1;
+                    echoSpawnWave = -1;
+                    echoBossFight = true;
+                    finalBossFight = false;
+                    boss.init(echoTier);
+                    boss.maxHp *= ECHO_SHADE_HP_SCALE;
                     boss.hp = boss.maxHp;
-                    boss.tempo *= ECHO_BOSS_TEMPO;
+                    boss.tempo *= ECHO_SHADE_TEMPO;
+                } else {
+                    echoBossFight = false;
+                    // 从"当前节拍"跳档，而不是在旧档位上加固定步长：wave 由分数驱动，
+                    // 高分玩家一场 Boss 拖几十秒就能攒够下一场的额度，只加步长会让下一场
+                    // 在上一场尸体凉透前立刻接上（实测后期 endless 会退化成无间断 Boss 链，
+                    // 普通刷新、突袭波和新舰型全被挤掉）。BOSS_MIN_GAP 再兜一层，留出喘息。
+                    if (!bossRush() && !practice()) nextBossWave = wave + (fastRamp() ? 3 : 4);
+                    boolean finalFight = finalBossDue();
+                    int bossLevel = practice()
+                            ? Math.max(0, Math.min(3, practiceTier))
+                            : finalFight ? FINAL_BOSS_LEVEL : bossesDefeated;
+                    boss.init(bossLevel);
+                    // 练功固定招式：词缀会把同一艘船改成另一场，失去"反复练这一招"的意义
+                    if (!practice()) rollBossAffix(bossLevel);
+                    if (echo()) {
+                        // 回声旗舰：舰体更厚、出招略快；词缀与护盾仍在它之上叠乘
+                        boss.maxHp *= ECHO_BOSS_HP_SCALE;
+                        boss.hp = boss.maxHp;
+                        boss.tempo *= ECHO_BOSS_TEMPO;
+                    }
+                    finalBossFight = finalFight;
                 }
+                resetBossCore();
+                bossFightHits = 0;
                 if (boss.affix != BossAffix.NONE) {
                     events.add(new GameEvent(EventType.BOSS_AFFIX, boss.x, boss.y,
                             boss.affix.ordinal()));
                 }
-                finalBossFight = finalFight;
                 finalBossRebirthed = false;
                 // Boss 入场时护航舰先行撤离：两套节拍不叠在一起，也避免它替玩家吃掉 Boss 弹
                 if (escort.active && !escort.leaving) escort.leaving = true;
@@ -1462,24 +1511,35 @@ public class GameWorld {
             }
             boss.active = false;
             bossActive = false;
+            // v1.60：残响战与正常旗舰的收尾分开——它不发圣物、不弹强化卡、
+            // 不写图鉴、不解锁剧情，只把赏金与一两件补给交出来。
+            boolean echoKill = echoBossFight;
+            echoBossFight = false;
+            // 打得干净才留残响：这一场旗舰战全程没掉过血，残影两段航程后回来
+            if (!practice() && !echoKill && echoBossMode() && !finalBossFight
+                    && bossFightHits == 0) {
+                echoPendingTier = boss.tier;
+                echoSpawnWave = wave + ECHO_DELAY_WAVES;
+            }
             bossCoreTimer = 0f;
             bossCoreCooldown = 0f;
             bossCoreFlash = 0f;
             bossWarningTimer = 0f;
             bossPhaseBreakTimer = 0f;
-            stageClearTimer = practice() ? 0f
+            stageClearTimer = practice() || echoKill ? 0f
                     : bossRush() ? RUSH_STAGE_CLEAR_TIME : STAGE_CLEAR_TIME;
             clearBattlefieldForInterlude();
             // 打完立刻上表：下一场至少等这段喘息，别让高分把 Boss 战连成一片
             bossGapTimer = practice() ? PRACTICE_GAP
+                    : echoKill ? ECHO_GAP
                     : bossRush() ? BOSS_RUSH_GAP
                     : fastRamp() ? BOSS_MIN_GAP : BOSS_MIN_GAP * 1.5f;
-            // 模拟战不推进航段：同一艘船反复来，结算与剧情也不应该被练功推进
-            if (!practice()) bossesDefeated++;
+            // 模拟战不推进航段；残响同样是一段插曲，不是新航段
+            if (!practice() && !echoKill) bossesDefeated++;
             // 限时局：旗舰是最值钱的加时，15 秒够打完下一轮
             extendTime(TIME_BOSS_SECONDS, boss.x, boss.y);
             int storyChapter = Story.chaptersForSector(stageNumber());
-            if (!practice() && settings.noteStory(storyChapter)) {
+            if (!practice() && !echoKill && settings.noteStory(storyChapter)) {
                 codexDirty = true;
                 storyBanner = 4.2f;
                 storyBannerChapter = storyChapter;
@@ -1499,7 +1559,8 @@ public class GameWorld {
                     explode(p.worldX(boss), p.worldY(boss), 2);
                 }
             }
-            addScore(500 + boss.level * 250, SCORE_BOSS);
+            addScore(echoKill ? ECHO_SCORE_BASE + boss.level * 120
+                    : 500 + boss.level * 250, SCORE_BOSS);
             // 词缀赏金：扛着更硬的壳 / 更快的炮打完，多给一笔；磐垒与蜂群再多掉一件
             int affixPayout = bossAffixBonus();
             if (affixPayout > 0) {
@@ -1515,12 +1576,18 @@ public class GameWorld {
             addShake(0.8f, 26f);
             addHitStop(0.13f);
             bossFlash = 1f;
-            // 练功不记图鉴、不掉养成资源：这一场的价值只是"你更熟这艘船了"
-            if (!practice()) recordBossInCodex(boss.tier);
+            // 练功不记图鉴；残响是残影，也不该刷新"击坠数"
+            if (!practice() && !echoKill) recordBossInCodex(boss.tier);
             // breathing room before regular spawns resume
             spawnTimer = 2.5f;
             formationTimer = Math.max(formationTimer, 5f);
-            if (!practice()) {
+            if (echoKill) {
+                // 残响只交补给自己：火力与武器各一件，够回报这场干净的仗
+                spawnPowerUp(PowerUp.Kind.POWER, boss.x, boss.y);
+                spawnPowerUp(dropWeaponKind(), boss.x, boss.y + 40f);
+                echoDefeats++;
+                echoFlash = 2f;
+            } else if (!practice()) {
                 // reward: guaranteed pickups（武器叠加后多给一发武器）
                 spawnPowerUp(PowerUp.Kind.SHIELD, boss.x - 80f, boss.y);
                 spawnPowerUp(PowerUp.Kind.BOMB, boss.x + 80f, boss.y);
@@ -1546,7 +1613,7 @@ public class GameWorld {
             events.add(new GameEvent(EventType.BOSS_DEFEATED, boss.x, boss.y));
             if (finalBossFight) {
                 beginCampaignVictory();
-            } else if (!practice()) {
+            } else if (!practice() && !echoKill) {
                 events.add(new GameEvent(EventType.STAGE_CLEAR, boss.x, boss.y, bossesDefeated));
                 // v1.10：击败 Boss 随机继承一种 Boss 能力（圣物）
                 grantBossRelic();
@@ -2907,6 +2974,7 @@ public class GameWorld {
         if (echoBanner > 0f) echoBanner = Math.max(0f, echoBanner - dt);
         if (echoShardFlash > 0f) echoShardFlash = Math.max(0f, echoShardFlash - dt);
         if (practiceBestFlash > 0f) practiceBestFlash = Math.max(0f, practiceBestFlash - dt);
+        if (echoFlash > 0f) echoFlash = Math.max(0f, echoFlash - dt);
         if (novaFlash > 0f) novaFlash = Math.max(0f, novaFlash - dt * 2.2f);
         if (breakPulse > 0f) breakPulse = Math.max(0f, breakPulse - dt * 3.2f);
         if (mutatorBanner > 0f) mutatorBanner = Math.max(0f, mutatorBanner - dt);
@@ -6282,6 +6350,8 @@ public class GameWorld {
         }
         frenzyNextAt = FRENZY_KILLS;
         hitsTaken++;
+        // v1.60：护盾挡下的那一下不算"掉血"（上面已经 return），这里才记真正的伤
+        if (boss.active && !practice()) bossFightHits++;
         addShake(0.4f, 16f);
         addHitStop(0.09f);
         // 模拟战不掉命：挨打只断连杀并清掉身边弹幕，练功不因为一次失误结束
@@ -6626,6 +6696,12 @@ public class GameWorld {
         bossesDefeated = 0;
         finalBossFight = false;
         finalBossRebirthed = false;
+        echoPendingTier = -1;
+        echoSpawnWave = -1;
+        echoBossFight = false;
+        echoDefeats = 0;
+        echoFlash = 0f;
+        bossFightHits = 0;
         campaignVictory = false;
         campaignFirstClear = false;
         nextBossWave = (m == GameMode.ENDLESS || m == GameMode.TIME) ? 3 : 4; // fast modes: bosses come sooner
@@ -6682,6 +6758,14 @@ public class GameWorld {
     /** 当前是否在 Boss 模拟战里（图鉴 Boss 页进入，不写任何榜单）。 */
     public boolean practice() {
         return mode == GameMode.PRACTICE;
+    }
+
+    /**
+     * 旗舰残响只属于战役与无尽：日常 / 连战 / 回声周目 / 限时 / 模拟战各有自己的契约
+     * （固定种子、固定序列、练功不推进），多一场随机的旗舰会打破这些约定。
+     */
+    public boolean echoBossMode() {
+        return mode == GameMode.WAVES || mode == GameMode.ENDLESS;
     }
 
     /** 难度爬坡是否走"快档"：无尽与限时局按 1.6 倍速推进。 */
