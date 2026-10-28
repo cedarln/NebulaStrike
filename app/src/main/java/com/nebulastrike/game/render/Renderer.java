@@ -1623,6 +1623,49 @@ public class Renderer {
                             paint);
                     break;
                 }
+                case WARDEN: {
+                    // 禁卫：六边形舰体 + 三片公转护环。护环是实体挡弹墙，
+                    // 所以画成有厚度的弧段；碎掉的位置只留一道暗缺口，等它重铸
+                    boolean exposed = e.isAegisExposed();
+                    for (int i = 0; i < 3; i++) {
+                        float ang = e.aegisPlateAngle(i);
+                        float hp = e.aegisHp[i];
+                        arcRect.set(e.x - Enemy.AEGIS_RADIUS, e.y - Enemy.AEGIS_RADIUS,
+                                e.x + Enemy.AEGIS_RADIUS, e.y + Enemy.AEGIS_RADIUS);
+                        paint.setStyle(Paint.Style.STROKE);
+                        if (hp > 0f) {
+                            int alpha = 0x90 + (int) (0x50 * (hp / Enemy.AEGIS_PLATE_HP));
+                            paint.setStrokeWidth(10f);
+                            paint.setColor((alpha << 24) | (exposed ? 0xFFFFD98A : 0x00E3B565));
+                            c.drawArc(arcRect, (float) Math.toDegrees(ang) - 27f, 54f,
+                                    false, paint);
+                            paint.setStrokeWidth(3f);
+                            paint.setColor(exposed ? 0xFFFFF3D6 : 0xFFF6E3B0);
+                            c.drawArc(arcRect, (float) Math.toDegrees(ang) - 24f, 48f,
+                                    false, paint);
+                        } else {
+                            // 缺口：细虚线提示"这里曾经有片护环，正在重铸"
+                            paint.setStrokeWidth(2f);
+                            paint.setColor(0x40E3B565);
+                            c.drawArc(arcRect, (float) Math.toDegrees(ang) - 24f, 48f,
+                                    false, paint);
+                        }
+                    }
+                    paint.setStyle(Paint.Style.FILL);
+                    hexagon(c, e.x, e.y, r * 0.86f, base);
+                    paint.setColor(0xFF141310);
+                    c.drawCircle(e.x, e.y, r * 0.5f, paint);
+                    float beat = 0.5f + 0.5f * (float) Math.sin(w.timeAlive * 7f);
+                    paint.setColor(exposed ? 0xFFFFD98A : 0xFF9C7F45);
+                    c.drawCircle(e.x, e.y, r * (exposed ? 0.3f + 0.1f * beat : 0.2f), paint);
+                    if (exposed) {
+                        glow.setColor(0x88FFC46B);
+                        c.drawCircle(e.x, e.y, r * (0.7f + 0.2f * beat), glow);
+                        paint.setColor(0xFFFFF3D6);
+                        c.drawCircle(e.x, e.y, r * 0.14f, paint);
+                    }
+                    break;
+                }
             }
             if (e.bounty) drawBountyMark(c, w, e);
         }
@@ -4020,6 +4063,7 @@ public class Renderer {
                 "每击破一场旗舰会弹出三张强化卡 · 同类可叠 3 层，选卡时战场完全冻结",
                 "磁力核心 MG 会把附近道具吸过来 · 每 4.2 秒把贴身敌弹直接转成分数",
                 "枪骑 LANCER 架枪时整条枪线会跟着你走 · 锁定后横穿全屏，纵向让开而不是横向逃",
+                "禁卫 WARDEN 的三片护环会挡直射弹 · 全打碎后核心暴露受击双倍，激光和长枪直接穿环",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
@@ -5249,6 +5293,24 @@ public class Renderer {
                 c.drawCircle(x, y, r * 0.16f, paint);
                 break;
             }
+            case WARDEN: {
+                // 六边形舰体 + 三段公转护环：一眼看出"要绕开环打核心"
+                hexagon(c, x, y, r * 0.8f, base);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(3.5f);
+                paint.setColor(known ? 0xFFF6E3B0 : 0x406B7A99);
+                for (int i = 0; i < 3; i++) {
+                    float a0 = -90f + i * 120f;
+                    arcRect.set(x - r * 0.78f, y - r * 0.78f, x + r * 0.78f, y + r * 0.78f);
+                    c.drawArc(arcRect, a0 - 26f, 52f, false, paint);
+                }
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(known ? 0xFF141310 : 0x336B7A99);
+                c.drawCircle(x, y, r * 0.34f, paint);
+                paint.setColor(known ? 0xFFFFD98A : 0x406B7A99);
+                c.drawCircle(x, y, r * 0.15f, paint);
+                break;
+            }
             default:
                 break;
         }
@@ -5317,6 +5379,7 @@ public class Renderer {
             case GYRE: return "旋翼者 GYRE";
             case LINKER: return "枢链者 LINKER";
             case LANCER: return "枪骑 LANCER";
+            case WARDEN: return "禁卫 WARDEN";
             default: return t.name();
         }
     }
@@ -5346,6 +5409,7 @@ public class Renderer {
             case GYRE: return "预警后甩出双头光刃旋转 158°，光刃扫过的整条线都会灼伤，绕着扫向躲";
             case LINKER: return "成对登场，两者间拉起电弧锁链；充能后一起下扫，整条线都会灼伤，先拆一端就断链";
             case LANCER: return "一弹不发：架枪时整条横向枪线跟着你，锁定后横穿全屏，纵向让开即可";
+            case WARDEN: return "三片护环公转挡下直射弹，三环全碎后核心暴露 3.5 秒、受击双倍；激光/长枪无视护环";
             default: return "未知机型";
         }
     }
@@ -6315,6 +6379,7 @@ public class Renderer {
             case 20: rgb = 0xFFC46B; break;   // 旋翼者：旋刃金
             case 21: rgb = 0x6FF7E0; break;   // 枢链者：链电青
             case 22: rgb = 0x9DB8FF; break;   // 枪骑：枪钢蓝
+            case 23: rgb = 0xE3B565; break;   // 禁卫：护环青铜
             default: rgb = 0x5CE1FF; break;
         }
         return (alpha << 24) | rgb;

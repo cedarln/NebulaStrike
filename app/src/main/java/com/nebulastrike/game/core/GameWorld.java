@@ -151,7 +151,11 @@ public class GameWorld {
         /** v1.55：磁力核心脉冲把贴身敌弹转成分数（code = 本次转化的弹数） */
         MAGNET_PULSE,
         /** v1.55：枪骑锁定枪线开始横向冲锋（code = 冲锋方向 +1/-1） */
-        LANCER_CHARGE
+        LANCER_CHARGE,
+        /** v1.57：禁卫护环吃掉一发直射弹（code = 剩余护环数） */
+        AEGIS_HIT,
+        /** v1.57：禁卫三环全碎、核心暴露（code = 暴露时长，百分之一秒） */
+        AEGIS_BREAK
     }
     public static final class GameEvent {
         public final EventType type;
@@ -879,9 +883,9 @@ public class GameWorld {
      */
     static final EnemyType[] V117_TYPES = {
             EnemyType.MIRAGE, EnemyType.MAGNETON, EnemyType.QUEEN,
-            EnemyType.RAMMER, EnemyType.PHASER, EnemyType.LANCER};
+            EnemyType.RAMMER, EnemyType.PHASER, EnemyType.LANCER, EnemyType.WARDEN};
     /** 与 V117_TYPES 对应的解锁 sim-time 窗口，和 pickEnemyType 里的出场时间一致。 */
-    static final float[] V117_WINDOWS = {115f, 150f, 180f, 125f, 145f, 195f};
+    static final float[] V117_WINDOWS = {115f, 150f, 180f, 125f, 145f, 195f, 215f};
     /** 保底遭遇倒计时（做成包级字段，测试可以直接拨快）。 */
     float v117EncounterTimer = 8f;
     /** 每种新舰型的保底遭遇次数，用于轮换——优先补最少出现的那一型。 */
@@ -2653,8 +2657,25 @@ public class GameWorld {
                 spark(e.x, e.y + e.type.radius, 5, 19);
                 break;
             }
-            case PHASER: {
-                // 相位者只在实体期开火：一对窄角瞄准弹，逼玩家在"能打"的窗口里走位；
+            case WARDEN: {
+                // 禁卫的炮只是驱赶：两发错开角度的瞄准弹，真正的压力是"该打哪片护环"。
+                // 弹速慢、伤害低，玩家可以把注意力留在护环节奏上
+                float ax = aimX() - e.x, ay = aimY() - e.y;
+                float al = (float) Math.sqrt(ax * ax + ay * ay);
+                if (al < 1f) { ax = 0f; ay = 1f; al = 1f; }
+                for (int i = -1; i <= 1; i += 2) {
+                    EnemyBullet ab = freeEnemyBullet();
+                    if (ab == null) break;
+                    float ang = i * 0.16f;
+                    float ca = (float) Math.cos(ang), sa = (float) Math.sin(ang);
+                    ab.init(e.x, e.y + e.type.radius * 0.6f,
+                            (ax / al * ca - ay / al * sa) * 300f,
+                            (ax / al * sa + ay / al * ca) * 300f);
+                }
+                e.fireCd = 2.8f + RNG.get().nextFloat() * 0.8f;
+                break;
+            }
+            case PHASER: {                // 相位者只在实体期开火：一对窄角瞄准弹，逼玩家在"能打"的窗口里走位；
                 // 相位期完全沉默，那 0.7 秒是玩家重新占位的时间
                 float px = aimX() - e.x, py = aimY() - e.y;
                 float pl = (float) Math.sqrt(px * px + py * py);
@@ -3736,6 +3757,14 @@ public class GameWorld {
                             (int) (Enemy.LINK_HALF_SEP * 2f)));
                 }
             }
+            if (e.type == EnemyType.WARDEN && e.aegisJustBroken) {
+                // 三环全碎：一次明确的"破防"反馈，核心暴露，接下来 3.5 秒吃双倍
+                e.aegisJustBroken = false;
+                addShake(0.22f, 9f);
+                spark(e.x, e.y, 18, 23);
+                events.add(new GameEvent(EventType.AEGIS_BREAK, e.x, e.y,
+                        (int) (Enemy.AEGIS_OPEN * 100f)));
+            }
         }
     }
 
@@ -3818,6 +3847,7 @@ public class GameWorld {
             case GYRE: return 20;
             case LINKER: return 21;
             case LANCER: return 22;
+            case WARDEN: return 23;
             default: return 4;
         }
     }
@@ -4064,6 +4094,26 @@ public class GameWorld {
         if (!e.hasFrontShield()) return false;
         if (b.piercing || b.bounces > 0 || b.fragment) return false;
         return b.vy < 0f;
+    }
+
+    /**
+     * 禁卫护环吃弹：返回被啃掉耐久的那片护环下标，没命中返回 -1。
+     * 贯穿火力（激光 / 长枪）直接穿过去——保持"穿透流克制重甲"的老规矩。
+     */
+    int aegisPlateHit(Enemy e, Bullet b) {
+        if (e.type != EnemyType.WARDEN || b.piercing) return -1;
+        for (int i = 0; i < 3; i++) {
+            if (e.aegisHp[i] <= 0f) continue;
+            float ang = e.aegisPlateAngle(i);
+            float px = e.x + (float) Math.cos(ang) * Enemy.AEGIS_RADIUS;
+            float py = e.y + (float) Math.sin(ang) * Enemy.AEGIS_RADIUS;
+            float dx = b.x - px, dy = b.y - py;
+            float rr = Enemy.AEGIS_PLATE_RADIUS + b.radius;
+            if (dx * dx + dy * dy > rr * rr) continue;
+            e.chipAegis(i);
+            return i;
+        }
+        return -1;
     }
 
     public boolean hasRelic(Relic r) {
@@ -4570,11 +4620,14 @@ public class GameWorld {
         // v1.56：枪骑 195s 解锁——一颗子弹都不打，只在你高度上画一条线然后横穿整屏。
         // 权重压到 3.5%：两杆枪同时架起来时，玩家几乎没有可以站着的高度
         float wLancer = t > 195f ? Math.min(0.035f, 0.015f + (t - 195f) / 4600f) : 0f;
+        // v1.57：禁卫 215f 解锁——它的难点不是伤害，而是"该打哪一片护环"，
+        // 权重压到 3%：两艘同场时护环的节奏会互相干扰，反而读不清
+        float wWarden = t > 215f ? Math.min(0.03f, 0.012f + (t - 215f) / 5200f) : 0f;
         // 保留至少 15% 无人机当"炮灰"：非无人机权重整体归一
         float sum = wTank + wHunter + wWeaver + wSui + wSplit + wHeal + wSnipe
                 + wMiner + wShield + wCarrier + wMirage + wMagnet + wQueen + wRammer
                 + wPhaser + wSeeker + wSnarer + wHelix + wCutter + wGyre + wLinker
-                + wLancer;
+                + wLancer + wWarden;
         if (sum > 0.85f) {
             float k = 0.85f / sum;
             wTank *= k; wHunter *= k; wWeaver *= k;
@@ -4588,6 +4641,7 @@ public class GameWorld {
             wGyre *= k;
             wLinker *= k;
             wLancer *= k;
+            wWarden *= k;
         }
         float c = 0f;
         if (r < (c += wTank)) return EnemyType.TANK;
@@ -4612,6 +4666,7 @@ public class GameWorld {
         if (r < (c += wGyre)) return EnemyType.GYRE;
         if (r < (c += wLinker)) return EnemyType.LINKER;
         if (r < (c += wLancer)) return EnemyType.LANCER;
+        if (r < (c += wWarden)) return EnemyType.WARDEN;
         return EnemyType.DRONE;
     }
 
@@ -5140,6 +5195,20 @@ public class GameWorld {
             // bullets vs enemies（穿透激光命中后继续飞行）
             for (Bullet b : bullets) {
                 if (!b.active || b.hitCooldown > 0f) continue;
+                // 禁卫护环在舰体外一圈，必须先于舰体判定
+                int plate = aegisPlateHit(e, b);
+                if (plate >= 0) {
+                    b.active = false;
+                    registerHit(b);
+                    spark(b.x, b.y, 4, 23);
+                    events.add(new GameEvent(EventType.AEGIS_HIT, b.x, b.y,
+                            e.aegisPlatesAlive()));
+                    if (e.aegisHp[plate] <= 0f) {
+                        spark(e.x, e.y, 7, 23);
+                        addShake(0.07f, 3f);
+                    }
+                    continue;
+                }
                 float dx = b.x - e.x, dy = b.y - e.y;
                 float rr = b.radius + e.type.radius;
                 if (dx * dx + dy * dy <= rr * rr) {
@@ -5162,6 +5231,8 @@ public class GameWorld {
                     registerHit(b);
                     int dealt = damageOrCrit(b.damage);
                     boolean crit = dealt != b.damage;
+                    // 禁卫三环全碎：核心暴露，这段时间的每一发都翻倍
+                    if (e.isAegisExposed()) dealt *= 2;
                     e.damage(dealt);
                     if (crit || dealt >= 3) {
                         spawnFloatText(b.x, b.y, dealt, crit ? FLOAT_CRIT : FLOAT_DAMAGE, crit);

@@ -495,6 +495,16 @@ public class AudioEngine {
                     // 蒙眼也能听出"这一枪是从左还是从右来"
                     play(SfxId.DASH, 0.34f, e.code > 0 ? 1.16f : 0.94f, panFor(e.x));
                     break;
+                case AEGIS_HIT:
+                    // 禁卫护环吃弹：金属"铛"的一声；护环越少音高越亮，
+                    // 听感上就能数出"还差几片"
+                    play(SfxId.SHIELD_BLOCK, 0.26f,
+                            0.86f + Math.max(0, 3 - e.code) * 0.09f, panFor(e.x));
+                    break;
+                case AEGIS_BREAK:
+                    // 三环全碎：碎金属炸开，比普通护盾破裂更闷更长
+                    play(SfxId.SHIELD_BREAK, 0.58f, 0.78f, panFor(e.x));
+                    break;
                 case ECHO_START:
                     // 回声周目开场：奖励音降一档、拖长一点，像从很远的地方传回来
                     play(SfxId.BONUS, 0.62f, 0.84f, 0f);

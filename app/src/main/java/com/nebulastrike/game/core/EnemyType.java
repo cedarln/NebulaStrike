@@ -47,7 +47,9 @@ public enum EnemyType {
     /** 枢链者（v1.48）：成对登场，两者之间拉起一条电弧锁链；通电下扫时整条线都会灼伤。 */
     LINKER(36f, 6, 120f, 85, 21),
     /** 枪骑（v1.55）：压到上半屏架枪，锁定玩家高度后横穿整屏；整条枪线都是危险区。 */
-    LANCER(42f, 8, 160f, 95, 22);
+    LANCER(42f, 8, 160f, 95, 22),
+    /** 禁卫（v1.57）：三片旋转护盾环挡下直射弹，全碎后核心暴露、受击双倍；贯穿火力无视护环。 */
+    WARDEN(46f, 10, 95f, 130, 23);
 
     public final float radius;
     public final int hp;
@@ -57,7 +59,7 @@ public enum EnemyType {
      *  5 lime, 6 rose, 7 violet, 8 mint, 9 crimson, 10 steel,
      *  11 phantom rose, 12 storm blue, 13 brood amber, 14 impact ember, 15 shift violet,
      *  16 tracker periwinkle, 17 snare violet, 18 helix cyan, 19 cutter mint,
-     *  20 gyre gold, 21 tether teal, 22 lance steel). */
+     *  20 gyre gold, 21 tether teal, 22 lance steel, 23 warden brass). */
     public final int colorHint;
 
     EnemyType(float radius, int hp, float baseSpeed, int score, int colorHint) {
@@ -75,6 +77,7 @@ public enum EnemyType {
             case MINER: case CARRIER: case SHIELDER:
             case MIRAGE: case MAGNETON: case QUEEN: case RAMMER: case PHASER: case SEEKER:
             case SNARER: case HELIX: case CUTTER: case GYRE: case LINKER: case LANCER:
+            case WARDEN:
                 return true;
             default:
                 return false;

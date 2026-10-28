@@ -70,6 +70,18 @@ public class Enemy {
     public float lanceLaneY;
     /** 刚锁定枪线、开始冲锋（一次性标记，由 GameWorld 消费并播表现）。 */
     public boolean lanceJustCharged;
+    /** v1.57 禁卫：护环公转角度（三片相隔 120°）。 */
+    public float aegisAngle;
+    /** 三片护环的剩余耐久（0 = 已碎，等待重铸）。 */
+    public final float[] aegisHp = new float[3];
+    /** 各护环的重铸倒计时。 */
+    public final float[] aegisCd = new float[3];
+    /** 三环全碎后的核心暴露倒计时（>0 时受击双倍）。 */
+    public float aegisOpenTimer;
+    /** 本次结算刚碎了一片护环 / 三环全碎（一次性标记，由 GameWorld 消费并播表现）。 */
+    public boolean aegisJustBlocked;
+    public boolean aegisJustShattered;
+    public boolean aegisJustBroken;
     /** 坦克的齐射计数：每第 3 轮改成五连扇形扫射。 */
     public int volley;
     /** 分裂舱被击毁时生成的子机层数（防止无限分裂）。 */
@@ -281,6 +293,23 @@ public class Enemy {
     public static final float LANCER_LANE_MIN = 520f;
     public static final float LANCER_LANE_MAX = 1280f;
 
+    // ---- v1.57 禁卫 WARDEN ----
+    /** 悬停高度：中段偏上，玩家能清楚看到三片护环的公转节奏。 */
+    public static final float WARDEN_HOVER_Y = 380f;
+    /** 驻留时长：够玩家打穿两轮护环，再俯冲让位。 */
+    public static final float WARDEN_HOVER = 16f;
+    /** 护环公转角速度（弧度/秒）：公转一周约 4.4 秒，节奏可背。 */
+    public static final float AEGIS_SPIN = 1.42f;
+    /** 护环中心到舰体的距离与单片护环的判定半径。 */
+    public static final float AEGIS_RADIUS = 58f;
+    public static final float AEGIS_PLATE_RADIUS = 17f;
+    /** 单片护环耐久：3 发直射弹打碎。 */
+    public static final float AEGIS_PLATE_HP = 3f;
+    /** 护环打碎后的重铸时间。 */
+    public static final float AEGIS_RESPAWN = 3.2f;
+    /** 三环全碎后核心暴露的时长，此间受击双倍。 */
+    public static final float AEGIS_OPEN = 3.5f;
+
     // ---- v1.33 追猎者 ----
     /** 悬停高度：在弹幕层上方，玩家能清楚看到两侧发射管亮起。 */
     public static final float SEEKER_HOVER_Y = 340f;
@@ -312,7 +341,8 @@ public class Enemy {
                 : type == EnemyType.SNARER ? SNARER_HOVER
                 : type == EnemyType.HELIX ? HELIX_HOVER
                 : type == EnemyType.CUTTER ? CUTTER_HOVER
-                : type == EnemyType.GYRE ? GYRE_HOVER : 0f;
+                : type == EnemyType.GYRE ? GYRE_HOVER
+                : type == EnemyType.WARDEN ? WARDEN_HOVER : 0f;
         this.spiralAngle = 0f;
         this.burstCount = 0;
         this.beamPhase = 0;
@@ -339,6 +369,15 @@ public class Enemy {
         this.lanceDir = 1f;
         this.lanceLaneY = y;
         this.lanceJustCharged = false;
+        this.aegisAngle = 0f;
+        for (int i = 0; i < 3; i++) {
+            this.aegisHp[i] = 0f;
+            this.aegisCd[i] = 0f;
+        }
+        this.aegisOpenTimer = 0f;
+        this.aegisJustBlocked = false;
+        this.aegisJustShattered = false;
+        this.aegisJustBroken = false;
         this.volley = 0;
         this.splitDepth = 0;
         this.mineCd = type == EnemyType.MINER ? 1.2f : 0f;
@@ -382,7 +421,11 @@ public class Enemy {
             case GYRE: fireCd = -1f; break;   // 不开炮：全部威胁都在光刃上
             case LINKER: fireCd = -1f; break; // 不开炮：全部威胁都在锁链上
             case LANCER: fireCd = -1f; break; // 不开炮：全部威胁都在那条枪线上
+            case WARDEN: fireCd = 2.6f + GameWorld.RNG.get().nextFloat() * 0.7f; break;
             default: fireCd = -1f; // does not fire
+        }
+        if (type == EnemyType.WARDEN) {
+            for (int i = 0; i < 3; i++) aegisHp[i] = AEGIS_PLATE_HP;
         }
     }
 
@@ -833,6 +876,34 @@ public class Enemy {
                 // phase 3：已经冲出画面，等 GameWorld 回收
                 break;
             }
+            case WARDEN: {
+                // 禁卫：三片护环绕身公转，直射弹要先啃掉护环才能摸到舰体；
+                // 三环同时碎掉时核心暴露 3.5 秒、受击双倍——这是给"会看节奏"的玩家的窗口。
+                // 护环碎了会自己重铸，所以拖下去不会变成无解，只是回到起点。
+                aegisAngle += AEGIS_SPIN * dt;
+                if (aegisAngle > (float) (Math.PI * 2)) {
+                    aegisAngle -= (float) (Math.PI * 2);
+                }
+                for (int i = 0; i < 3; i++) {
+                    if (aegisHp[i] > 0f) continue;
+                    aegisCd[i] = Math.max(0f, aegisCd[i] - dt);
+                    if (aegisCd[i] <= 0f) aegisHp[i] = AEGIS_PLATE_HP;
+                }
+                if (aegisOpenTimer > 0f) {
+                    aegisOpenTimer = Math.max(0f, aegisOpenTimer - dt);
+                }
+                if (y < WARDEN_HOVER_Y) {
+                    y += speed() * dt;
+                    break;
+                }
+                if (hoverCd <= 0f) {
+                    y += speed() * 1.35f * dt;
+                    break;
+                }
+                hoverCd -= dt;
+                x = originX + (float) Math.sin(age * 0.55f) * 70f;
+                break;
+            }
             case GYRE: {
                 // 旋翼者：压到高位后左右巡游蓄能，预警 0.9 秒后甩出双头光刃旋转约半圈。
                 // 起手线直接指向飞船，光刃又长到够穿整个屏幕——躲法只有"绕着扫向走位"，
@@ -1027,6 +1098,43 @@ public class Enemy {
     public boolean escapedSide(float worldW) {
         return type == EnemyType.LANCER
                 && (x < -type.radius * 2f || x > worldW + type.radius * 2f);
+    }
+
+    /** 禁卫：三环全碎、核心暴露中（受击双倍）。 */
+    public boolean isAegisExposed() {
+        return type == EnemyType.WARDEN && aegisOpenTimer > 0f;
+    }
+
+    /** 第 i 片护环的当前角度。 */
+    public float aegisPlateAngle(int i) {
+        return aegisAngle + (float) (Math.PI * 2.0 * i / 3.0);
+    }
+
+    /** 还剩几片护环：渲染层与结算文案直接用。 */
+    public int aegisPlatesAlive() {
+        int n = 0;
+        for (int i = 0; i < 3; i++) if (aegisHp[i] > 0f) n++;
+        return n;
+    }
+
+    /** 某片护环吃掉一发后的结算：返回是否刚把这片打碎。 */
+    public boolean chipAegis(int plate) {
+        if (plate < 0 || plate >= 3 || aegisHp[plate] <= 0f) return false;
+        aegisHp[plate] = Math.max(0f, aegisHp[plate] - 1f);
+        aegisJustBlocked = true;
+        if (aegisHp[plate] > 0f) return false;
+        aegisCd[plate] = AEGIS_RESPAWN;
+        aegisJustShattered = true;
+        if (aegisPlatesAlive() == 0) {
+            aegisOpenTimer = AEGIS_OPEN;
+            aegisJustBroken = true;
+        }
+        return true;
+    }
+
+    /** 禁卫还在悬停阶段（没开始俯冲离场）。 */
+    public boolean isAegisHolding() {
+        return type == EnemyType.WARDEN && hoverCd > 0f && y <= WARDEN_HOVER_Y + 1f;
     }
 
     /** 伪装者是否还藏在道具外形里。 */
