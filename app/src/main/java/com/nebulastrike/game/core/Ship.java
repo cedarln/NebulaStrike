@@ -16,6 +16,9 @@ public class Ship {
     public float x, y;
     /** v1.51 机体移速倍率（1 = 标准），由 GameWorld 在开局时按机体写入。 */
     public float speedScale = 1f;
+    /** v1.52 聚焦模式：移速减半、火力收束，由 GameWorld.setFocus 写入。 */
+    public boolean focus;
+    public static final float FOCUS_SPEED_MUL = 0.5f;
     /** 上一帧位置（扫掠碰撞用，避免高速拖动穿过敌弹）。 */
     public float prevX, prevY;
     private float targetX, targetY;
@@ -131,6 +134,7 @@ public class Ship {
         targetX = x;
         targetY = y;
         speedScale = 1f;
+        focus = false;
         invulnerable = false;
         invulnTimer = 0f;
         weapon = WeaponType.VULCAN;
@@ -351,6 +355,7 @@ public class Ship {
                 // 指数逼近给出"贴手"的小位移跟随，速度上限保证快速甩动不瞬移
                 float k = 1f - (float) Math.exp(-24f * dt);
                 float speedCap = MAX_DRAG_SPEED * speedScale
+                        * (focus ? FOCUS_SPEED_MUL : 1f)
                         * (webTimer > 0f ? WEB_SLOW : 1f);
                 float step = Math.min(speedCap * dt, dist * k);
                 x += dx / dist * step;

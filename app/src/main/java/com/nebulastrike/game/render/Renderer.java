@@ -2719,6 +2719,23 @@ public class Renderer {
         paint.setColor(0xFFFF3355);
         c.drawCircle(s.x, s.y + 2f, 6f, paint);
 
+        // v1.52 聚焦：贴着机身的一圈细环 + 正中心的真实判定点
+        if (w.focus) {
+            glow.setColor(0x447DF9FF);
+            c.drawCircle(s.x, s.y, Ship.RADIUS * 1.15f, glow);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2.5f);
+            paint.setColor(0xCC9FE8FF);
+            c.drawCircle(s.x, s.y, Ship.RADIUS * 1.35f, paint);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(0xFF0A1024);
+            c.drawCircle(s.x, s.y, 7f, paint);
+            paint.setColor(0xFFFFFFFF);
+            c.drawCircle(s.x, s.y, 4.2f, paint);
+            glow.setColor(0xAA7DF9FF);
+            c.drawCircle(s.x, s.y, 9f, glow);
+        }
+
         // 缚网：六条向舰体收拢的丝线 + 紫色脉冲环；最后 0.5 秒闪烁提示即将挣脱
         if (s.webTimer > 0f) {
             float blink = s.webTimer < 0.5f && (int) (w.timeAlive * 12f) % 2 == 0 ? 0.35f : 1f;
@@ -3837,6 +3854,7 @@ public class Renderer {
                 "BOSS RUSH 只打 Boss，没有小怪只有喘息 · 越深赏金越高",
                 "打穿主线后解锁 ECHO LOOP 回声周目 · 敌机更硬、得分 ×1.5，还有自己的一张榜",
                 "主菜单底部可换机体 · 游隼跑得快、壁垒能扛，下一局开局生效",
+                "拖动时再用一根手指按住空白处 = FOCUS 聚焦 · 移速减半、射速更快、散射收束",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);

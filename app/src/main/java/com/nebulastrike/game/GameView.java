@@ -36,6 +36,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
     private int lastWingmanSeen;
     /** 浮动摇杆：拖动中手指的 pointerId（-1 = 未拖动） */
     private int dragPointer = -1;
+    /** v1.52 聚焦：第二根按住空白处的手指（-1 = 未聚焦） */
+    private int focusPointer = -1;
     private float anchorTouchX, anchorTouchY, anchorShipX, anchorShipY;
     private GameWorld.UpdateState lastUpdateState = GameWorld.UpdateState.IDLE;
 
@@ -71,22 +73,50 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
         final int idx = event.getActionIndex();
         switch (action) {
             case MotionEvent.ACTION_DOWN:
+                handlePress(event, idx);
+                return true;
             case MotionEvent.ACTION_POINTER_DOWN:
+                // 第二根手指落在空白处 = 聚焦；落在炸弹/冲刺/大招键上仍按原逻辑触发
+                if (world.state == GameWorld.State.PLAYING && dragPointer >= 0
+                        && focusPointer < 0) {
+                    float[] v = renderer.toVirtual(event.getX(idx), event.getY(idx));
+                    if (!inActionZone(v[0], v[1])) {
+                        focusPointer = event.getPointerId(idx);
+                        world.setFocus(true);
+                        return true;
+                    }
+                }
                 handlePress(event, idx);
                 return true;
             case MotionEvent.ACTION_MOVE:
                 handleDrag(event);
                 return true;
             case MotionEvent.ACTION_UP:
-            case MotionEvent.ACTION_POINTER_UP:
+                endFocus();
                 handleRelease(event, idx);
                 return true;
+            case MotionEvent.ACTION_POINTER_UP:
+                if (focusPointer >= 0 && event.getPointerId(idx) == focusPointer) {
+                    endFocus();
+                } else {
+                    handleRelease(event, idx);
+                }
+                return true;
             case MotionEvent.ACTION_CANCEL:
+                endFocus();
                 endDrag();
                 return true;
             default:
                 return super.onTouchEvent(event);
         }
+    }
+
+    /** 操作键区域：第二根手指按在这里时不应该被当成"聚焦"。 */
+    private boolean inActionZone(float x, float y) {
+        boolean left = world.settings.leftHanded;
+        return Ui.bomb(left).contains(x, y)
+                || Ui.dash(left).contains(x, y)
+                || Ui.ult(left).contains(x, y);
     }
 
     /** 按下沿：UI 点击 / 炸弹键 / 冲刺键 / 开始浮动摇杆拖动。 */
@@ -188,6 +218,11 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
     private void endDrag() {
         dragPointer = -1;
         world.joyActive = false;
+    }
+
+    private void endFocus() {
+        focusPointer = -1;
+        world.setFocus(false);
     }
 
     /** 升级检测点击后：按状态机派发后台 IO（检查 / 下载）。 */

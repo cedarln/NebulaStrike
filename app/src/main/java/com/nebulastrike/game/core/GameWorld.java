@@ -503,6 +503,12 @@ public class GameWorld {
     public float timeAlive;
     public int wave = 1;
 
+    // ---- v1.52：聚焦模式 FOCUS（双指按住，移速减半、火力收束）----
+    /** 聚焦期开火冷却倍率（越小越快）。 */
+    public static final float FOCUS_FIRE_SCALE = 0.87f;
+    /** 是否正在聚焦；渲染层据此画判定点。 */
+    public volatile boolean focus;
+
     // combo system: consecutive kills without taking a hit
     public int comboKills;
     public float comboTimer;
@@ -957,6 +963,16 @@ public class GameWorld {
         if (state == State.PLAYING) ship.setTarget(x, y);
     }
 
+    /**
+     * v1.52 聚焦：只有对局中生效。移速减半、开火更快、散射收束，
+     * 并在飞船上画出真实判定点——给需要穿缝的弹幕留一个"慢镜头"。
+     */
+    public void setFocus(boolean on) {
+        boolean active = on && state == State.PLAYING;
+        focus = active;
+        ship.focus = active;
+    }
+
     // 浮动摇杆呈现状态：由 app 层写入，Renderer 绘制反馈（不影响模拟）
     public volatile boolean joyActive;
     public volatile float joyBaseX, joyBaseY;   // 按下锚点（基座）
@@ -969,6 +985,7 @@ public class GameWorld {
         ship.snapTarget();
         joyActive = false;
         joyAnim = 0f;
+        setFocus(false);
     }
 
     /** Steps the simulation. dt is clamped so backgrounding cannot explode physics. */
@@ -976,6 +993,7 @@ public class GameWorld {
         dt = Math.min(dt, 1f / 20f);
         applyPendingRngSeed();
         if (state != State.PLAYING) {
+            if (focus) setFocus(false);
             stateTimer += dt;
             for (Star s : stars) s.update(dt * (state == State.PAUSED ? 0.1f : 0.3f), HEIGHT);
             // 结算/菜单界面让死亡爆炸与屏幕震动自然收尾；暂停则完全冻结
@@ -4269,6 +4287,7 @@ public class GameWorld {
                 * (ship.rapidTimer > 0f ? 0.5f : 1f)
                 * (ship.overdriveTimer > 0f ? Ship.OVERDRIVE_FIRE_MULT : 1f)
                 * (frenzyTimer > 0f ? FRENZY_FIRE_SCALE : 1f)
+                * (focus ? FOCUS_FIRE_SCALE : 1f)
                 * hull().fireCdMul
                 * (hasSynergy(Synergy.OVERCHARGE) ? 0.62f : 1f);
     }
@@ -4283,13 +4302,14 @@ public class GameWorld {
                 + Math.max(0, stack - 1);
         switch (type) {
             case SPREAD: {
-                // 叠层/升级会继续加宽扇形，最多 9 / 11 向
-                int rays = Math.min(6, 1 + lvl);
+                // 叠层/升级会继续加宽扇形，最多 9 / 11 向；聚焦时收束成一条更密的窄扇
+                int rays = focus ? Math.min(3, 1 + lvl) : Math.min(6, 1 + lvl);
+                float stepAng = focus ? 0.10f : 0.20f;
                 boolean pierce = hasSynergy(Synergy.TRIDENT);
                 for (int i = -(rays - 1); i <= rays - 1; i++) {
                     Bullet b = freeBullet();
                     if (b == null) return;
-                    float ang = (float) (-Math.PI / 2 + i * 0.20);
+                    float ang = (float) (-Math.PI / 2 + i * stepAng);
                     b.init(ship.x, ship.y - Ship.RADIUS - 6f,
                             (float) Math.cos(ang) * 1150f, (float) Math.sin(ang) * 1150f,
                             WeaponType.SPREAD.damage, false);
@@ -5925,6 +5945,7 @@ public class GameWorld {
         formationTimer = m == GameMode.ENDLESS ? 6f : 8f;
         spawnTimer = 0f;
         state = State.PLAYING;
+        focus = false;
         ship.reset(WIDTH / 2f, HEIGHT - 140f);
         ship.powerLevel = startPowerOf();
         applyHull();
