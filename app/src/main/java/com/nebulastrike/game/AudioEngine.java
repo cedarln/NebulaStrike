@@ -502,6 +502,14 @@ public class AudioEngine {
                     // 后日谈解密：档案音压低一档，越靠后的片段音高越沉，像翻到更旧的一页
                     play(SfxId.RELIC, 0.5f, 1.02f - Math.min(0.18f, e.code * 0.024f), 0f);
                     break;
+                case PERK_OFFER:
+                    // 强化卡弹出：一声上扬的"叮"，不盖住 Boss 爆炸的尾音
+                    play(SfxId.RELIC, 0.46f, 1.14f, 0f);
+                    break;
+                case PERK_CHOSEN:
+                    // 选中强化：奖励音的短促版本，和成就长音区分开
+                    play(SfxId.ACHIEVEMENT, 0.72f, 1.06f, 0f);
+                    break;
             }
         }
     }

@@ -175,6 +175,19 @@ public final class Ui {
     // in-game pause button (top right, left of lives)
     public static final Rect PAUSE_BTN = new Rect(GameWorld.WIDTH - 340f, 18f, 64f, 64f);
 
+    // v1.54 强化三选一：三张竖排大卡，整张卡都是点击热区
+    public static final float PERK_CARD_X = 80f;
+    public static final float PERK_CARD_Y = 470f;
+    public static final float PERK_CARD_W = 740f;
+    public static final float PERK_CARD_H = 200f;
+    public static final float PERK_CARD_GAP = 30f;
+
+    public static Rect perkCard(int index) {
+        return new Rect(PERK_CARD_X,
+                PERK_CARD_Y + index * (PERK_CARD_H + PERK_CARD_GAP),
+                PERK_CARD_W, PERK_CARD_H);
+    }
+
     /** Logical UI actions produced by taps. */
     public enum Action {
         START, START_ENDLESS, START_DAILY, START_RUSH, START_ECHO,

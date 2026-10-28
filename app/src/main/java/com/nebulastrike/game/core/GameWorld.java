@@ -143,7 +143,11 @@ public class GameWorld {
         /** v1.49：获得回声碎片（code = 本次获得后的碎片总数） */
         ECHO_SHARD,
         /** v1.50：解密一段后日谈（code = 片段下标，0 起） */
-        ECHO_ARCHIVE_UNLOCK
+        ECHO_ARCHIVE_UNLOCK,
+        /** v1.54：击破旗舰后弹出三选一强化（code = 本次可选卡数） */
+        PERK_OFFER,
+        /** v1.54：玩家选中一项强化（code = {@link Perk#ordinal()}） */
+        PERK_CHOSEN
     }
     public static final class GameEvent {
         public final EventType type;
@@ -643,6 +647,38 @@ public class GameWorld {
     private final float[] lockPickY = new float[LOCKON_MAX_TARGETS];
     private final float[] lockPickD = new float[LOCKON_MAX_TARGETS];
 
+    // ---- v1.54：局内三选一 PERK ----
+    /** 击破旗舰到弹出强化卡的短暂延迟：先让爆炸演完，再把画面交给选择。 */
+    public static final float PERK_OFFER_DELAY = 1.15f;
+    /** 卡片进场动画时长。 */
+    public static final float PERK_FADE_TIME = 0.22f;
+    /** 强化到手后的横幅时长。 */
+    public static final float PERK_FLASH_TIME = 2.4f;
+    /** 六类都叠满后，再击破旗舰折算的奖励分。 */
+    public static final int PERK_MAXED_SCORE = 800;
+    /**
+     * true 时击破 Boss 会弹出强化卡。真实游戏开局（startInMenu）默认开启；
+     * 单元测试默认关闭，避免改变既有的关卡时序断言。测试可显式打开。
+     */
+    public boolean perksEnabled;
+    /** 强化卡是否正在展示（展示期间整局冻结，只留背景呼吸）。 */
+    public boolean perkOpen;
+    /** 卡片进场进度 0..1。 */
+    public float perkAnim;
+    /** 距弹出强化卡的剩余秒数（<=0 表示没有待处理的强化）。 */
+    public float perkOfferTimer;
+    /** 本次三选一的候选（最多 {@link Perk#CHOICES} 张）。 */
+    public final Perk[] perkChoices = new Perk[Perk.CHOICES];
+    /** 本次实际展示的卡数（候选不足 3 时会更少）。 */
+    public int perkChoicesCount;
+    /** 每类强化已叠的层数（0..{@link Perk#MAX_STACKS}）。 */
+    public final int[] perkStacks = new int[Perk.COUNT];
+    /** 本局已做出的强化选择次数（结算/测试用）。 */
+    public int perksChosen;
+    /** 最近一次选中的强化与横幅余量。 */
+    public Perk perkLast;
+    public float perkFlash;
+
     /** RELIC_GAINED 事件的 code 上限，方便测试断言。 */
     public static final int RELIC_COUNT = Relic.COUNT;
 
@@ -963,6 +999,8 @@ public class GameWorld {
         affixSeed = seed * 0x9E3779B97F4A7C15L + 0x2545F4914F6CDD1DL;
         RNG.setSeed(seed);
         state = startInMenu ? State.MENU : State.PLAYING;
+        // 真实开局开启局内强化；测试默认关闭，既有测试的关卡时序不受弹窗冻结影响
+        perksEnabled = startInMenu;
         for (int i = 0; i < bullets.length; i++) bullets[i] = new Bullet();
         for (int i = 0; i < bossLasers.length; i++) bossLasers[i] = new BossLaser();
         for (int i = 0; i < enemyBullets.length; i++) enemyBullets[i] = new EnemyBullet();
@@ -1050,6 +1088,12 @@ public class GameWorld {
             }
             return;
         }
+        // v1.54：强化卡展示期间冻结整局——计时器、弹道、刷怪全部暂停，
+        // 只让星空与余烬继续呼吸，避免"低头选卡时被流弹打掉一条命"。
+        if (perkOpen) {
+            updatePerkFreeze(dt);
+            return;
+        }
         timeAlive += dt;
         float realDt = dt;   // 时停与余晖按真实时间流逝，不受 hit-stop 缩放影响
         // hit-stop：大事件后短暂慢放（残影、爆炸与电弧仍按缩放后的时间推进，视觉上就是"凝滞一瞬"）
@@ -1071,6 +1115,12 @@ public class GameWorld {
         updateEscort(dt);
         updateGrace(dt);
         updateBoss(dt * timeScale);
+        // v1.54：旗舰爆炸演完后再弹强化卡；延迟也给了玩家看清"打完了"的余地
+        if (perkOfferTimer > 0f) {
+            perkOfferTimer = Math.max(0f, perkOfferTimer - dt);
+            if (perkOfferTimer <= 0f) openPerkOffer();
+        }
+        if (perkFlash > 0f) perkFlash = Math.max(0f, perkFlash - dt);
 
         // 摇杆出现/消失动画（约 0.12 秒完成，8 倍速率逼近目标值）
         float joyTarget = joyActive ? 1f : 0f;
@@ -1379,6 +1429,8 @@ public class GameWorld {
                 events.add(new GameEvent(EventType.STAGE_CLEAR, boss.x, boss.y, bossesDefeated));
                 // v1.10：击败 Boss 随机继承一种 Boss 能力（圣物）
                 grantBossRelic();
+                // v1.54：每一场非最终旗舰留下一张强化卡（延迟到爆炸演完再弹）
+                schedulePerkOffer();
             }
         }
     }
@@ -3210,7 +3262,7 @@ public class GameWorld {
                 break;
             case VITAL:
                 if (lives < Math.max(MAX_LIVES, startLivesOf())) lives++;
-                else if (ship.bombs < Ship.MAX_BOMBS) ship.bombs++;
+                else if (ship.bombs < ship.bombCap) ship.bombs++;
                 else addScore(500, SCORE_PICKUP);
                 break;
             case AEGIS:
@@ -4023,9 +4075,147 @@ public class GameWorld {
 
     /** 圣盾外壳会把护盾上限抬高一层，失去圣物时恢复。 */
     private void refreshShieldCap() {
-        ship.shieldCap = hasRelic(Relic.AEGIS_FIELD)
-                ? Ship.MAX_SHIELD_LAYERS + 1 : Ship.MAX_SHIELD_LAYERS;
+        ship.shieldCap = Ship.MAX_SHIELD_LAYERS
+                + (hasRelic(Relic.AEGIS_FIELD) ? 1 : 0)
+                + perkStacks[Perk.ARMOR.ordinal()];
         if (ship.shieldLayers > ship.shieldCap) ship.shieldLayers = ship.shieldCap;
+    }
+
+    // ---- v1.54：局内三选一 PERK ----
+
+    /** 强化卡展示期间的轻量帧：只推进表现层，不碰任何战斗计时。 */
+    private void updatePerkFreeze(float dt) {
+        perkAnim = Math.min(1f, perkAnim + dt / PERK_FADE_TIME);
+        for (Star s : stars) s.update(dt * 0.25f, HEIGHT);
+        for (Particle p : particles) if (p.active) p.update(dt);
+        if (shakeTime > 0f) {
+            shakeTime -= dt;
+            if (shakeTime <= 0f) shakeMag = 0f;
+        }
+        if (hitStopTimer > 0f) hitStopTimer = Math.max(0f, hitStopTimer - dt);
+        if (bombFlash > 0f) bombFlash = Math.max(0f, bombFlash - dt * 2.5f);
+        if (bossFlash > 0f) bossFlash = Math.max(0f, bossFlash - dt * 2f);
+        // 选卡时手指可能还停在屏幕上：把目标钉死在当前位置，关闭时不会突然窜出去
+        ship.snapTarget();
+        setFocus(false);
+    }
+
+    /** 是否还有可以继续叠加的强化。 */
+    public boolean perkAvailable() {
+        for (int i = 0; i < Perk.COUNT; i++) {
+            if (perkStacks[i] < Perk.MAX_STACKS) return true;
+        }
+        return false;
+    }
+
+    /** 击破旗舰后安排一次三选一；全满时直接折算奖励分，不打断节奏。 */
+    private void schedulePerkOffer() {
+        if (!perksEnabled) return;
+        if (!perkAvailable()) {
+            addScore(PERK_MAXED_SCORE, SCORE_OTHER);
+            return;
+        }
+        perkOfferTimer = PERK_OFFER_DELAY;
+    }
+
+    /**
+     * 从尚未叠满的强化里不重复抽三张。
+     * 随机数走本局种子，所以每日挑战/回声局在同一条时间线上每次重开都是同样的三张。
+     */
+    private void openPerkOffer() {
+        perkOfferTimer = 0f;
+        int[] pool = new int[Perk.COUNT];
+        int avail = 0;
+        for (int i = 0; i < Perk.COUNT; i++) {
+            if (perkStacks[i] < Perk.MAX_STACKS) pool[avail++] = i;
+        }
+        if (avail == 0) {
+            addScore(PERK_MAXED_SCORE, SCORE_OTHER);
+            return;
+        }
+        for (int i = avail - 1; i > 0; i--) {
+            int j = RNG.get().nextInt(i + 1);
+            int t = pool[i];
+            pool[i] = pool[j];
+            pool[j] = t;
+        }
+        perkChoicesCount = Math.min(Perk.CHOICES, avail);
+        for (int i = 0; i < perkChoicesCount; i++) {
+            perkChoices[i] = Perk.byOrdinal(pool[i]);
+        }
+        perkOpen = true;
+        perkAnim = 0f;
+        clearShipInput();
+        events.add(new GameEvent(EventType.PERK_OFFER, WIDTH / 2f, HEIGHT / 2f,
+                perkChoicesCount));
+    }
+
+    /**
+     * 选中一张强化卡并立刻生效。
+     * @return true 表示选择被接受（卡片已关闭）；false 表示不在选卡状态或下标越界
+     */
+    public boolean choosePerk(int index) {
+        if (!perkOpen || index < 0 || index >= perkChoicesCount) return false;
+        Perk p = perkChoices[index];
+        if (p == null || perkStacks[p.ordinal()] >= Perk.MAX_STACKS) return false;
+        perkStacks[p.ordinal()]++;
+        perksChosen++;
+        refreshPerkEffects();
+        if (p == Perk.ARMOR) ship.addShield();
+        if (p == Perk.ARSENAL && ship.bombs < ship.bombCap) ship.bombs++;
+        perkLast = p;
+        perkFlash = PERK_FLASH_TIME;
+        perkOpen = false;
+        perkAnim = 0f;
+        perkChoicesCount = 0;
+        events.add(new GameEvent(EventType.PERK_CHOSEN, ship.x, ship.y, p.ordinal()));
+        return true;
+    }
+
+    /** 强化会改写移速、炸弹上限与护盾上限；每次获得后重算一遍。 */
+    private void refreshPerkEffects() {
+        ship.speedScale = hull().speedMul * perkSpeedMul();
+        ship.bombCap = Ship.MAX_BOMBS + perkStacks[Perk.ARSENAL.ordinal()];
+        if (ship.bombs > ship.bombCap) ship.bombs = ship.bombCap;
+        refreshShieldCap();
+    }
+
+    public int perkStacksOf(Perk p) {
+        return p == null ? 0 : perkStacks[p.ordinal()];
+    }
+
+    /** 全武器射击冷却倍率（超频每层 -8%）。 */
+    float perkCooldownMul() {
+        return 1f - 0.08f * perkStacks[Perk.OVERCLOCK.ordinal()];
+    }
+
+    /** 飞船拖动移速倍率（推进器每层 +8%）。 */
+    float perkSpeedMul() {
+        return 1f + 0.08f * perkStacks[Perk.THRUSTER.ordinal()];
+    }
+
+    /** 道具掉落概率倍率（幸运每层 +22%）。 */
+    float perkDropMul() {
+        return 1f + 0.22f * perkStacks[Perk.LUCK.ordinal()];
+    }
+
+    /** 暴击率的绝对加成（精准每层 +5%）。 */
+    float perkCritBonus() {
+        return 0.05f * perkStacks[Perk.CRIT.ordinal()];
+    }
+
+    /** 测试缝：读某一路武器当前的冷却余量（冻结/倍率断言用）。 */
+    float weaponCdForTest(WeaponType type) {
+        return weaponCd[type.ordinal()];
+    }
+
+    /** 测试缝：直接叠一层强化，跳过弹窗与随机抽取。 */
+    void grantPerkForTest(Perk p) {
+        if (p == null || perkStacks[p.ordinal()] >= Perk.MAX_STACKS) return;
+        perkStacks[p.ordinal()]++;
+        refreshPerkEffects();
+        if (p == Perk.ARMOR) ship.addShield();
+        if (p == Perk.ARSENAL && ship.bombs < ship.bombCap) ship.bombs++;
     }
 
     /** 坠机惩罚：按难度决定掉什么。 */
@@ -4103,6 +4293,8 @@ public class GameWorld {
     public boolean consumeBack() {
         switch (state) {
             case PLAYING:
+                // 选卡时返回键不能顺手把整局暂停到卡片后面，先让玩家做出选择
+                if (perkOpen) return true;
                 pauseIfPlaying();
                 return true;
             case PAUSED:
@@ -4323,6 +4515,7 @@ public class GameWorld {
                 * (frenzyTimer > 0f ? FRENZY_FIRE_SCALE : 1f)
                 * (focus ? FOCUS_FIRE_SCALE : 1f)
                 * hull().fireCdMul
+                * perkCooldownMul()
                 * (hasSynergy(Synergy.OVERCHARGE) ? 0.62f : 1f);
     }
 
@@ -4977,7 +5170,7 @@ public class GameWorld {
                 ship.addShield();
                 break;
             case BOMB:
-                if (ship.bombs < Ship.MAX_BOMBS) ship.bombs++;
+                if (ship.bombs < ship.bombCap) ship.bombs++;
                 else addScore(50, SCORE_PICKUP); // overflow converts to salvage points
                 break;
             case RAPID:
@@ -5132,7 +5325,7 @@ public class GameWorld {
             if (lives < Math.max(MAX_LIVES, startLivesOf())) {
                 lives++;
                 kind = 1;
-            } else if (ship.bombs < Ship.MAX_BOMBS) {
+            } else if (ship.bombs < ship.bombCap) {
                 ship.bombs++;
                 kind = 2;
             } else {
@@ -5322,7 +5515,8 @@ public class GameWorld {
                 : type == EnemyType.SUICIDER ? 0.04f : 0.05f;
         chance = Math.min(1f, chance * dropRatePctOf() / 100f
                     * difficultyOf().dropScale
-                    * dropScaleOf());
+                    * dropScaleOf()
+                    * perkDropMul());
         if (!elite && RNG.get().nextFloat() >= chance) return; // 精英必掉
         spawnPowerUp(dropKind(RNG.get().nextFloat()), x, y);
     }
@@ -6053,6 +6247,15 @@ public class GameWorld {
         bossGapTimer = bossRush() ? BOSS_RUSH_OPENING : 0f;   // 连战局开场 2.6 秒后第一位入场
         formationTimer = m == GameMode.ENDLESS ? 6f : 8f;
         spawnTimer = 0f;
+        // v1.54：局内强化随一局结束清零，下一局重新构筑
+        perkOpen = false;
+        perkOfferTimer = 0f;
+        perkAnim = 0f;
+        perkChoicesCount = 0;
+        perksChosen = 0;
+        perkLast = null;
+        perkFlash = 0f;
+        for (int i = 0; i < perkStacks.length; i++) perkStacks[i] = 0;
         state = State.PLAYING;
         focus = false;
         ship.reset(WIDTH / 2f, HEIGHT - 140f);
@@ -6202,9 +6405,11 @@ public class GameWorld {
     /** 开局把机体加成写进 Ship（必须在 ship.reset 之后调用）。 */
     private void applyHull() {
         Hull h = hull();
-        ship.speedScale = h.speedMul;
+        ship.speedScale = h.speedMul * perkSpeedMul();
         if (ship.bombs < h.startBombs) ship.bombs = h.startBombs;
         for (int i = 0; i < h.startShield; i++) ship.addShield();
+        // 强化（重开时已归零）决定炸弹/护盾上限，统一在这里落一次
+        refreshPerkEffects();
     }
 
     // ---- 今日规则与随机异变波的叠加：同类倍率只认更极端的一档，不相乘 ----
@@ -6526,6 +6731,8 @@ public class GameWorld {
         float chance = ship.overdriveTimer > 0f ? CRIT_CHANCE_OVERDRIVE : CRIT_CHANCE;
         // 异变"暴击临界"与今日规则：把已经存在的暴击判定放大，不新增判定
         chance *= critScaleOf();
+        // v1.54 精准 PERK：直接加在概率上，过载时同样受益
+        chance += perkCritBonus();
         if (base > 1 && RNG.get().nextFloat() < Math.min(0.9f, chance)) {
             crits++;
             return Math.max(base + 1, Math.round(base * CRIT_MULT));

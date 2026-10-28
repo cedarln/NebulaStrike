@@ -63,6 +63,11 @@ public class Ship {
     public float reflectRechargeScale = 1f;
     public int bombs = 1;
     public static final int MAX_BOMBS = 3;
+    /**
+     * 炸弹上限。默认等于 {@link #MAX_BOMBS}；v1.54 的军械 PERK 会把它逐层抬高。
+     * 单独建字段而不是改常量，是为了让"局内成长"不影响所有旧调用点与测试。
+     */
+    public int bombCap = MAX_BOMBS;
     /** 速射道具剩余时间（>0 时射击冷却减半） */
     public float rapidTimer;
     public static final float RAPID_DURATION = 8f;
@@ -151,6 +156,7 @@ public class Ship {
         for (int i = 0; i < reflectCd.length; i++) reflectCd[i] = 0f;
         reflectRechargeScale = 1f;
         bombs = 1;
+        bombCap = MAX_BOMBS;
         rapidTimer = 0f;
         wingmanTimer = 0f;
         overdriveTimer = 0f;

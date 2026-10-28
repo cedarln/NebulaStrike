@@ -29,6 +29,7 @@ import com.nebulastrike.game.core.GravityWell;
 import com.nebulastrike.game.core.Hull;
 import com.nebulastrike.game.core.Mutator;
 import com.nebulastrike.game.core.Particle;
+import com.nebulastrike.game.core.Perk;
 import com.nebulastrike.game.core.PowerUp;
 import com.nebulastrike.game.core.Relic;
 import com.nebulastrike.game.core.Settings;
@@ -2898,6 +2899,7 @@ public class Renderer {
                 return;
             default:
                 drawInGameHud(c, w);
+                if (w.perkOpen) drawPerkOverlay(c, w);
         }
     }
 
@@ -3191,6 +3193,7 @@ public class Renderer {
 
         drawRelicChips(c, w);
         drawSynergyChips(c, w);
+        drawPerkChips(c, w);
 
         // 擦弹充能：固定放左下，避免和左上角的状态条抢位置
         if (w.ship.overdriveTimer > 0f) {
@@ -3230,6 +3233,31 @@ public class Renderer {
             paint.setTextSize(21f);
             paint.setColor(((int) (0xE6 * k) << 24) | 0xFFE8F1FF);
             c.drawText(s.blurb, VW / 2f + 3f, y + 25f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+
+        // 强化到手：底部一条短横幅，把"哪一项、现在几层"说清楚
+        if (w.perkFlash > 0f && w.perkLast != null && !w.perkOpen) {
+            float k = Math.min(1f, w.perkFlash / 0.35f);
+            float in = Math.min(1f, (GameWorld.PERK_FLASH_TIME - w.perkFlash) / 0.2f);
+            float y = 1064f + 8f * (1f - in);
+            int rgb = w.perkLast.colorRgb();
+            int stacks = w.perkStacksOf(w.perkLast);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setColor(((int) (0xAA * k) << 24) | 0x00121A2E);
+            c.drawRoundRect(230f, y - 30f, 670f, y + 30f, 12f, 12f, paint);
+            paint.setColor(((int) (0xCC * k) << 24) | rgb);
+            c.drawRect(230f, y - 30f, 236f, y + 30f, paint);
+            paint.setFakeBoldText(true);
+            paint.setTextSize(26f);
+            paint.setColor(((int) (0xFF * k) << 24) | rgb);
+            c.drawText("强化 · " + w.perkLast.label()
+                    + (stacks > 1 ? " ×" + stacks : ""), VW / 2f + 3f, y + 2f, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextSize(19f);
+            paint.setColor(((int) (0xD8 * k) << 24) | 0xFFE8F1FF);
+            c.drawText(w.perkLast.blurb(), VW / 2f + 3f, y + 24f, paint);
             paint.setTextAlign(Paint.Align.LEFT);
         }
 
@@ -3888,6 +3916,7 @@ public class Renderer {
                 "主菜单底部可换机体 · 游隼跑得快、壁垒能扛，下一局开局生效",
                 "拖动时再用一根手指按住空白处 = FOCUS 聚焦 · 移速减半、射速更快、散射收束",
                 "LK 锁定激光会自动点名最近的敌机 · 光柱从顶端落下，每叠一层多锁一个目标",
+                "每击破一场旗舰会弹出三张强化卡 · 同类可叠 3 层，选卡时战场完全冻结",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
@@ -5252,8 +5281,7 @@ public class Renderer {
     }
 
     /** 暂停页状态摘要：难度、已持有圣物与在场炮台，方便确认当前 build。 */
-    private void drawPauseStatus(Canvas c, GameWorld w) {
-        paint.setStyle(Paint.Style.FILL);
+    private void drawPauseStatus(Canvas c, GameWorld w) {        paint.setStyle(Paint.Style.FILL);
         paint.setColor(0x66000011);
         c.drawRoundRect(120f, 636f, 780f, 636f + 132f, 18f, 18f, paint);
         paint.setTextAlign(Paint.Align.LEFT);
@@ -5298,6 +5326,140 @@ public class Renderer {
             }
         }
         paint.setTextAlign(Paint.Align.CENTER);
+    }
+
+    /**
+     * v1.54 强化三选一：整屏压暗，三张卡从下往上错峰滑入。
+     * 左侧色条与徽记表明类别，右下角的 "Lv n → n+1" 让"再拿一次值不值"一眼可读。
+     */
+    private void drawPerkOverlay(Canvas c, GameWorld w) {
+        float k = Math.min(1f, w.perkAnim);
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(((int) (0xB4 * Math.min(1f, k * 1.6f))) << 24);
+        c.drawRect(0, 0, VW, VH, paint);
+
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setFakeBoldText(true);
+        paint.setTextSize(58f);
+        paint.setColor(0xFFFFE08A);
+        c.drawText("战术强化", VW / 2f, 348f, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextSize(24f);
+        paint.setColor(0xB8C8D6F0);
+        c.drawText("旗舰已击破 · 选择一项，永久强化到本局结束", VW / 2f, 392f, paint);
+
+        for (int i = 0; i < w.perkChoicesCount; i++) {
+            Perk p = w.perkChoices[i];
+            if (p == null) continue;
+            Ui.Rect r = Ui.perkCard(i);
+            // 错峰进场：第 0 张最先落位，后面的稍微晚一点
+            float in = Math.max(0f, Math.min(1f, (k - i * 0.10f) / 0.65f));
+            float ease = 1f - (1f - in) * (1f - in);
+            float dy = (1f - ease) * 46f;
+            float a = 0.25f + 0.75f * ease;
+            int rgb = p.colorRgb();
+            int stacks = w.perkStacksOf(p);
+            int alpha = (int) (0xFF * a);
+
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(((int) (0xE6 * a) << 24) | 0x00121A2E);
+            c.drawRoundRect(r.x, r.y + dy, r.x + r.w, r.y + r.h + dy, 22f, 22f, paint);
+            paint.setColor((alpha << 24) | rgb);
+            c.drawRoundRect(r.x, r.y + dy, r.x + 10f, r.y + r.h + dy, 5f, 5f, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2.5f);
+            paint.setColor(((int) (0xA8 * a) << 24) | rgb);
+            c.drawRoundRect(r.x, r.y + dy, r.x + r.w, r.y + r.h + dy, 22f, 22f, paint);
+            paint.setStyle(Paint.Style.FILL);
+
+            float cx = r.x + 92f, cy = r.y + r.h / 2f + dy;
+            paint.setColor(((int) (0x33 * a) << 24) | rgb);
+            c.drawCircle(cx, cy, 52f, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(3f);
+            paint.setColor(((int) (0xCC * a) << 24) | rgb);
+            c.drawCircle(cx, cy, 52f, paint);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setFakeBoldText(true);
+            paint.setTextSize(40f);
+            paint.setColor((alpha << 24) | rgb);
+            c.drawText(p.badge(), cx, cy + 14f, paint);
+            paint.setFakeBoldText(false);
+
+            paint.setTextAlign(Paint.Align.LEFT);
+            paint.setFakeBoldText(true);
+            paint.setTextSize(40f);
+            paint.setColor(((int) (0xFF * a) << 24) | 0xFFF2F8FF);
+            c.drawText(p.label(), r.x + 168f, r.y + 78f + dy, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextSize(24f);
+            paint.setColor(((int) (0xCC * a) << 24) | 0xFFC8D6F0);
+            c.drawText(p.blurb(), r.x + 168f, r.y + 122f + dy, paint);
+            for (int s = 0; s < Perk.MAX_STACKS; s++) {
+                c.save();
+                c.translate(r.x + 176f + s * 30f, r.y + 158f + dy);
+                c.rotate(45f);
+                paint.setColor(s < stacks
+                        ? (alpha << 24) | rgb
+                        : ((int) (0x44 * a) << 24) | 0xFFC8D6F0);
+                c.drawRect(-7f, -7f, 7f, 7f, paint);
+                c.restore();
+            }
+            paint.setTextAlign(Paint.Align.RIGHT);
+            paint.setTextSize(21f);
+            paint.setColor(((int) (0xB0 * a) << 24) | rgb);
+            String tag = stacks > 0 ? "Lv " + stacks + " → " + (stacks + 1) : "NEW";
+            c.drawText(tag, r.x + r.w - 34f, r.y + 164f + dy, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(21f);
+        paint.setColor(0x888FA3C8);
+        c.drawText("同类强化最多叠 " + Perk.MAX_STACKS + " 层 · 点击卡片确认",
+                VW / 2f, 1254f, paint);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /** 已获得的强化：接在圣物/连携芯片下方竖排，层数直接写在角标后面。 */
+    private void drawPerkChips(Canvas c, GameWorld w) {
+        int perkRows = 0;
+        for (Perk p : Perk.values()) {
+            if (w.perkStacksOf(p) > 0) perkRows++;
+        }
+        if (perkRows == 0) return;
+        int relicRows = 0;
+        for (Relic r : Relic.values()) {
+            if (w.hasRelic(r)) relicRows++;
+        }
+        int synergyRows = 0;
+        for (Synergy s : Synergy.values()) {
+            if ((w.synergyMask & s.bit()) != 0) synergyRows++;
+        }
+        float y = 150f + relicRows * 48f + 4f + synergyRows * 38f + 4f;
+        paint.setTextAlign(Paint.Align.RIGHT);
+        for (Perk p : Perk.values()) {
+            int stacks = w.perkStacksOf(p);
+            if (stacks <= 0) continue;
+            int rgb = p.colorRgb();
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(0x99121A2E);
+            c.drawRoundRect(VW - 160f, y, VW - 22f, y + 32f, 8f, 8f, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2f);
+            paint.setColor(0x88 << 24 | rgb);
+            c.drawRoundRect(VW - 160f, y, VW - 22f, y + 32f, 8f, 8f, paint);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setTextSize(21f);
+            paint.setFakeBoldText(true);
+            paint.setColor((0xE6 << 24) | rgb);
+            c.drawText(p.badge() + " ×" + stacks, VW - 34f, y + 23f, paint);
+            paint.setFakeBoldText(false);
+            y += 38f;
+        }
+        paint.setTextAlign(Paint.Align.LEFT);
     }
 
     private void drawGameOver(Canvas c, GameWorld w) {

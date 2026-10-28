@@ -18,6 +18,8 @@ public class EndlessModeTest {
         store = new UiStateTest.FakeStore();
         world = new GameWorld(11L, true);
         world.attachStore(store);
+        // 本测试只验证 Boss 节奏，v1.54 的强化选卡会冻结战场，这里关掉
+        world.perksEnabled = false;
     }
 
     private void runFor(float seconds) {

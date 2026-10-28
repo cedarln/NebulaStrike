@@ -78,7 +78,7 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
             case MotionEvent.ACTION_POINTER_DOWN:
                 // 第二根手指落在空白处 = 聚焦；落在炸弹/冲刺/大招键上仍按原逻辑触发
                 if (world.state == GameWorld.State.PLAYING && dragPointer >= 0
-                        && focusPointer < 0) {
+                        && focusPointer < 0 && !world.perkOpen) {
                     float[] v = renderer.toVirtual(event.getX(idx), event.getY(idx));
                     if (!inActionZone(v[0], v[1])) {
                         focusPointer = event.getPointerId(idx);
@@ -122,6 +122,18 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
     /** 按下沿：UI 点击 / 炸弹键 / 冲刺键 / 开始浮动摇杆拖动。 */
     private void handlePress(MotionEvent event, int idx) {
         float[] v = renderer.toVirtual(event.getX(idx), event.getY(idx));
+
+        // v1.54：强化三选一期间整屏只认卡片，避免误触暂停/炸弹/摇杆
+        if (world.perkOpen) {
+            for (int i = 0; i < world.perkChoicesCount; i++) {
+                if (Ui.perkCard(i).contains(v[0], v[1])) {
+                    world.choosePerk(i);
+                    audio.uiTick();
+                    return;
+                }
+            }
+            return;
+        }
 
         // 炸弹键（按下沿触发一次，带去抖）——优先于摇杆
         if (world.state == GameWorld.State.PLAYING
@@ -370,6 +382,9 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case ECHO_START: haptics.impact(); break;
                     case ECHO_SHARD: haptics.tick(); break;
                     case ECHO_ARCHIVE_UNLOCK: haptics.impact(); break;
+                    // 强化卡弹出轻点一下把视线拉回中央；选中给一记重震作为"变强了"的收口
+                    case PERK_OFFER: haptics.tick(); break;
+                    case PERK_CHOSEN: haptics.bomb(); break;
                     case MIRAGE_REVEAL: haptics.tick(); break;
                     // 分数奖励命：和大招同档的长震，让"跨过阈值"这件事被身体记住
                     case EXTRA_LIFE: haptics.bomb(); break;
