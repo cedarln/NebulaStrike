@@ -1023,6 +1023,26 @@ public class GameWorld {
     /** 最近一次加时的整秒数。 */
     public int timeBonusLast;
 
+    // ---- v1.59 Boss 模拟战 PRACTICE ----
+    /** 只打一艘：目标舰体的图鉴档位（0..3）；-1 表示当前不是模拟战。 */
+    public int practiceTier = -1;
+    /** 本场练功已击破次数。 */
+    public int practiceKills;
+    /** 当前这一轮从开火到击破用的秒数（Boss 预警结束才开始计）。 */
+    public float practiceBossTime;
+    /** 本场最快击破秒数；0 = 还没击破过。 */
+    public float practiceBestClear;
+    /** 刷新最快纪录时 HUD 高亮余量。 */
+    public float practiceBestFlash;
+    /** 模拟战固定命数与开局火力：练的是走位，不是养成。 */
+    public static final int PRACTICE_LIVES = 3;
+    public static final int PRACTICE_START_POWER = 3;
+    /** 入场准备与两次挑战之间的喘息；都比正式局短，练功不排队。 */
+    static final float PRACTICE_OPENING = 1.4f;
+    static final float PRACTICE_GAP = 2.2f;
+    static final float PRACTICE_WARNING = 1.4f;
+
+
     // ---- 得分构成（结算图用） ----
     public static final int SCORE_ENEMY = 0;
     public static final int SCORE_BOSS = 1;
@@ -1313,7 +1333,7 @@ public class GameWorld {
         }
         // 成就判定排在碰撞之后：本帧的击坠/擦弹/点弹都已经入账，读数是完整的
         if (state == State.PLAYING) updateAchievements(dt);
-        if (score - pacingExemptScore > wave * 500) {
+        if (!practice() && score - pacingExemptScore > wave * 500) {
             wave++;
             // 生涯面板的"最深波次"：只记不回溯，和成就一样只增不减
             if (settings.noteWave(wave)) codexDirty = true;
@@ -1327,6 +1347,9 @@ public class GameWorld {
             bossWarningTimer = Math.max(0f, bossWarningTimer - dt);
             // 预警结束后重新给一轮开火间隔：玩家刚看完横幅，不该迎脸吃一发
             if (bossWarningTimer <= 0f) boss.resetAttack();
+        } else if (practice()) {
+            // v1.59：练功计时只在真刀真枪之后走，预警时间不计入"击破用时"
+            practiceBossTime += dt;
         }
         if (bossPhaseBreakTimer > 0f) {
             bossPhaseBreakTimer = Math.max(0f, bossPhaseBreakTimer - dt);
@@ -1347,19 +1370,23 @@ public class GameWorld {
             }
             // trigger at wave milestones when the screen is calm-ish
             // BOSS RUSH：不看 wave，喘息一结束下一位立刻入场（连战没有普通节拍）
-            boolean due = bossRush() ? bossGapTimer <= 0f
+            // PRACTICE：整局只有同一艘船，喘息结束就重来
+            boolean due = (bossRush() || practice()) ? bossGapTimer <= 0f
                     : wave >= nextBossWave && bossGapTimer <= 0f;
             if (due) {
                 // 从"当前节拍"跳档，而不是在旧档位上加固定步长：wave 由分数驱动，
                 // 高分玩家一场 Boss 拖几十秒就能攒够下一场的额度，只加步长会让下一场
                 // 在上一场尸体凉透前立刻接上（实测后期 endless 会退化成无间断 Boss 链，
                 // 普通刷新、突袭波和新舰型全被挤掉）。BOSS_MIN_GAP 再兜一层，留出喘息。
-                if (!bossRush()) nextBossWave = wave + (fastRamp() ? 3 : 4);
+                if (!bossRush() && !practice()) nextBossWave = wave + (fastRamp() ? 3 : 4);
                 boolean finalFight = finalBossDue();
-                int bossLevel = finalFight ? FINAL_BOSS_LEVEL : bossesDefeated;
+                int bossLevel = practice()
+                        ? Math.max(0, Math.min(3, practiceTier))
+                        : finalFight ? FINAL_BOSS_LEVEL : bossesDefeated;
                 boss.init(bossLevel);
                 resetBossCore();
-                rollBossAffix(bossLevel);
+                // 练功固定招式：词缀会把同一艘船改成另一场，失去"反复练这一招"的意义
+                if (!practice()) rollBossAffix(bossLevel);
                 if (echo()) {
                     // 回声旗舰：舰体更厚、出招略快；词缀与护盾仍在它之上叠乘
                     boss.maxHp *= ECHO_BOSS_HP_SCALE;
@@ -1375,7 +1402,9 @@ public class GameWorld {
                 // Boss 入场时护航舰先行撤离：两套节拍不叠在一起，也避免它替玩家吃掉 Boss 弹
                 if (escort.active && !escort.leaving) escort.leaving = true;
                 bossActive = true;
-                bossWarningTimer = bossRush() ? BOSS_RUSH_WARNING_TIME : BOSS_WARNING_TIME;
+                bossWarningTimer = practice() ? PRACTICE_WARNING
+                        : bossRush() ? BOSS_RUSH_WARNING_TIME : BOSS_WARNING_TIME;
+                if (practice()) practiceBossTime = 0f;
                 events.add(new GameEvent(EventType.BOSS_SPAWNED, boss.x, boss.y));
                 events.add(new GameEvent(EventType.BOSS_WARNING, boss.x, boss.y, stageNumber()));
             }
@@ -1438,16 +1467,19 @@ public class GameWorld {
             bossCoreFlash = 0f;
             bossWarningTimer = 0f;
             bossPhaseBreakTimer = 0f;
-            stageClearTimer = bossRush() ? RUSH_STAGE_CLEAR_TIME : STAGE_CLEAR_TIME;
+            stageClearTimer = practice() ? 0f
+                    : bossRush() ? RUSH_STAGE_CLEAR_TIME : STAGE_CLEAR_TIME;
             clearBattlefieldForInterlude();
             // 打完立刻上表：下一场至少等这段喘息，别让高分把 Boss 战连成一片
-            bossGapTimer = bossRush() ? BOSS_RUSH_GAP
+            bossGapTimer = practice() ? PRACTICE_GAP
+                    : bossRush() ? BOSS_RUSH_GAP
                     : fastRamp() ? BOSS_MIN_GAP : BOSS_MIN_GAP * 1.5f;
-            bossesDefeated++;
+            // 模拟战不推进航段：同一艘船反复来，结算与剧情也不应该被练功推进
+            if (!practice()) bossesDefeated++;
             // 限时局：旗舰是最值钱的加时，15 秒够打完下一轮
             extendTime(TIME_BOSS_SECONDS, boss.x, boss.y);
             int storyChapter = Story.chaptersForSector(stageNumber());
-            if (settings.noteStory(storyChapter)) {
+            if (!practice() && settings.noteStory(storyChapter)) {
                 codexDirty = true;
                 storyBanner = 4.2f;
                 storyBannerChapter = storyChapter;
@@ -1483,26 +1515,38 @@ public class GameWorld {
             addShake(0.8f, 26f);
             addHitStop(0.13f);
             bossFlash = 1f;
-            recordBossInCodex(boss.tier);
+            // 练功不记图鉴、不掉养成资源：这一场的价值只是"你更熟这艘船了"
+            if (!practice()) recordBossInCodex(boss.tier);
             // breathing room before regular spawns resume
             spawnTimer = 2.5f;
             formationTimer = Math.max(formationTimer, 5f);
-            // reward: guaranteed pickups（武器叠加后多给一发武器）
-            spawnPowerUp(PowerUp.Kind.SHIELD, boss.x - 80f, boss.y);
-            spawnPowerUp(PowerUp.Kind.BOMB, boss.x + 80f, boss.y);
-            spawnPowerUp(PowerUp.Kind.POWER, boss.x, boss.y + 40f);
-            spawnPowerUp(dropWeaponKind(), boss.x, boss.y - 10f);
-            // 后期 Boss 额外掉落新机制道具，鼓励玩家尝试轨道球/连锁闪电
-            if (boss.tier >= 1) {
-                spawnPowerUp(RNG.get().nextBoolean()
-                        ? PowerUp.Kind.ORBIT : PowerUp.Kind.CHAIN, boss.x, boss.y + 80f);
+            if (!practice()) {
+                // reward: guaranteed pickups（武器叠加后多给一发武器）
+                spawnPowerUp(PowerUp.Kind.SHIELD, boss.x - 80f, boss.y);
+                spawnPowerUp(PowerUp.Kind.BOMB, boss.x + 80f, boss.y);
+                spawnPowerUp(PowerUp.Kind.POWER, boss.x, boss.y + 40f);
+                spawnPowerUp(dropWeaponKind(), boss.x, boss.y - 10f);
+                // 后期 Boss 额外掉落新机制道具，鼓励玩家尝试轨道球/连锁闪电
+                if (boss.tier >= 1) {
+                    spawnPowerUp(RNG.get().nextBoolean()
+                            ? PowerUp.Kind.ORBIT : PowerUp.Kind.CHAIN, boss.x, boss.y + 80f);
+                }
             }
             // v1.49：回声局每击破一场旗舰，掉一枚回声碎片（后日谈档案的解锁货币）
             if (echo()) grantEchoShards(ECHO_SHARDS_PER_BOSS, boss.x, boss.y);
+            if (practice()) {
+                practiceKills++;
+                float clear = practiceBossTime;
+                if (practiceBestClear <= 0f || clear < practiceBestClear) {
+                    practiceBestClear = clear;
+                    practiceBestFlash = 1.8f;
+                }
+                practiceBossTime = 0f;
+            }
             events.add(new GameEvent(EventType.BOSS_DEFEATED, boss.x, boss.y));
             if (finalBossFight) {
                 beginCampaignVictory();
-            } else {
+            } else if (!practice()) {
                 events.add(new GameEvent(EventType.STAGE_CLEAR, boss.x, boss.y, bossesDefeated));
                 // v1.10：击败 Boss 随机继承一种 Boss 能力（圣物）
                 grantBossRelic();
@@ -2375,6 +2419,7 @@ public class GameWorld {
      */
     private void updateRushWave(float dt) {
         if (!spawningEnabled || bossActive) return;
+        if (practice()) return;   // 练功房不插突袭波，节奏只属于目标旗舰
         if (inInterlude()) return;
         if (bossRush()) return;   // 连战局没有小怪，只剩 Boss 与它召来的僚机
         rushTimer -= dt;
@@ -2404,6 +2449,7 @@ public class GameWorld {
      */
     private void updateEscort(float dt) {
         if (escortBanner > 0f) escortBanner = Math.max(0f, escortBanner - dt);
+        if (practice()) return;   // 模拟战不插护航，场上只有练功目标
         if (escort.active) {
             if (!escort.update(dt)) {
                 // 安全爬升离场：投下补给并计入本局护航成功数
@@ -2790,6 +2836,7 @@ public class GameWorld {
             return;
         }
         if (!mutatorsEnabled || !spawningEnabled) return;
+        if (practice()) return;   // 练功固定规则：不掷异变
         // 连战局每局规则一致：不掷异变，比的是走位和节奏，不是这一把摇到了什么
         if (bossRush()) return;
         if (inInterlude()) return;
@@ -2859,6 +2906,7 @@ public class GameWorld {
         if (bossRushBanner > 0f) bossRushBanner = Math.max(0f, bossRushBanner - dt);
         if (echoBanner > 0f) echoBanner = Math.max(0f, echoBanner - dt);
         if (echoShardFlash > 0f) echoShardFlash = Math.max(0f, echoShardFlash - dt);
+        if (practiceBestFlash > 0f) practiceBestFlash = Math.max(0f, practiceBestFlash - dt);
         if (novaFlash > 0f) novaFlash = Math.max(0f, novaFlash - dt * 2.2f);
         if (breakPulse > 0f) breakPulse = Math.max(0f, breakPulse - dt * 3.2f);
         if (mutatorBanner > 0f) mutatorBanner = Math.max(0f, mutatorBanner - dt);
@@ -3143,6 +3191,7 @@ public class GameWorld {
 
     /** 祭坛计时：到期熄灭、站进光环吸弹、充满爆发赐福。Boss 在场时不刷新新的祭坛。 */
     private void updateAltar(float dt) {
+        if (practice()) return;   // 练功房不刷祭坛
         if (!altar.active) {
             if (!bossActive && !inInterlude() && timeAlive >= altarNextAt) spawnAltar();
             return;
@@ -3190,6 +3239,7 @@ public class GameWorld {
     private void updateBounty(float dt) {
         if (bountyBanner > 0f) bountyBanner = Math.max(0f, bountyBanner - dt);
         if (!bountyEnabled) return;
+        if (practice()) return;   // 练功房没有小怪可悬赏
         if (bossRush()) return;   // 连战局只有 Boss，没有可悬赏的小怪
         if (bountyTarget != null) {
             if (!bountyTarget.bounty) {          // 槽位被新敌机复用：这一单跟丢了
@@ -3818,6 +3868,7 @@ public class GameWorld {
      */
     void updateV117Encounters(float dt) {
         if (!spawningEnabled || bossActive) return;
+        if (practice()) return;   // 练功房只练目标旗舰，不插特化遭遇
         if (inInterlude()) return;
         if (bossRush()) return;   // 连战局只打 Boss：保底投放会抢走 Boss 战的空间
         v117EncounterTimer -= dt;
@@ -3938,6 +3989,7 @@ public class GameWorld {
     }
 
     private void updateAchievements(float dt) {
+        if (practice()) return;   // 练功不推成就进度（boss/分数指标会被反复练功刷爆）
         fillRunMetrics();
         achievements.update(settings, runMetrics, dt);
         // 成就账本和图鉴走同一条落盘通道：只在真的有变化时才写 SharedPreferences
@@ -3949,6 +4001,7 @@ public class GameWorld {
      * 保证"打了一半就退"的那部分进度也不会丢（增量记账，重复调用无副作用）。
      */
     public void commitAchievements() {
+        if (practice()) return;   // 练功房的读数不算正式战绩
         fillRunMetrics();
         achievements.commit(settings, runMetrics);
         if (achievements.consumePendingSave()) codexDirty = true;
@@ -4245,6 +4298,7 @@ public class GameWorld {
     /** 击破旗舰后安排一次三选一；全满时直接折算奖励分，不打断节奏。 */
     private void schedulePerkOffer() {
         if (!perksEnabled) return;
+        if (practice()) return;   // 练功房不打断连续挑战
         if (!perkAvailable()) {
             addScore(PERK_MAXED_SCORE, SCORE_OTHER);
             return;
@@ -4518,6 +4572,7 @@ public class GameWorld {
 
     private void updateSpawning(float dt) {
         if (!spawningEnabled) return;
+        if (practice()) return; // 模拟战只有目标旗舰与它自己召来的僚机
         if (bossActive) return; // the boss owns the sky
         if (inInterlude()) return; // 过场时间留给横幅与喘息，不补小怪
         if (bossRush()) return; // 连战局全程没有常规刷新：空档只有喘息，没有小怪
@@ -5956,6 +6011,10 @@ public class GameWorld {
                 codexTab = 0;
                 if (codexPage < codexPageCount() - 1) codexPage++;
                 break;
+            case PRACTICE_BOSS_0: startPractice(0); break;
+            case PRACTICE_BOSS_1: startPractice(1); break;
+            case PRACTICE_BOSS_2: startPractice(2); break;
+            case PRACTICE_BOSS_3: startPractice(3); break;
             case OPEN_ACHIEVEMENTS:
                 achieveOpen = true;
                 settingsOpen = false;
@@ -6109,6 +6168,8 @@ public class GameWorld {
                 commitAchievements();
                 flushCodex();
                 closePanels();
+                // 模拟战目标只在练功期间有效，回菜单后清掉，避免下一局误读
+                practiceTier = -1;
                 state = State.MENU;
                 stateTimer = 0f;
                 break;
@@ -6133,6 +6194,19 @@ public class GameWorld {
 
     private void saveSettings() {
         if (store != null) store.save(settings);
+    }
+
+    /**
+     * v1.59：从图鉴 Boss 页点某一档 → 直接进模拟战。
+     * 只有真正击败过（图鉴击坠数 > 0）的舰体才能练；未解锁的行点了没有反应。
+     */
+    private void startPractice(int tier) {
+        if (!codexOpen || codexTab != 1) return;
+        if (tier < 0 || tier >= settings.codexBossKills.length) return;
+        if (!settings.bossUnlocked(tier)) return;
+        practiceTier = tier;
+        closePanels();
+        restart(GameMode.PRACTICE);
     }
 
     /** 菜单里的设置/LAB/图鉴/成就/生涯/剧情面板互斥；返回键统一关闭。 */
@@ -6210,6 +6284,12 @@ public class GameWorld {
         hitsTaken++;
         addShake(0.4f, 16f);
         addHitStop(0.09f);
+        // 模拟战不掉命：挨打只断连杀并清掉身边弹幕，练功不因为一次失误结束
+        if (practice()) {
+            events.add(new GameEvent(EventType.PLAYER_HIT, ship.x, ship.y));
+            respawnSafely();
+            return;
+        }
         lives--;
         applyDeathPenalty();
         events.add(new GameEvent(EventType.PLAYER_HIT, ship.x, ship.y));
@@ -6234,6 +6314,8 @@ public class GameWorld {
      * 再把成就与图鉴增量落盘。
      */
     private void recordRunResult() {
+        // 模拟战不结束、也不写任何榜：它没有输赢，只有"更熟一点"
+        if (practice()) return;
         if (daily()) {
             // 日常局只写日历：全球同一天同一把尺，历史最高分和两张分数榜留给自由局
             dailyImproved = recordDailyRun();
@@ -6331,9 +6413,16 @@ public class GameWorld {
         // 开新局前先把上一局的增量入账：中途退出、坠机后立刻重开都不会白打
         commitAchievements();
         achievements.beginRun();
-        // 生涯账本：每次开局都记一次出勤，落盘沿用图鉴那条通道
-        settings.countRunStart();
-        codexDirty = true;
+        // v1.59：模拟战是练功房，不算"正式出勤"；退出模拟战即清掉目标档位。
+        // 直接调 restart(PRACTICE)（测试/异常路径）而没设档位时，退回第一艘。
+        if (m != GameMode.PRACTICE) {
+            practiceTier = -1;
+            // 生涯账本：每次开局都记一次出勤，落盘沿用图鉴那条通道
+            settings.countRunStart();
+            codexDirty = true;
+        } else if (practiceTier < 0) {
+            practiceTier = 0;
+        }
         mode = m;
         applyDailyRules(m);
         // v1.20：连战局每场都从第一位 Boss 重来，深潜纪录只涨不跌
@@ -6383,9 +6472,14 @@ public class GameWorld {
         timeExtended = 0f;
         timeBonusFlash = 0f;
         timeBonusLast = 0;
+        // v1.59：模拟战的练功读数每场归零（目标档位仍由 practiceTier 保留）
+        practiceKills = 0;
+        practiceBossTime = 0f;
+        practiceBestClear = 0f;
+        practiceBestFlash = 0f;
         stateTimer = 0f;
         wave = 1;
-        settings.noteWave(wave);   // 哪怕开局即退，波次纪录也至少是 1
+        if (m != GameMode.PRACTICE) settings.noteWave(wave);   // 哪怕开局即退，波次纪录也至少是 1
         newBest = false;
         scoreRank = -1;
         comboKills = 0;
@@ -6410,8 +6504,8 @@ public class GameWorld {
         debutBannerType = null;
         storyBanner = 0f;
         storyBannerChapter = 0;
-        // 开局即从第一段航程的标题进场；连战局有自己的入场横幅，不叠两层
-        stageIntroTimer = (bossRush() || timeAttack()) ? 0f : STAGE_INTRO_TIME;
+        // 开局即从第一段航程的标题进场；连战/限时/模拟战有自己的节奏，不叠两层
+        stageIntroTimer = (bossRush() || timeAttack() || practice()) ? 0f : STAGE_INTRO_TIME;
         stageIntroStage = 1;
         for (int i = 0; i < v117EncounterCounts.length; i++) v117EncounterCounts[i] = 0;
         // v1.18：本局成就读数归零（Settings 里的历史最佳与累计账本不动）
@@ -6535,7 +6629,8 @@ public class GameWorld {
         campaignVictory = false;
         campaignFirstClear = false;
         nextBossWave = (m == GameMode.ENDLESS || m == GameMode.TIME) ? 3 : 4; // fast modes: bosses come sooner
-        bossGapTimer = bossRush() ? BOSS_RUSH_OPENING : 0f;   // 连战局开场 2.6 秒后第一位入场
+        bossGapTimer = bossRush() ? BOSS_RUSH_OPENING
+                : practice() ? PRACTICE_OPENING : 0f;   // 连战局开场 2.6 秒后第一位入场
         formationTimer = (m == GameMode.ENDLESS || m == GameMode.TIME) ? 6f : 8f;
         spawnTimer = 0f;
         // v1.54：局内强化随一局结束清零，下一局重新构筑
@@ -6582,6 +6677,11 @@ public class GameWorld {
     /** 当前是否在限时抢分局里。 */
     public boolean timeAttack() {
         return mode == GameMode.TIME;
+    }
+
+    /** 当前是否在 Boss 模拟战里（图鉴 Boss 页进入，不写任何榜单）。 */
+    public boolean practice() {
+        return mode == GameMode.PRACTICE;
     }
 
     /** 难度爬坡是否走"快档"：无尽与限时局按 1.6 倍速推进。 */
@@ -6655,7 +6755,7 @@ public class GameWorld {
     // 回声周目也一样：NG+ 的难度由模式自己的倍率负责，外部旋钮会污染它那张榜。
 
     private boolean competitive() {
-        return daily() || bossRush() || echo() || timeAttack();
+        return daily() || bossRush() || echo() || timeAttack() || practice();
     }
 
     private Difficulty difficultyOf() {
@@ -6675,6 +6775,7 @@ public class GameWorld {
         if (bossRush()) return 2;   // 开局就敢当面刚 Boss：两路火力，且第一场必掉装备
         if (echo()) return ECHO_START_POWER;
         if (timeAttack()) return TIME_START_POWER;
+        if (practice()) return PRACTICE_START_POWER;
         return settings.startPower;
     }
 
@@ -6683,6 +6784,7 @@ public class GameWorld {
         if (bossRush()) return RUSH_LIVES;
         if (echo()) return ECHO_LIVES;
         if (timeAttack()) return TIME_LIVES;
+        if (practice()) return PRACTICE_LIVES;
         return settings.startLives;
     }
 

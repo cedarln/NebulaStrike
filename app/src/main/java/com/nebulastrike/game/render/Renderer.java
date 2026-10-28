@@ -3086,6 +3086,25 @@ public class Renderer {
             paint.setFakeBoldText(false);
         }
 
+        // v1.59：模拟战读数。练功房不打小怪、也不掉养成资源，左侧武器栏是空的，
+        // 这两行正好把"在练谁 / 今天最快多少"放在玩家最常看的位置。
+        if (w.practice()) {
+            int tier = Math.max(0, Math.min(3, w.practiceTier));
+            paint.setTextAlign(Paint.Align.LEFT);
+            paint.setTextSize(20f);
+            paint.setColor(0xFF7CFFB2);
+            c.drawText("模拟战 · " + Boss.titleFor(tier) + " · 击破 ×" + w.practiceKills,
+                    40f, 124f, paint);
+            if (w.practiceBestClear > 0f) {
+                float f = Math.min(1f, w.practiceBestFlash / 1.2f);
+                paint.setTextSize(20f + 4f * f);
+                paint.setColor(f > 0f ? 0xFFFFD166 : 0xAA7CFFB2);
+                int tenths = Math.round(w.practiceBestClear * 10f);
+                c.drawText("最快击破 " + (tenths / 10) + "." + (tenths % 10) + " 秒"
+                        + (f > 0f ? "  ★" : ""), 40f, 152f, paint);
+            }
+        }
+
         paint.setTextSize(30f);
         if (w.daily()) {
             // 日常局的顶部标签就是"今天的规则"：常驻、不闪烁，和随机异变波区分开
@@ -3104,6 +3123,11 @@ public class Renderer {
             // 限时局：wave 照常推进，顶栏用告警色提醒"这是一局两分钟"
             paint.setColor(0xFFFF6B8A);
             c.drawText("TIME · W" + w.wave, VW / 2f - 70f, 60f, paint);
+        } else if (w.practice()) {
+            // 模拟战：报出正在练的那艘船，而不是不存在的航段编号
+            int tier = Math.max(0, Math.min(3, w.practiceTier));
+            paint.setColor(0xFF7CFFB2);
+            c.drawText("PRACTICE · " + Boss.titleFor(tier), VW / 2f - 70f, 60f, paint);
         } else {
             paint.setColor(w.mode == GameMode.ENDLESS ? 0xFFB08FFF : 0xFF8FA3C8);
             c.drawText((w.mode == GameMode.ENDLESS ? "ENDLESS " : "WAVE ") + w.wave,
@@ -3112,7 +3136,8 @@ public class Renderer {
 
         // 航段常驻标识（v1.39）：右上一个短标签，战斗再乱也能确认自己飞到哪一段。
         // Boss 战期间顶部被血条占满，这一段信息改由 Boss 血条与预警横幅承担。
-        if (!w.bossActive) {
+        // 模拟战不推进航段，右上也就不该出现"第 1 段"这种假进度。
+        if (!w.bossActive && !w.practice()) {
             paint.setTextSize(20f);
             paint.setColor(0xFF8FA3C8);
             paint.setTextAlign(Paint.Align.RIGHT);
@@ -3750,12 +3775,18 @@ public class Renderer {
             c.drawText(w.finalBossFight ? "FINAL WARNING" : "WARNING", VW / 2f, 556f, paint);
             paint.setTextSize(30f);
             paint.setColor(((int) (0xF0 * k) << 24) | 0x00FFC8D0);
-            c.drawText((w.finalBossFight ? "最终旗舰 · " : "强敌接近 · ")
-                            + Story.bossName(w.stageNumber()), VW / 2f, 600f, paint);
+            if (w.practice()) {
+                int tier = Math.max(0, Math.min(3, w.practiceTier));
+                c.drawText("模拟战 · " + Boss.titleFor(tier), VW / 2f, 600f, paint);
+            } else {
+                c.drawText((w.finalBossFight ? "最终旗舰 · " : "强敌接近 · ")
+                        + Story.bossName(w.stageNumber()), VW / 2f, 600f, paint);
+            }
             paint.setFakeBoldText(false);
             paint.setTextSize(24f);
             paint.setColor(((int) (0xD8 * k) << 24) | 0xFFC8D6F0);
-            c.drawText(Story.sectorTag(w.stageNumber()) + " · 炮口已锁定",
+            c.drawText(w.practice() ? "已解锁舰体 · 不掉命 · 同一艘船可反复打"
+                            : Story.sectorTag(w.stageNumber()) + " · 炮口已锁定",
                     VW / 2f, 634f, paint);
             float barW = 360f;
             float frac = Math.max(0f, Math.min(1f,
@@ -4091,6 +4122,7 @@ public class Renderer {
                 "枪骑 LANCER 架枪时整条枪线会跟着你走 · 锁定后横穿全屏，纵向让开而不是横向逃",
                 "禁卫 WARDEN 的三片护环会挡直射弹 · 全打碎后核心暴露受击双倍，激光和长枪直接穿环",
                 "TIME 限时抢分只有 120 秒 · 击破旗舰加 15 秒、精英加 2 秒，钟不走完不结算",
+                "图鉴 BOSS 页点已解锁的旗舰就能开练 · 不掉命、不进榜，同一艘船可反复打",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
@@ -4391,10 +4423,20 @@ public class Renderer {
                     paint.setTextSize(24f);
                     paint.setColor(0xFFFFD166);
                     paint.setTextAlign(Paint.Align.RIGHT);
-                    c.drawText("击坠 ×" + kills, 770f, y + 42f, paint);
+                    c.drawText("击坠 ×" + kills, 770f, y + 22f, paint);
+                    // v1.59：已解锁的每一行都是模拟战入口，右侧直接写出"点这里"
+                    paint.setTextSize(21f);
+                    paint.setColor(0xFF7CFFB2);
+                    c.drawText("→ 模拟战", 770f, y + 43f, paint);
                     paint.setTextAlign(Paint.Align.LEFT);
                 }
             }
+            paint.setTextSize(21f);
+            paint.setColor(0xAA7CFFB2);
+            paint.setTextAlign(Paint.Align.CENTER);
+            c.drawText("点击已解锁的旗舰即可开练 · 不掉命、不进榜，同一艘船反复打",
+                    VW / 2f, 664f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
         }
 
         button(c, Ui.CODEX_BACK, "BACK", 0xFF182040, 0xFFE8F1FF, false, 30f);

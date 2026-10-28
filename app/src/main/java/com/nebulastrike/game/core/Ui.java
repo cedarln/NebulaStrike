@@ -200,6 +200,7 @@ public final class Ui {
         CHEAT_LIVES_DOWN, CHEAT_LIVES_UP, CHEAT_DROP_DOWN, CHEAT_DROP_UP,
         CHEAT_SPEED_DOWN, CHEAT_SPEED_UP, CHEAT_POWER_DOWN, CHEAT_POWER_UP,
         OPEN_CODEX, CODEX_BACK, CODEX_TAB, CODEX_PREV, CODEX_NEXT,
+        PRACTICE_BOSS_0, PRACTICE_BOSS_1, PRACTICE_BOSS_2, PRACTICE_BOSS_3,
         OPEN_ACHIEVEMENTS, ACHIEVEMENTS_BACK, ACHIEVEMENTS_TAB,
         OPEN_CAREER, CAREER_BACK,
         OPEN_STORY, STORY_BACK, STORY_PREV, STORY_NEXT,
@@ -241,6 +242,17 @@ public final class Ui {
     public static Action hit(GameWorld.State state, boolean settingsOpen, boolean cheatOpen,
                              boolean codexOpen, boolean achieveOpen, boolean careerOpen,
                              boolean storyOpen, float x, float y) {
+        return hit(state, settingsOpen, cheatOpen, codexOpen, achieveOpen, careerOpen,
+                storyOpen, 0, x, y);
+    }
+
+    /**
+     * v1.59：多带一个图鉴页签。Boss 页的行是模拟战入口，敌机页的行不是——
+     * 让命中和渲染看同一份页签，才不会在敌机页误触练功房。
+     */
+    public static Action hit(GameWorld.State state, boolean settingsOpen, boolean cheatOpen,
+                             boolean codexOpen, boolean achieveOpen, boolean careerOpen,
+                             boolean storyOpen, int codexTab, float x, float y) {
         switch (state) {
             case MENU:
                 if (storyOpen) {
@@ -259,6 +271,18 @@ public final class Ui {
                     }
                     if (CODEX_PREV.contains(x, y)) return Action.CODEX_PREV;
                     if (CODEX_NEXT.contains(x, y)) return Action.CODEX_NEXT;
+                    // v1.59：Boss 页的四行就是模拟战入口；敌机页同样的位置只是敌机行。
+                    if (codexTab == 1) {
+                        for (int i = 0; i < 4; i++) {
+                            if (!codexRow(i).contains(x, y)) continue;
+                            switch (i) {
+                                case 0: return Action.PRACTICE_BOSS_0;
+                                case 1: return Action.PRACTICE_BOSS_1;
+                                case 2: return Action.PRACTICE_BOSS_2;
+                                default: return Action.PRACTICE_BOSS_3;
+                            }
+                        }
+                    }
                     return null;
                 }
                 if (achieveOpen) {
