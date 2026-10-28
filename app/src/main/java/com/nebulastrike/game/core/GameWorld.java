@@ -619,6 +619,30 @@ public class GameWorld {
     public float decoyFlash;
     private final Enemy[] decoyVictims = new Enemy[enemies.length];
 
+    // ---- v1.53：锁定激光 LOCKON ----
+    /** 光柱从目标上方多高处落下：屏幕上看得见整段轨迹，命中延迟仍在 0.2 秒内。 */
+    public static final float LOCKON_DROP_HEIGHT = 300f;
+    /** 下落速度：够快不拖沓，也不会一帧穿过最小判定的敌机。 */
+    public static final float LOCKON_DROP_SPEED = 1800f;
+    /** 拖尾长度（纯视觉，不参与碰撞：碰撞只看弹头那一点）。 */
+    public static final float LOCKON_STREAK = 320f;
+    /** 光柱碰撞半径：比普通激光宽，落点更容易压住高速横移的小型机。 */
+    public static final float LOCKON_RADIUS = 14f;
+    /** 一次最多同时点名的目标数（首拾 2 个，叠满 3 层到 4 个）。 */
+    public static final int LOCKON_MAX_TARGETS = 4;
+    /** 落点锁定环的存留时间。 */
+    public static final float LOCKON_MARK_LIFE = 0.42f;
+    /** 锁定环池：最多同时存在 8 个（4 目标 × 齐射叠层不会互相覆盖）。 */
+    public static final int LOCK_MARK_MAX = 8;
+    public final float[] lockMarkX = new float[LOCK_MARK_MAX];
+    public final float[] lockMarkY = new float[LOCK_MARK_MAX];
+    public final float[] lockMarkTime = new float[LOCK_MARK_MAX];
+    private int lockMarkCursor;
+    private int lockPickCount;
+    private final float[] lockPickX = new float[LOCKON_MAX_TARGETS];
+    private final float[] lockPickY = new float[LOCKON_MAX_TARGETS];
+    private final float[] lockPickD = new float[LOCKON_MAX_TARGETS];
+
     /** RELIC_GAINED 事件的 code 上限，方便测试断言。 */
     public static final int RELIC_COUNT = Relic.COUNT;
 
@@ -1005,6 +1029,11 @@ public class GameWorld {
                 }
                 if (bombFlash > 0f) bombFlash = Math.max(0f, bombFlash - dt * 2.5f);
                 if (bossFlash > 0f) bossFlash = Math.max(0f, bossFlash - dt * 2f);
+                for (int i = 0; i < LOCK_MARK_MAX; i++) {
+                    if (lockMarkTime[i] > 0f) {
+                        lockMarkTime[i] = Math.max(0f, lockMarkTime[i] - dt);
+                    }
+                }
             }
             // 升级提示（已是最新 / 失败）停留 4 秒后回到可点击状态
             if (echoLockedFlash > 0f) echoLockedFlash = Math.max(0f, echoLockedFlash - dt);
@@ -1067,6 +1096,11 @@ public class GameWorld {
         bulletsFired += activeBulletCount() - bulletsBefore;
         updateWingman(dt);
         updateShipFx(dt);
+        for (int i = 0; i < LOCK_MARK_MAX; i++) {
+            if (lockMarkTime[i] > 0f) {
+                lockMarkTime[i] = Math.max(0f, lockMarkTime[i] - dt);
+            }
+        }
 
         collectMagnetFields();
         for (Bullet b : bullets) {
@@ -4438,6 +4472,37 @@ public class GameWorld {
                 }
                 break;
             }
+            case LOCKON: {
+                // 锁定激光：不占正前方弹道，点名最近的敌机 / Boss 部件，从顶端各落一道光柱
+                int max = Math.min(LOCKON_MAX_TARGETS, 2 + Math.max(0, stack - 1));
+                lockPickCount = 0;
+                for (Enemy e : enemies) {
+                    if (!e.active || e.isPhased()) continue;
+                    considerLockTarget(e.x, e.y, max);
+                }
+                if (boss.active) {
+                    for (int i = 0; i < boss.partCount; i++) {
+                        BossPart p = boss.parts[i];
+                        if (!p.active) continue;
+                        considerLockTarget(p.worldX(boss), p.worldY(boss), max);
+                    }
+                    considerLockTarget(boss.x, boss.y, max);
+                }
+                int locks = lockPickCount;
+                if (locks == 0) break;   // 空场不浪费弹池，等下一次冷却
+                int dmg = WeaponType.LOCKON.damage + Math.max(0, lvl - 1) / 2;
+                for (int i = 0; i < locks; i++) {
+                    Bullet b = freeBullet();
+                    if (b == null) return;
+                    // 光柱从目标上方落下：碰撞点就是落点，拖尾长度只负责"从天而降"的观感
+                    float startY = Math.max(-4f, lockPickY[i] - LOCKON_DROP_HEIGHT);
+                    b.initBeam(lockPickX[i], startY, 0f, LOCKON_DROP_SPEED,
+                            dmg, LOCKON_RADIUS, LOCKON_STREAK);
+                    b.lockOn = true;
+                    addLockMark(lockPickX[i], lockPickY[i]);
+                }
+                break;
+            }
             default: {
                 // VULCAN：单发 / 双发平行 / 三向
                 int vulcanLvl = Math.min(Ship.MAX_POWER, lvl);
@@ -4475,6 +4540,41 @@ public class GameWorld {
                 }
             }
         }
+    }
+
+    /**
+     * 锁定激光的目标选择：维护"最近的 max 个"小顶堆（线性扫描即可，max ≤ 4）。
+     * 只比较平方距离，不做开方；已选满时替换掉当前最远的那个。
+     */
+    private void considerLockTarget(float x, float y, int max) {
+        float dx = x - ship.x, dy = y - ship.y;
+        float d2 = dx * dx + dy * dy;
+        int n = lockPickCount;
+        if (n < max) {
+            lockPickX[n] = x;
+            lockPickY[n] = y;
+            lockPickD[n] = d2;
+            lockPickCount = n + 1;
+            return;
+        }
+        int worst = 0;
+        for (int i = 1; i < n; i++) {
+            if (lockPickD[i] > lockPickD[worst]) worst = i;
+        }
+        if (d2 < lockPickD[worst]) {
+            lockPickX[worst] = x;
+            lockPickY[worst] = y;
+            lockPickD[worst] = d2;
+        }
+    }
+
+    /** 记录一个落点锁定环（环形覆写，视觉提示，不影响伤害判定）。 */
+    private void addLockMark(float x, float y) {
+        int i = lockMarkCursor;
+        lockMarkCursor = (i + 1) % LOCK_MARK_MAX;
+        lockMarkX[i] = x;
+        lockMarkY[i] = y;
+        lockMarkTime[i] = LOCKON_MARK_LIFE;
     }
 
     /** 集束弹命中后的破片：5 枚小弹四散，造成范围压制但不连锁爆裂。 */
@@ -4915,6 +5015,10 @@ public class GameWorld {
                 ship.addWeapon(WeaponType.BOOMERANG);
                 weaponCd[WeaponType.BOOMERANG.ordinal()] = 0f;
                 break;
+            case LOCKON:
+                ship.addWeapon(WeaponType.LOCKON);
+                weaponCd[WeaponType.LOCKON.ordinal()] = 0f;
+                break;
             case DECOY:
                 // 摆在船上方：先替玩家接住"瞄着你"的那一串，再顺带清一圈
                 deployDecoy(p.x, p.y - 170f);
@@ -5225,14 +5329,14 @@ public class GameWorld {
 
     /**
      * 掉落分布（v1.15，v1.23 加入 REFLECT，v1.24 加入 ARC，v1.43 加入 BOOMERANG，
-     * v1.44 加入 DECOY）。
+     * v1.44 加入 DECOY，v1.53 加入 LOCKON）。
      * BONUS 只由突袭奖励波投放，不在常规掉落表内。
      * 追踪弹 MISSILE 14%（用户反馈"想要更多追踪弹"），
      * 尾部"特殊道具"区（0.85~1.0，共 15%）：
-     * BOUNCE 1.5%、BOOMERANG 1.5%、DECOY 1.5%、NOVA 1.5%、NANITE 2.5%、
+     * BOUNCE 1.5%、BOOMERANG 1.5%、DECOY 1%、LOCKON 1%、NOVA 1.5%、NANITE 2%、
      * GRAVITY 2%、ARC 2%、REFLECT 1.5%、TURRET 1%。
-     * BOOMERANG 的份额由 BOUNCE 让出、DECOY 的份额由新星让出（效果本身不变，
-     * 只是出现频率略降），核心武器权重一律不动。
+     * LOCKON 的份额由 DECOY 让出（诱饵本身效果不变，只是出现频率略降），
+     * 核心武器权重一律不动。
      * 独立成纯函数便于测试边界。
      */
     public static PowerUp.Kind dropKind(float roll) {
@@ -5251,8 +5355,9 @@ public class GameWorld {
         if (roll < 0.85f) return PowerUp.Kind.TIME;
         if (roll < 0.865f) return PowerUp.Kind.BOUNCE;
         if (roll < 0.88f) return PowerUp.Kind.BOOMERANG;
-        if (roll < 0.895f) return PowerUp.Kind.DECOY;
-        if (roll < 0.91f) return PowerUp.Kind.NOVA;
+        if (roll < 0.89f) return PowerUp.Kind.DECOY;
+        if (roll < 0.90f) return PowerUp.Kind.LOCKON;
+        if (roll < 0.915f) return PowerUp.Kind.NOVA;
         if (roll < 0.935f) return PowerUp.Kind.NANITE;
         if (roll < 0.955f) return PowerUp.Kind.GRAVITY;
         if (roll < 0.975f) return PowerUp.Kind.ARC;
@@ -5881,6 +5986,10 @@ public class GameWorld {
         decoyAbsorb = 0;
         decoyPulse = 0f;
         decoyFlash = 0f;
+        // v1.53：锁定环归零，上一局的落点不会残留在新局画面上
+        for (int i = 0; i < LOCK_MARK_MAX; i++) lockMarkTime[i] = 0f;
+        lockMarkCursor = 0;
+        lockPickCount = 0;
         // v1.45：Boss 核心节拍归零
         bossCoreTimer = 0f;
         bossCoreCooldown = 0f;

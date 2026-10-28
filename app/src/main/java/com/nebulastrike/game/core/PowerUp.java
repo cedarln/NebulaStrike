@@ -20,7 +20,9 @@ public class PowerUp {
         /** v1.43：回旋镖（武器类，叠加不替换；去程折返、回程沿发射线扫回来）。 */
         BOOMERANG,
         /** v1.44：诱饵浮标（9 秒内把敌人的瞄准骗到浮标上，吃满或到期时爆散清弹）。 */
-        DECOY }
+        DECOY,
+        /** v1.53：锁定激光（武器类，叠加不替换；自动点名最近目标，从顶端落下贯穿光柱）。 */
+        LOCKON }
 
     public Kind kind;
     public float x, y;

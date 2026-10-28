@@ -46,6 +46,8 @@ public class Bullet {
     public float homeX;
     /** 渲染自旋角。 */
     public float spin;
+    /** v1.53：锁定激光的光柱——从屏幕顶端落到被点名的目标身上。 */
+    public boolean lockOn;
 
     public void init(float x, float y, float vy) {
         init(x, y, 0f, vy, 1, false);
@@ -77,6 +79,7 @@ public class Bullet {
         this.boomerangTimer = 0f;
         this.homeX = 0f;
         this.spin = 0f;
+        this.lockOn = false;
         this.landed = false;
     }
 

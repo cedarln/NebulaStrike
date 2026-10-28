@@ -28,7 +28,13 @@ public enum WeaponType {
      * 同一架敌机在去程与回程各吃一次，等于"一条竖线上的双程火力"；
      * 回程顺便切掉路上的敌弹（3 点伤害越过 BREAK_MIN_DAMAGE）。
      */
-    BOOMERANG(0.46f, 3);
+    BOOMERANG(0.46f, 3),
+    /**
+     * 锁定激光（v1.53）：不朝正前方开枪，而是自动点名最近的数个目标，
+     * 从屏幕顶端各落下一道贯穿光柱。弹道不占用玩家正前方视野，
+     * 因此能和所有直射武器同时压场；叠层增加可锁定的目标数。
+     */
+    LOCKON(0.70f, 4);
 
     public final float cooldown;
     public final int damage;
@@ -74,6 +80,7 @@ public enum WeaponType {
             case BOUNCE: return "BOUNCE";
             case ARC: return "ARC";
             case BOOMERANG: return "BOOMERANG";
+            case LOCKON: return "LOCKON";
             default: return "VULCAN";
         }
     }

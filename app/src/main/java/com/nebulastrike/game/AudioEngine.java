@@ -587,6 +587,10 @@ public class AudioEngine {
             case BOOMERANG:
                 play(SfxId.SHOOT_BOUNCE, 0.42f, 0.72f, panFor(x));
                 break;
+            case LOCKON:
+                // 锁定激光：偏高音的一记短促充能啸叫，和正前方的枪声区分开
+                play(SfxId.SHOOT_LASER, 0.34f, 1.34f, panFor(x));
+                break;
             default:
                 play(SfxId.SHOOT_VULCAN, 0.40f, vary(0.06f), panFor(x));
                 break;

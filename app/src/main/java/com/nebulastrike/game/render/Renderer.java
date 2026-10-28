@@ -406,6 +406,18 @@ public class Renderer {
                 shapePath.close();
                 c.drawPath(shapePath, paint);
                 c.restore();
+            } else if (b.lockOn) {
+                // 锁定光柱：金绿外鞘 + 冷白核心，从屏幕顶端砸向被点名的目标
+                float halfW = Math.max(4f, b.radius * 0.72f);
+                glow.setColor(0x66E0FF6B);
+                c.drawCircle(b.x, b.y, b.radius + 10f, glow);
+                paint.setColor(0xE6E0FF6B);
+                c.drawRoundRect(b.x - halfW, b.y - b.len, b.x + halfW, b.y + 10f,
+                        halfW, halfW, paint);
+                paint.setColor(0xFFFFFFFF);
+                float core = Math.max(2f, halfW * 0.4f);
+                c.drawRoundRect(b.x - core, b.y - b.len + 14f, b.x + core, b.y + 4f,
+                        core, core, paint);
             } else if (b.piercing) {
                 // laser / LANCE: vertical light beam, white core + cyan sheath
                 float halfW = Math.max(3f, b.radius * 0.45f);
@@ -482,6 +494,24 @@ public class Renderer {
                 c.drawCircle(b.x, b.y, b.radius * 0.45f, paint);
             }
         }
+        // v1.53：锁定落点环——快速收缩后淡出，把"这一发点名到这里"讲清楚
+        for (int i = 0; i < GameWorld.LOCK_MARK_MAX; i++) {
+            float t = w.lockMarkTime[i];
+            if (t <= 0f) continue;
+            float k = Math.max(0f, Math.min(1f, t / GameWorld.LOCKON_MARK_LIFE));
+            float x = w.lockMarkX[i], y = w.lockMarkY[i];
+            float r = 10f + 24f * k;
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2f);
+            paint.setColor(((int) (0xB4 * k) << 24) | 0x00E0FF6B);
+            c.drawCircle(x, y, r, paint);
+            float o = r + 6f;
+            c.drawLine(x - o, y, x - o + 6f, y, paint);
+            c.drawLine(x + o, y, x + o - 6f, y, paint);
+            c.drawLine(x, y - o, x, y - o + 6f, paint);
+            c.drawLine(x, y + o, x, y + o - 6f, paint);
+            paint.setStyle(Paint.Style.FILL);
+        }
     }
 
     /**
@@ -517,6 +547,7 @@ public class Renderer {
                 case ARC: color = 0xFF9BE8FF; label = "AC"; break;
                 case BOOMERANG: color = 0xFFFFB36B; label = "BM"; break;
                 case DECOY: color = 0xFF57E8FF; label = "DC"; break;
+                case LOCKON: color = 0xFFE0FF6B; label = "LK"; break;
                 default: color = 0xFFFF5C7A; label = "B"; break;
             }
             boolean hot = p.attracted;
@@ -2841,6 +2872,7 @@ public class Renderer {
             case BOUNCE: return 0xFF6BFFC8;
             case ARC: return 0xFF9BE8FF;
             case BOOMERANG: return 0xFFFFB36B;
+            case LOCKON: return 0xFFE0FF6B;
             default: return 0xFFFFD166;
         }
     }
@@ -3855,6 +3887,7 @@ public class Renderer {
                 "打穿主线后解锁 ECHO LOOP 回声周目 · 敌机更硬、得分 ×1.5，还有自己的一张榜",
                 "主菜单底部可换机体 · 游隼跑得快、壁垒能扛，下一局开局生效",
                 "拖动时再用一根手指按住空白处 = FOCUS 聚焦 · 移速减半、射速更快、散射收束",
+                "LK 锁定激光会自动点名最近的敌机 · 光柱从顶端落下，每叠一层多锁一个目标",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
