@@ -29,6 +29,7 @@ public class SharedPrefsStore implements SettingsStore {
         into.enemySpeedPct = prefs.getInt("enemySpeedPct", 100);
         into.startPower = prefs.getInt("startPower", 1);
         into.godMode = prefs.getBoolean("godMode", false);
+        into.hull = prefs.getInt("hull", 0);
         into.setDifficulty(Difficulty.byOrdinal(prefs.getInt("difficulty", Difficulty.STANDARD.ordinal())));
         into.codexSeenEnemies = prefs.getInt("codexSeenEnemies", 0);
         into.codexMaxTierSlain = prefs.getInt("codexMaxTierSlain", -1);
@@ -107,6 +108,7 @@ public class SharedPrefsStore implements SettingsStore {
                 .putInt("enemySpeedPct", s.enemySpeedPct)
                 .putInt("startPower", s.startPower)
                 .putBoolean("godMode", s.godMode)
+                .putInt("hull", s.hull)
                 .putInt("difficulty", (s.difficulty == null
                         ? Difficulty.STANDARD : s.difficulty).ordinal())
                 .putInt("codexSeenEnemies", s.codexSeenEnemies)

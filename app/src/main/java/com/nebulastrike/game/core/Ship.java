@@ -14,6 +14,8 @@ public class Ship {
     public static final float RESPAWN_INVULN = 2.0f;
 
     public float x, y;
+    /** v1.51 机体移速倍率（1 = 标准），由 GameWorld 在开局时按机体写入。 */
+    public float speedScale = 1f;
     /** 上一帧位置（扫掠碰撞用，避免高速拖动穿过敌弹）。 */
     public float prevX, prevY;
     private float targetX, targetY;
@@ -128,6 +130,7 @@ public class Ship {
         prevY = y;
         targetX = x;
         targetY = y;
+        speedScale = 1f;
         invulnerable = false;
         invulnTimer = 0f;
         weapon = WeaponType.VULCAN;
@@ -347,7 +350,8 @@ public class Ship {
             } else {
                 // 指数逼近给出"贴手"的小位移跟随，速度上限保证快速甩动不瞬移
                 float k = 1f - (float) Math.exp(-24f * dt);
-                float speedCap = MAX_DRAG_SPEED * (webTimer > 0f ? WEB_SLOW : 1f);
+                float speedCap = MAX_DRAG_SPEED * speedScale
+                        * (webTimer > 0f ? WEB_SLOW : 1f);
                 float step = Math.min(speedCap * dt, dist * k);
                 x += dx / dist * step;
                 y += dy / dist * step;

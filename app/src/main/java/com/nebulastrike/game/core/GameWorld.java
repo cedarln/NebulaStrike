@@ -2681,8 +2681,8 @@ public class GameWorld {
 
     /** 圣物被动效果统一入口（光束自动开火 / 僚机续期 / 圣盾补层 / 冲刺充能）。 */
     private void updateRelics(float dt) {
-        ship.dashRechargeScale = hasRelic(Relic.PHASE_CORE)
-                ? Ship.PHASE_CORE_RECHARGE_MULT : 1f;
+        ship.dashRechargeScale = (hasRelic(Relic.PHASE_CORE)
+                ? Ship.PHASE_CORE_RECHARGE_MULT : 1f) * hull().dashRechargeMul;
         if (relicMask == 0) return;
         if (hasRelic(Relic.BEAM_CORE)) {
             relicBeamCd -= dt;
@@ -4015,12 +4015,17 @@ public class GameWorld {
 
     /** 重生保护：短暂无敌 + 清掉身边敌弹，避免"落地成盒"。 */
     private void respawnSafely() {
-        float secs = difficultyOf().respawnInvuln;
+        float secs = respawnInvuln();
         ship.makeInvulnerable(secs);
         respawnGrace = secs;
         clearBulletsAround(ship.x, ship.y, difficultyOf().respawnClearRadius);
         resetWeaponCooldowns();
         events.add(new GameEvent(EventType.RESPAWN, ship.x, ship.y, (int) (secs * 10f)));
+    }
+
+    /** 重生保护时长：难度决定基础值，重装机体再追加一段。 */
+    private float respawnInvuln() {
+        return difficultyOf().respawnInvuln + hull().respawnBonus;
     }
 
     private void clearBulletsAround(float x, float y, float radius) {
@@ -4264,6 +4269,7 @@ public class GameWorld {
                 * (ship.rapidTimer > 0f ? 0.5f : 1f)
                 * (ship.overdriveTimer > 0f ? Ship.OVERDRIVE_FIRE_MULT : 1f)
                 * (frenzyTimer > 0f ? FRENZY_FIRE_SCALE : 1f)
+                * hull().fireCdMul
                 * (hasSynergy(Synergy.OVERCHARGE) ? 0.62f : 1f);
     }
 
@@ -5319,6 +5325,15 @@ public class GameWorld {
                     echoLockedFlash = 2.2f;
                 }
                 break;
+            case HULL_SPARK:
+                selectHull(0);
+                break;
+            case HULL_FALCON:
+                selectHull(1);
+                break;
+            case HULL_BULWARK:
+                selectHull(2);
+                break;
             case CHECK_UPDATE:
                 // IDLE/最新/失败 -> 重新检查；已发现新版本 -> 开始下载；忙碌中忽略
                 if (updateState == UpdateState.IDLE || updateState == UpdateState.UP_TO_DATE
@@ -5582,8 +5597,8 @@ public class GameWorld {
     private void onPlayerHit() {
         if (godModeOf()) return;
         if (ship.consumeShield()) { // 每一层护盾各挡一次伤害
-            ship.makeInvulnerable(difficultyOf().respawnInvuln);
-            respawnGrace = difficultyOf().respawnInvuln;
+            ship.makeInvulnerable(respawnInvuln());
+            respawnGrace = respawnInvuln();
             addShake(0.25f, 10f);
             addHitStop(0.06f);
             events.add(new GameEvent(EventType.SHIELD_BROKEN, ship.x, ship.y));
@@ -5912,6 +5927,7 @@ public class GameWorld {
         state = State.PLAYING;
         ship.reset(WIDTH / 2f, HEIGHT - 140f);
         ship.powerLevel = startPowerOf();
+        applyHull();
         for (Bullet b : bullets) b.active = false;
         for (EnemyBullet b : enemyBullets) b.active = false;
         for (Enemy e : enemies) e.active = false;
@@ -6036,6 +6052,29 @@ public class GameWorld {
 
     private boolean godModeOf() {
         return !competitive() && settings.godMode;
+    }
+
+    // ---- v1.51 机体：只改基础手感与起手补给，不动任何道具叠加规则 ----
+
+    /** 当前选中的机体（越界时回落到第一架）。 */
+    public Hull hull() {
+        return Hull.of(settings.hull);
+    }
+
+    /** 菜单里切换机体：立即落盘，下一局开局时由 {@link #applyHull()} 写入。 */
+    private void selectHull(int index) {
+        int i = Math.max(0, Math.min(Hull.COUNT - 1, index));
+        if (settings.hull == i) return;
+        settings.hull = i;
+        saveSettings();
+    }
+
+    /** 开局把机体加成写进 Ship（必须在 ship.reset 之后调用）。 */
+    private void applyHull() {
+        Hull h = hull();
+        ship.speedScale = h.speedMul;
+        if (ship.bombs < h.startBombs) ship.bombs = h.startBombs;
+        for (int i = 0; i < h.startShield; i++) ship.addShield();
     }
 
     // ---- 今日规则与随机异变波的叠加：同类倍率只认更极端的一档，不相乘 ----

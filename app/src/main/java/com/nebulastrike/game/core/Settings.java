@@ -23,6 +23,10 @@ public class Settings {
     public volatile int startPower = 1;
     public volatile boolean godMode;
 
+    // ---- 机体（v1.51）：主菜单底部选择，下一局生效 ----
+    /** 机体序号，见 {@link Hull}；越界由 sanitize 钳回。 */
+    public volatile int hull;
+
     // ---- 图鉴（Codex）：跨对局累计的解锁进度 ----
     /** 敌机登场即解锁，按 EnemyType.ordinal() 存位。 */
     public volatile int codexSeenEnemies;
@@ -242,6 +246,7 @@ public class Settings {
         dropRatePct = clamp(dropRatePct, DROP_MIN, DROP_MAX);
         enemySpeedPct = clamp(enemySpeedPct, SPEED_MIN, SPEED_MAX);
         startPower = clamp(startPower, POWER_MIN, POWER_MAX);
+        hull = clamp(hull, 0, Hull.COUNT - 1);
         if (difficulty == null) difficulty = Difficulty.STANDARD;
         codexSeenEnemies &= (1 << EnemyType.values().length) - 1;
         codexMaxTierSlain = clamp(codexMaxTierSlain, -1, codexBossKills.length - 1);

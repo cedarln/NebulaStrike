@@ -44,6 +44,21 @@ public final class Ui {
      */
     public static final Rect START_ECHO = new Rect(GameWorld.WIDTH / 2f - 260f, 1248f, 520f, 96f);
 
+    /**
+     * v1.51：机体选择条。放在回声铭牌正下方的空白带，三枚小卡并排，
+     * 点一下即切换并落盘，下一局生效。
+     */
+    public static final float HULL_ROW_Y = 1372f;
+    public static final float HULL_CHIP_W = 160f;
+    public static final float HULL_CHIP_H = 74f;
+
+    public static Rect hullChip(int index) {
+        float gap = 10f;
+        float total = Hull.COUNT * HULL_CHIP_W + (Hull.COUNT - 1) * gap;
+        float x = (GameWorld.WIDTH - total) / 2f + index * (HULL_CHIP_W + gap);
+        return new Rect(x, HULL_ROW_Y, HULL_CHIP_W, HULL_CHIP_H);
+    }
+
     // playing: floating joystick is position-free (handled by GameView);
     // the bomb / dash buttons are mirrored for left-handed play
     public static final Rect BOMB_RIGHT = new Rect(640f, 1270f, 180f, 180f);
@@ -163,6 +178,7 @@ public final class Ui {
     /** Logical UI actions produced by taps. */
     public enum Action {
         START, START_ENDLESS, START_DAILY, START_RUSH, START_ECHO,
+        HULL_SPARK, HULL_FALCON, HULL_BULWARK,
         OPEN_SETTINGS, TOGGLE_SOUND, TOGGLE_PARTICLES, TOGGLE_HAPTICS,
         TOGGLE_REDUCED_FX, TOGGLE_LEFT_HAND, SETTINGS_BACK, RESUME, RESTART, QUIT_TO_MENU, PAUSE,
         CHECK_UPDATE,
@@ -281,6 +297,13 @@ public final class Ui {
                 if (CHECK_UPDATE.contains(x, y)) return Action.CHECK_UPDATE;
                 // 回声周目：锁住时也接收点击，交给 GameWorld 决定是开局还是提示解锁
                 if (START_ECHO.contains(x, y)) return Action.START_ECHO;
+                // 机体条：任何时候都能换，下一局生效
+                for (int i = 0; i < Hull.COUNT; i++) {
+                    if (hullChip(i).contains(x, y)) {
+                        return i == 0 ? Action.HULL_SPARK
+                                : i == 1 ? Action.HULL_FALCON : Action.HULL_BULWARK;
+                    }
+                }
                 return null;
             case PAUSED:
                 if (RESUME.contains(x, y)) return Action.RESUME;

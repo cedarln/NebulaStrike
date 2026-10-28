@@ -26,6 +26,7 @@ import com.nebulastrike.game.core.FloatText;
 import com.nebulastrike.game.core.GameMode;
 import com.nebulastrike.game.core.GameWorld;
 import com.nebulastrike.game.core.GravityWell;
+import com.nebulastrike.game.core.Hull;
 import com.nebulastrike.game.core.Mutator;
 import com.nebulastrike.game.core.Particle;
 import com.nebulastrike.game.core.PowerUp;
@@ -3813,6 +3814,7 @@ public class Renderer {
         drawUpdateButton(c, w);
         drawDualBoard(c, w, VW / 2f - 165f, 830f, 330f, 44f, 22f);
         drawEchoEntry(c, w);
+        drawHullStrip(c, w);
 
         paint.setTextSize(26f);
         paint.setColor(0x668FA3C8);
@@ -3834,6 +3836,7 @@ public class Renderer {
                 "每日挑战 DAILY 由当天日期决定规则、命数与种子 · 同一天重开就是同一条时间线，可以刷分",
                 "BOSS RUSH 只打 Boss，没有小怪只有喘息 · 越深赏金越高",
                 "打穿主线后解锁 ECHO LOOP 回声周目 · 敌机更硬、得分 ×1.5，还有自己的一张榜",
+                "主菜单底部可换机体 · 游隼跑得快、壁垒能扛，下一局开局生效",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
@@ -5644,6 +5647,40 @@ public class Renderer {
             paint.setColor(0xFF55677D);
             c.drawText("打完主线，再来一遍更强的星海", r.x + 26f, r.y + 88f, paint);
         }
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /** v1.51：机体选择条——三枚小卡，点一下切换，下方一行写这架机体换来了什么。 */
+    private void drawHullStrip(Canvas c, GameWorld w) {
+        Hull selected = w.hull();
+        for (int i = 0; i < Hull.COUNT; i++) {
+            Hull h = Hull.values()[i];
+            Ui.Rect r = Ui.hullChip(i);
+            boolean on = w.settings.hull == i;
+            paint.setShader(null);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(on ? 0xE0142438 : 0xB30C1629);
+            c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 16f, 16f, paint);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(on ? 3f : 2f);
+            paint.setColor(on ? h.accent : 0x33475A78);
+            c.drawRoundRect(r.x, r.y, r.x + r.w, r.y + r.h, 16f, 16f, paint);
+            paint.setStyle(Paint.Style.FILL);
+
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setFakeBoldText(true);
+            paint.setTextSize(25f);
+            paint.setColor(on ? 0xFFE8F1FF : 0xFF8FA3C8);
+            c.drawText(h.label, r.cx(), r.y + 31f, paint);
+            paint.setFakeBoldText(false);
+            paint.setTextSize(15f);
+            paint.setColor(on ? h.accent : 0xFF55677D);
+            c.drawText(h.tag, r.cx(), r.y + 55f, paint);
+        }
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(17f);
+        paint.setColor(0xFF8FA3C8);
+        c.drawText(selected.blurb, VW / 2f, 1478f, paint);
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
