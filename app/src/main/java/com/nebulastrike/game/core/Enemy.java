@@ -60,6 +60,16 @@ public class Enemy {
     public boolean linkJustFired;
     /** 本次下扫是否已经命中过飞船（一次只结算一次伤害）。 */
     public boolean linkHit;
+    /** v1.55 枪骑：0 下降 1 架枪预警 2 横向冲锋 3 冲出场外。 */
+    public int lancePhase;
+    /** 枪骑预警 / 冲锋的剩余时间（冲锋阶段用来限制最长时长）。 */
+    public float lanceTimer;
+    /** 枪骑冲锋方向：-1 向左 / +1 向右。 */
+    public float lanceDir = 1f;
+    /** 枪骑锁定的冲锋高度：整条横线都是危险区，预警线画在这里。 */
+    public float lanceLaneY;
+    /** 刚锁定枪线、开始冲锋（一次性标记，由 GameWorld 消费并播表现）。 */
+    public boolean lanceJustCharged;
     /** 坦克的齐射计数：每第 3 轮改成五连扇形扫射。 */
     public int volley;
     /** 分裂舱被击毁时生成的子机层数（防止无限分裂）。 */
@@ -253,6 +263,24 @@ public class Enemy {
     /** 入场下降速度：一对成员用同一速度，保证锁链水平。 */
     public static final float LINK_DESCENT = 190f;
 
+    // ---- v1.56 枪骑 LANCER ----
+    /** 架枪高度：在上半屏压住一条横线，玩家仍有充足的下半屏可以躲。 */
+    public static final float LANCER_HOVER_Y = 430f;
+    /** 预警期把枪线扑到玩家高度：快得像一次俯冲，但仍要花掉大半预警时间。 */
+    public static final float LANCER_TRACK = 1100f;
+    /** 架枪前滑向边线的速度；边线距屏幕边缘的距离。 */
+    public static final float LANCER_SLIDE = 620f;
+    public static final float LANCER_HEEL = 120f;
+    /** 预警时长：枪线先亮、再锁定，给玩家一次纵向让位的时间。 */
+    public static final float LANCER_TELL = 0.9f;
+    /** 冲锋速度：横穿 900 宽约 0.8 秒，比走位快、比子弹慢。 */
+    public static final float LANCER_DASH_SPEED = 1150f;
+    /** 冲锋最长时间：防止卡在边缘时永远不结束。 */
+    public static final float LANCER_DASH_MAX = 1.6f;
+    /** 锁定的枪线高度范围：上不压到 Boss，下给玩家留一条退路。 */
+    public static final float LANCER_LANE_MIN = 520f;
+    public static final float LANCER_LANE_MAX = 1280f;
+
     // ---- v1.33 追猎者 ----
     /** 悬停高度：在弹幕层上方，玩家能清楚看到两侧发射管亮起。 */
     public static final float SEEKER_HOVER_Y = 340f;
@@ -306,6 +334,11 @@ public class Enemy {
         this.linkLost = false;
         this.linkJustFired = false;
         this.linkHit = false;
+        this.lancePhase = 0;
+        this.lanceTimer = 0f;
+        this.lanceDir = 1f;
+        this.lanceLaneY = y;
+        this.lanceJustCharged = false;
         this.volley = 0;
         this.splitDepth = 0;
         this.mineCd = type == EnemyType.MINER ? 1.2f : 0f;
@@ -348,6 +381,7 @@ public class Enemy {
             case CUTTER: fireCd = 1.6f + GameWorld.RNG.get().nextFloat() * 0.5f; break;
             case GYRE: fireCd = -1f; break;   // 不开炮：全部威胁都在光刃上
             case LINKER: fireCd = -1f; break; // 不开炮：全部威胁都在锁链上
+            case LANCER: fireCd = -1f; break; // 不开炮：全部威胁都在那条枪线上
             default: fireCd = -1f; // does not fire
         }
     }
@@ -748,6 +782,57 @@ public class Enemy {
                 }
                 break;
             }
+            case LANCER: {
+                // 枪骑：压到上半屏后架枪，枪线先跟船 0.9 秒、再锁死，然后横穿整屏。
+                // 它不是"追着你撞"，而是把一条横线变成禁区——解法是纵向让开，
+                // 而不是横向跑；冲锋途中被打爆会当场断枪。
+                if (lancePhase == 0) {
+                    y += speed() * dt;
+                    // 摆位：滑向背离玩家的那一侧边线。它要的是足够长的冲锋跑道，
+                    // 同时也避免俯冲到玩家高度时直接把人撞死
+                    float heel = Float.isNaN(shipX) || shipX < x
+                            ? worldW - LANCER_HEEL : LANCER_HEEL;
+                    float slide = LANCER_SLIDE * dt;
+                    x += clamp(heel - x, -slide, slide);
+                    if (y >= LANCER_HOVER_Y) {
+                        y = LANCER_HOVER_Y;
+                        lancePhase = 1;
+                        lanceTimer = LANCER_TELL;
+                        lanceLaneY = y;
+                        if (!Float.isNaN(shipX)) {
+                            lanceDir = shipX < x ? -1f : 1f;
+                        }
+                    }
+                    break;
+                }
+                if (lancePhase == 1) {
+                    lanceTimer -= dt;
+                    if (!Float.isNaN(shipY)) {
+                        float target = clamp(shipY, LANCER_LANE_MIN, LANCER_LANE_MAX);
+                        float step = Math.min(Math.abs(target - y), LANCER_TRACK * dt);
+                        y += target > y ? step : -step;
+                    }
+                    lanceLaneY = y;
+                    if (!Float.isNaN(shipX)) {
+                        lanceDir = shipX < x ? -1f : 1f;
+                    }
+                    if (lanceTimer <= 0f) {
+                        lancePhase = 2;
+                        lanceTimer = 0f;
+                        lanceLaneY = y;
+                        lanceJustCharged = true;
+                    }
+                    break;
+                }
+                if (lancePhase == 2) {
+                    x += lanceDir * LANCER_DASH_SPEED * dt;
+                    lanceTimer += dt;
+                    if (lanceTimer >= LANCER_DASH_MAX) lancePhase = 3;
+                    break;
+                }
+                // phase 3：已经冲出画面，等 GameWorld 回收
+                break;
+            }
             case GYRE: {
                 // 旋翼者：压到高位后左右巡游蓄能，预警 0.9 秒后甩出双头光刃旋转约半圈。
                 // 起手线直接指向飞船，光刃又长到够穿整个屏幕——躲法只有"绕着扫向走位"，
@@ -920,6 +1005,28 @@ public class Enemy {
     public float linkCharge() {
         if (!isLinkCharging()) return isLinkLive() ? 1f : 0f;
         return 1f - Math.max(0f, linkTimer) / LINK_CHARGE;
+    }
+
+    /** 枪骑正在架枪预警（渲染层画枪线与方向箭头）。 */
+    public boolean isLanceAiming() {
+        return type == EnemyType.LANCER && lancePhase == 1;
+    }
+
+    /** 枪骑已经锁定枪线并开始横向冲锋。 */
+    public boolean isLanceCharging() {
+        return type == EnemyType.LANCER && lancePhase == 2;
+    }
+
+    /** 架枪进度 0..1：枪线随它变亮，最后锁定。 */
+    public float lanceCharge() {
+        if (!isLanceAiming()) return isLanceCharging() ? 1f : 0f;
+        return 1f - Math.max(0f, lanceTimer) / LANCER_TELL;
+    }
+
+    /** 枪骑冲出了左右边界：由 GameWorld 安静回收，不按"逃逸"计。 */
+    public boolean escapedSide(float worldW) {
+        return type == EnemyType.LANCER
+                && (x < -type.radius * 2f || x > worldW + type.radius * 2f);
     }
 
     /** 伪装者是否还藏在道具外形里。 */

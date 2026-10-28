@@ -149,7 +149,9 @@ public class GameWorld {
         /** v1.54：玩家选中一项强化（code = {@link Perk#ordinal()}） */
         PERK_CHOSEN,
         /** v1.55：磁力核心脉冲把贴身敌弹转成分数（code = 本次转化的弹数） */
-        MAGNET_PULSE
+        MAGNET_PULSE,
+        /** v1.55：枪骑锁定枪线开始横向冲锋（code = 冲锋方向 +1/-1） */
+        LANCER_CHARGE
     }
     public static final class GameEvent {
         public final EventType type;
@@ -877,9 +879,9 @@ public class GameWorld {
      */
     static final EnemyType[] V117_TYPES = {
             EnemyType.MIRAGE, EnemyType.MAGNETON, EnemyType.QUEEN,
-            EnemyType.RAMMER, EnemyType.PHASER};
+            EnemyType.RAMMER, EnemyType.PHASER, EnemyType.LANCER};
     /** 与 V117_TYPES 对应的解锁 sim-time 窗口，和 pickEnemyType 里的出场时间一致。 */
-    static final float[] V117_WINDOWS = {115f, 150f, 180f, 125f, 145f};
+    static final float[] V117_WINDOWS = {115f, 150f, 180f, 125f, 145f, 195f};
     /** 保底遭遇倒计时（做成包级字段，测试可以直接拨快）。 */
     float v117EncounterTimer = 8f;
     /** 每种新舰型的保底遭遇次数，用于轮换——优先补最少出现的那一型。 */
@@ -1195,9 +1197,13 @@ public class GameWorld {
         for (Enemy e : enemies) {
             if (!e.active) continue;
             e.update(dt * timeScale, WIDTH, ship.x, ship.y);
-            if (e.offscreen(HEIGHT)) {
+            boolean sideOut = e.escapedSide(WIDTH);
+            if (e.offscreen(HEIGHT) || sideOut) {
                 e.active = false;
-                events.add(new GameEvent(EventType.ENEMY_ESCAPED, e.x, HEIGHT));
+                // 枪骑冲出侧边是"冲锋打完"，不是逃逸：安静回收，不播逃逸提示
+                if (!sideOut) {
+                    events.add(new GameEvent(EventType.ENEMY_ESCAPED, e.x, HEIGHT));
+                }
                 continue;
             }
             tryEnemyFire(e, dt * timeScale);
@@ -3710,6 +3716,14 @@ public class GameWorld {
                 events.add(new GameEvent(EventType.GYRE_SPIN, e.x, e.y,
                         e.gyreSpinDir > 0f ? 1 : -1));
             }
+            if (e.type == EnemyType.LANCER && e.lanceJustCharged) {
+                // 枪线锁死：一声偏低的冲锋号 + 枪尖火花；方向写进 code 供音效分左右声道
+                e.lanceJustCharged = false;
+                addShake(0.1f, 4f);
+                spark(e.x + e.lanceDir * e.type.radius, e.y, 6, 22);
+                events.add(new GameEvent(EventType.LANCER_CHARGE, e.x, e.y,
+                        e.lanceDir > 0f ? 1 : -1));
+            }
             if (e.type == EnemyType.LINKER) {
                 // 搭档被拆掉：锁链立刻断开，剩下那只失稳俯冲——
                 // 玩家因此有"先点一端"的解法，而不是只能等它扫完
@@ -3803,6 +3817,7 @@ public class GameWorld {
             case CUTTER: return 19;
             case GYRE: return 20;
             case LINKER: return 21;
+            case LANCER: return 22;
             default: return 4;
         }
     }
@@ -4552,10 +4567,14 @@ public class GameWorld {
         // v1.48：枢链者 185s 解锁——一次登场就是两条命与一条断不了的线，
         // 权重压到 4%：同场两对就足以把下半屏切成三块
         float wLinker = t > 185f ? Math.min(0.04f, 0.02f + (t - 185f) / 4200f) : 0f;
+        // v1.56：枪骑 195s 解锁——一颗子弹都不打，只在你高度上画一条线然后横穿整屏。
+        // 权重压到 3.5%：两杆枪同时架起来时，玩家几乎没有可以站着的高度
+        float wLancer = t > 195f ? Math.min(0.035f, 0.015f + (t - 195f) / 4600f) : 0f;
         // 保留至少 15% 无人机当"炮灰"：非无人机权重整体归一
         float sum = wTank + wHunter + wWeaver + wSui + wSplit + wHeal + wSnipe
                 + wMiner + wShield + wCarrier + wMirage + wMagnet + wQueen + wRammer
-                + wPhaser + wSeeker + wSnarer + wHelix + wCutter + wGyre + wLinker;
+                + wPhaser + wSeeker + wSnarer + wHelix + wCutter + wGyre + wLinker
+                + wLancer;
         if (sum > 0.85f) {
             float k = 0.85f / sum;
             wTank *= k; wHunter *= k; wWeaver *= k;
@@ -4568,6 +4587,7 @@ public class GameWorld {
             wCutter *= k;
             wGyre *= k;
             wLinker *= k;
+            wLancer *= k;
         }
         float c = 0f;
         if (r < (c += wTank)) return EnemyType.TANK;
@@ -4591,6 +4611,7 @@ public class GameWorld {
         if (r < (c += wCutter)) return EnemyType.CUTTER;
         if (r < (c += wGyre)) return EnemyType.GYRE;
         if (r < (c += wLinker)) return EnemyType.LINKER;
+        if (r < (c += wLancer)) return EnemyType.LANCER;
         return EnemyType.DRONE;
     }
 
@@ -5162,7 +5183,11 @@ public class GameWorld {
             if (!e.active) continue;
             // enemies vs ship（扫掠：高速拖动时不会瞬移穿过敌机）
             if (!ship.isSafe()) {
-                float rr = Ship.RADIUS + e.type.radius;
+                // 枪骑架枪期只是摆位，没有实体碰撞；只有锁线冲锋时那条枪才致命
+                if (e.type == EnemyType.LANCER && !e.isLanceCharging()) continue;
+                // 枪骑冲锋时枪尖也算命中体积：视觉上那条横线不是摆设
+                float er = e.type.radius + (e.isLanceCharging() ? 18f : 0f);
+                float rr = Ship.RADIUS + er;
                 if (distToSegment(e.x, e.y,
                         ship.prevX, ship.prevY, ship.x, ship.y) <= rr) {
                     e.active = false;

@@ -1552,6 +1552,77 @@ public class Renderer {
                     c.drawCircle(e.x + sx * tip, e.y, r * 0.14f, paint);
                     break;
                 }
+                case LANCER: {
+                    // 枪骑：横置的梭形机身 + 一根朝冲锋方向的骑枪。
+                    // 架枪期先画出整条横向枪线（这道线就是"这一行不能站"），
+                    // 锁定后线由暗转亮、冲锋时整条线烧白
+                    boolean aiming = e.isLanceAiming();
+                    boolean charging = e.isLanceCharging();
+                    if (aiming || charging) {
+                        float p = charging ? 1f : e.lanceCharge();
+                        float lane = charging ? e.lanceLaneY : e.y;
+                        paint.setStyle(Paint.Style.STROKE);
+                        paint.setStrokeWidth(charging ? 5f : 2.5f + 3.5f * p);
+                        paint.setColor(((int) ((aiming ? 0x30 + 0x70 * p : 0x88)) << 24)
+                                | 0x009DB8FF);
+                        c.drawLine(0f, lane, GameWorld.WIDTH, lane, paint);
+                        if (aiming) {
+                            // 方向箭头：告诉玩家"这一枪会从哪边扫过来"
+                            paint.setStrokeWidth(2.5f);
+                            paint.setColor(((int) (0x50 + 0x80 * p) << 24) | 0x00D8E6FF);
+                            float ax0 = e.lanceDir > 0f ? e.x + r * 2.2f : e.x - r * 2.2f;
+                            for (int i = 0; i < 3; i++) {
+                                float ax = ax0 + e.lanceDir * i * 26f;
+                                c.drawLine(ax, lane - 11f,
+                                        ax + e.lanceDir * 12f, lane, paint);
+                                c.drawLine(ax + e.lanceDir * 12f, lane,
+                                        ax, lane + 11f, paint);
+                            }
+                        }
+                        paint.setStyle(Paint.Style.FILL);
+                    }
+                    float dir = e.lanceDir >= 0f ? 1f : -1f;
+                    // 枪杆（先画，压在机身下面），冲锋时拉出一条长光尾
+                    paint.setStyle(Paint.Style.STROKE);
+                    paint.setStrokeWidth(charging ? 6f : 3.5f);
+                    paint.setColor(charging ? 0xFFFFFFFF : 0xFFD8E6FF);
+                    c.drawLine(e.x, e.y, e.x + dir * r * 2.35f, e.y, paint);
+                    if (charging) {
+                        paint.setStrokeWidth(14f);
+                        paint.setColor(0x55BFD8FF);
+                        c.drawLine(e.x - dir * r * 2.2f, e.y,
+                                e.x + dir * r * 2.35f, e.y, paint);
+                    }
+                    // 枪尖
+                    paint.setStyle(Paint.Style.FILL);
+                    paint.setColor(charging ? 0xFFFFFFFF : 0xFFBFD8FF);
+                    shapePath.rewind();
+                    float tx = e.x + dir * r * 2.35f;
+                    shapePath.moveTo(tx + dir * r * 0.55f, e.y);
+                    shapePath.lineTo(tx - dir * r * 0.1f, e.y - r * 0.22f);
+                    shapePath.lineTo(tx - dir * r * 0.1f, e.y + r * 0.22f);
+                    shapePath.close();
+                    c.drawPath(shapePath, paint);
+                    // 机身：横置梭形，头尖尾宽，和枪杆同轴
+                    shapePath.rewind();
+                    shapePath.moveTo(e.x + dir * r * 1.1f, e.y);
+                    shapePath.lineTo(e.x + dir * r * 0.2f, e.y - r * 0.72f);
+                    shapePath.lineTo(e.x - dir * r * 0.95f, e.y - r * 0.5f);
+                    shapePath.lineTo(e.x - dir * r * 1.25f, e.y);
+                    shapePath.lineTo(e.x - dir * r * 0.95f, e.y + r * 0.5f);
+                    shapePath.lineTo(e.x + dir * r * 0.2f, e.y + r * 0.72f);
+                    shapePath.close();
+                    c.drawPath(shapePath, paint);
+                    // 座舱与蓄能核心
+                    paint.setColor(0xFF101528);
+                    c.drawCircle(e.x, e.y, r * 0.42f, paint);
+                    float core = 0.5f + 0.5f * (float) Math.sin(w.timeAlive * 10f);
+                    paint.setColor(charging ? 0xFFFFFFFF
+                            : aiming ? 0xFFD8E6FF : 0xFF9DB8FF);
+                    c.drawCircle(e.x, e.y, r * (0.16f + 0.16f * (aiming ? e.lanceCharge() : core)),
+                            paint);
+                    break;
+                }
             }
             if (e.bounty) drawBountyMark(c, w, e);
         }
@@ -3948,6 +4019,7 @@ public class Renderer {
                 "LK 锁定激光会自动点名最近的敌机 · 光柱从顶端落下，每叠一层多锁一个目标",
                 "每击破一场旗舰会弹出三张强化卡 · 同类可叠 3 层，选卡时战场完全冻结",
                 "磁力核心 MG 会把附近道具吸过来 · 每 4.2 秒把贴身敌弹直接转成分数",
+                "枪骑 LANCER 架枪时整条枪线会跟着你走 · 锁定后横穿全屏，纵向让开而不是横向逃",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
@@ -5152,6 +5224,31 @@ public class Renderer {
                 c.drawCircle(x, y, r * 0.22f, paint);
                 break;
             }
+            case LANCER: {
+                // 横置梭形 + 长枪 + 一条贯穿枪线：图鉴里直接读出"它冲的是一整行"
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2f);
+                paint.setColor(known ? 0x889DB8FF : 0x406B7A99);
+                c.drawLine(x - r * 2.1f, y + r * 0.95f, x + r * 2.1f, y + r * 0.95f, paint);
+                paint.setStrokeWidth(2.5f);
+                paint.setColor(known ? 0xFFD8E6FF : 0x406B7A99);
+                c.drawLine(x - r * 0.6f, y, x + r * 2.2f, y, paint);
+                paint.setStyle(Paint.Style.FILL);
+                shapePath.rewind();
+                shapePath.moveTo(x + r * 1.15f, y);
+                shapePath.lineTo(x + r * 0.25f, y - r * 0.7f);
+                shapePath.lineTo(x - r * 1.0f, y - r * 0.5f);
+                shapePath.lineTo(x - r * 1.3f, y);
+                shapePath.lineTo(x - r * 1.0f, y + r * 0.5f);
+                shapePath.lineTo(x + r * 0.25f, y + r * 0.7f);
+                shapePath.close();
+                c.drawPath(shapePath, paint);
+                paint.setColor(known ? 0xFF101528 : 0x336B7A99);
+                c.drawCircle(x, y, r * 0.36f, paint);
+                paint.setColor(known ? 0xFFBFD8FF : 0x406B7A99);
+                c.drawCircle(x, y, r * 0.16f, paint);
+                break;
+            }
             default:
                 break;
         }
@@ -5219,6 +5316,7 @@ public class Renderer {
             case CUTTER: return "切割者 CUTTER";
             case GYRE: return "旋翼者 GYRE";
             case LINKER: return "枢链者 LINKER";
+            case LANCER: return "枪骑 LANCER";
             default: return t.name();
         }
     }
@@ -5247,6 +5345,7 @@ public class Renderer {
             case CUTTER: return "锁定一列后切下贯穿光柱，点弹/弹反/反射都挡不住，只能让开";
             case GYRE: return "预警后甩出双头光刃旋转 158°，光刃扫过的整条线都会灼伤，绕着扫向躲";
             case LINKER: return "成对登场，两者间拉起电弧锁链；充能后一起下扫，整条线都会灼伤，先拆一端就断链";
+            case LANCER: return "一弹不发：架枪时整条横向枪线跟着你，锁定后横穿全屏，纵向让开即可";
             default: return "未知机型";
         }
     }
@@ -6215,6 +6314,7 @@ public class Renderer {
             case 19: rgb = 0x8CFFC1; break;   // 切割者：切痕薄荷
             case 20: rgb = 0xFFC46B; break;   // 旋翼者：旋刃金
             case 21: rgb = 0x6FF7E0; break;   // 枢链者：链电青
+            case 22: rgb = 0x9DB8FF; break;   // 枪骑：枪钢蓝
             default: rgb = 0x5CE1FF; break;
         }
         return (alpha << 24) | rgb;
