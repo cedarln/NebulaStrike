@@ -385,6 +385,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case BOSS_COUNTER: haptics.tick(); break;
                     // v1.64：反击窗口开膛，比识破那一下更重一点
                     case BOSS_COUNTER_STRIKE: haptics.impact(); break;
+                    // v1.65：这一型读到升档了——连着两记，把"翻篇"这个动作敲出来
+                    case BOSS_COUNTER_MASTERY: haptics.impact(); haptics.tick(); break;
                     // 回声周目开场给一记中震；碎片到手轻点一下
                     case ECHO_START: haptics.impact(); break;
                     case ECHO_SHARD: haptics.tick(); break;

@@ -342,6 +342,11 @@ public class AudioEngine {
                     play(SfxId.COUNTER_STRIKE, 0.62f, 1f + 0.02f * Math.max(0, e.code),
                             panFor(e.x));
                     break;
+                case BOSS_COUNTER_MASTERY:
+                    // v1.65 读招升档：code = 形态序号 × 10 + 档位，档位越高音越亮
+                    play(SfxId.COUNTER_MASTERY, 0.66f, 0.96f + 0.07f * Math.max(0, e.code % 10),
+                            panFor(e.x));
+                    break;
                 case ULT_READY:
                     play(SfxId.ULT_READY, 0.75f, 1f, 0f);
                     break;

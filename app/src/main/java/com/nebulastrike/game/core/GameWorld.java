@@ -167,7 +167,9 @@ public class GameWorld {
         /** v1.63：一轮招牌弹幕散尽且没打中玩家 = 识破（code = {@link Boss.Form#ordinal()}） */
         BOSS_COUNTER,
         /** v1.64：识破开启反击窗口（code = {@link Boss.Form#ordinal()}） */
-        BOSS_COUNTER_STRIKE
+        BOSS_COUNTER_STRIKE,
+        /** v1.65：某一型的识破升到新档位（code = 形态序号 × 10 + 精通档位） */
+        BOSS_COUNTER_MASTERY
     }
     public static final class GameEvent {
         public final EventType type;
@@ -1118,6 +1120,28 @@ public class GameWorld {
     public static final float COUNTER_STRIKE_WINDOW = 5f;
     public static final int COUNTER_STRIKE_BONUS_PCT = 50;
 
+    /**
+     * v1.65 破招精通：本局对每一型旗舰招牌的识破次数（下标 = {@link Boss.Form#ordinal()}）。
+     * 同一型读得越多，那一型的反击窗口越长、加成越高——奖励的是"看习惯这艘船"，不是运气。
+     */
+    public final int[] formReads = new int[Boss.Form.values().length];
+    /** 当前反击窗口是谁给的、精通到哪一档、总长多少秒（渲染层算余量要用）。 */
+    public Boss.Form counterStrikeForm = Boss.Form.SPECTER;
+    public int counterStrikeTier;
+    public float counterStrikeWindowTotal = COUNTER_STRIKE_WINDOW;
+    /** 精通门槛：同一型读到 2 次算熟悉、4 次算读透。 */
+    public static final int MASTERY_KNOWING_READS = 2;
+    public static final int MASTERY_MASTERED_READS = 4;
+    /** 每档精通：反击窗口 +1.5 秒、伤害加成再抬 15 个百分点。 */
+    public static final float MASTERY_WINDOW_STEP = 1.5f;
+    public static final int MASTERY_BONUS_STEP = 15;
+    /** 每档精通：那一型的招牌弹速降 10%——躲得越熟，这一手看得越清楚。 */
+    public static final int MASTERY_SIG_SLOW_PCT = 10;
+    /** 升档横幅（HUD 用，与 achieveBanner 同族）：余量 + 是哪一型升到了哪一档。 */
+    public float counterMasteryBanner;
+    public Boss.Form counterMasteryForm = Boss.Form.SPECTER;
+    public int counterMasteryTier;
+
 
     // ---- 得分构成（结算图用） ----
     public static final int SCORE_ENEMY = 0;
@@ -1498,6 +1522,9 @@ public class GameWorld {
                 cancelCounterRead();
                 // v1.64：反击窗口也只属于刚读懂的那艘船，下一艘从头再来
                 counterStrikeTimer = 0f;
+                // v1.65：窗口长度跟着形态走，换船时一并归零（精通本身留在本局账上）
+                counterStrikeTier = 0;
+                counterStrikeWindowTotal = COUNTER_STRIKE_WINDOW;
                 if (boss.affix != BossAffix.NONE) {
                     events.add(new GameEvent(EventType.BOSS_AFFIX, boss.x, boss.y,
                             boss.affix.ordinal()));
@@ -2206,6 +2233,17 @@ public class GameWorld {
         signatureForm = form;
         signatureFlash = 1.5f;
         if (made > 0) {
+            // v1.65 破招精通：读熟的那一型，招牌起手就慢一档（熟悉 -10%、读透 -20%）。
+            // 常规扩散环/弹幕网不受影响，只有打了轮次号的招牌弹被降速。
+            float slow = signatureSlowFactor(masteryTier(form));
+            if (slow < 1f) {
+                for (EnemyBullet b : enemyBullets) {
+                    if (b.active && b.sigSerial == signatureSerial) {
+                        b.vx *= slow;
+                        b.vy *= slow;
+                    }
+                }
+            }
             pendingCounterSerial = signatureSerial;
             counterWindow = COUNTER_WINDOW;
         }
@@ -2227,6 +2265,10 @@ public class GameWorld {
         counterWindow = 0f;
         countersRead++;
         counterForm = signatureForm;
+        // v1.65 破招精通：先记下升档没有，再决定这一轮的反击窗口给多长、抬多少。
+        int tierBefore = masteryTier(signatureForm);
+        formReads[signatureForm.ordinal()]++;
+        int tier = masteryTier(signatureForm);
         counterScore = COUNTER_SCORE_BASE + 20 * boss.level;
         counterFlash = 2.2f;
         addScore(counterScore, SCORE_BOSS);
@@ -2234,23 +2276,73 @@ public class GameWorld {
         events.add(new GameEvent(EventType.BOSS_COUNTER,
                 boss.active ? boss.x : ship.x, boss.active ? boss.y : ship.y,
                 signatureForm.ordinal()));
-        // v1.64 破招反击：读懂了就有 5 秒反击窗口，这段时间打旗舰伤害 +50%。
+        if (tier > tierBefore) {
+            // 升档：这一次读的是"看习惯了"的那型，给一声单独的确认音与一条横幅
+            counterMasteryForm = signatureForm;
+            counterMasteryTier = tier;
+            counterMasteryBanner = 2.6f;
+            events.add(new GameEvent(EventType.BOSS_COUNTER_MASTERY,
+                    boss.active ? boss.x : ship.x, ship.y - 150f,
+                    signatureForm.ordinal() * 10 + tier));
+        }
+        // v1.64 破招反击：读懂了就有反击窗口，这段时间打旗舰伤害更高。
         // 窗口是"已经读到"的奖励，所以之后挨一下也不收回；只在旗舰还在场时开启，不跨船继承。
         if (boss.active) {
-            counterStrikeTimer = COUNTER_STRIKE_WINDOW;
+            counterStrikeWindowTotal = counterStrikeWindowFor(tier);
+            counterStrikeTimer = counterStrikeWindowTotal;
+            counterStrikeForm = signatureForm;
+            counterStrikeTier = tier;
             counterStrikes++;
             events.add(new GameEvent(EventType.BOSS_COUNTER_STRIKE,
                     ship.x, ship.y, signatureForm.ordinal()));
         }
     }
 
+    /** v1.65：某一型在本局被读懂了几次之后的精通档位（0 生疏 / 1 熟悉 / 2 读透）。 */
+    public int masteryTier(Boss.Form form) {
+        return masteryTier(formReads[form.ordinal()]);
+    }
+
+    /** v1.65：把"读了几次"换算成档位，渲染层与战斗层共用同一把尺子。 */
+    public static int masteryTier(int reads) {
+        return reads >= MASTERY_MASTERED_READS ? 2 : reads >= MASTERY_KNOWING_READS ? 1 : 0;
+    }
+
+    /** v1.65：档位名（渲染与提示共用）。 */
+    public static String masteryLabel(int tier) {
+        return tier >= 2 ? "读透" : tier == 1 ? "熟悉" : "生疏";
+    }
+
+    /** v1.65：这一档的反击窗口长度——熟了就多给你 1.5 秒，读透给 3 秒。 */
+    public static float counterStrikeWindowFor(int tier) {
+        return COUNTER_STRIKE_WINDOW + MASTERY_WINDOW_STEP * Math.max(0, Math.min(2, tier));
+    }
+
+    /** v1.65：这一档的伤害加成百分比（50 / 65 / 80）。 */
+    public static int counterStrikeBonusPctFor(int tier) {
+        return COUNTER_STRIKE_BONUS_PCT + MASTERY_BONUS_STEP * Math.max(0, Math.min(2, tier));
+    }
+
+    /** v1.65：这一档的招牌弹速系数（1.00 / 0.90 / 0.80）。 */
+    public static float signatureSlowFactor(int tier) {
+        return 1f - MASTERY_SIG_SLOW_PCT * (float) Math.max(0, Math.min(2, tier)) / 100f;
+    }
+
+    /** v1.65：本局读到"熟悉"及以上的几个形态（结算与生涯用）。 */
+    public int formsMastered() {
+        int n = 0;
+        for (Boss.Form f : Boss.Form.values()) if (masteryTier(f) >= 1) n++;
+        return n;
+    }
+
     /**
      * v1.64：反击窗口内的旗舰伤害加成（{@link #COUNTER_STRIKE_BONUS_PCT}%，向上至少 +1）。
      * 窗口没开就原样返回；额外打出去的部分累计进 {@link #counterStrikeDamage}。
+     * v1.65：加成跟着这一型的精通档位走（50% / 65% / 80%）。
      */
     int counterStrikeBoost(int dealt) {
         if (counterStrikeTimer <= 0f || dealt <= 0) return dealt;
-        int boosted = dealt + Math.max(1, dealt * COUNTER_STRIKE_BONUS_PCT / 100);
+        int boosted = dealt + Math.max(1, dealt * counterStrikeBonusPctFor(counterStrikeTier) / 100);
         counterStrikeDamage += boosted - dealt;
         return boosted;
     }
@@ -3285,6 +3377,7 @@ public class GameWorld {
         if (counterFlash > 0f) counterFlash = Math.max(0f, counterFlash - dt);
         // v1.64：反击窗口自己收时间（先走表再判定，同帧识破仍能从满窗口开始计）
         if (counterStrikeTimer > 0f) counterStrikeTimer = Math.max(0f, counterStrikeTimer - dt);
+        if (counterMasteryBanner > 0f) counterMasteryBanner = Math.max(0f, counterMasteryBanner - dt);
         if (pendingCounterSerial != 0) {
             counterWindow = Math.max(0f, counterWindow - dt);
             resolveCounterRead();
@@ -7032,6 +7125,12 @@ public class GameWorld {
         counterStrikeTimer = 0f;
         counterStrikes = 0;
         counterStrikeDamage = 0;
+        // v1.65：精通是"这一局读出来的经验"，重开清零，窗口长度回到基础值
+        java.util.Arrays.fill(formReads, 0);
+        counterStrikeTier = 0;
+        counterStrikeWindowTotal = COUNTER_STRIKE_WINDOW;
+        counterMasteryBanner = 0f;
+        counterMasteryTier = 0;
         cancelCounterRead();
         bossFightHits = 0;
         campaignVictory = false;

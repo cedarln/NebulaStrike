@@ -83,6 +83,7 @@ public final class SfxBank {
         put(SfxId.SYNERGY_ON, synergyLink(), 0.78f);
         put(SfxId.PHASE_BURST, phaseBurst(), 0.86f);
         put(SfxId.COUNTER_STRIKE, counterStrike(), 0.82f);
+        put(SfxId.COUNTER_MASTERY, counterMastery(), 0.8f);
     }
 
     public static SfxBank create() {
@@ -1197,6 +1198,42 @@ public final class SfxBank {
             x[i] = (float) ((thump + air + sweep) * env(t, 0.42, 0.0018, 1.4));
         }
         echo(x, 0.09, 0.26);
+        return x;
+    }
+
+    /**
+     * v1.65 读招升档：E5 → G5 → B5 三记递进的上行音，第三记挂一层高频泛音的闪光，
+     * 底下是一道慢慢推上去的呼吸——"这一型的谱子你翻到下一页了"。
+     */
+    private static float[] counterMastery() {
+        int n = frames(0.66);
+        float[] x = new float[n];
+        Random r = new Random(1655);
+        double[] f = {659.25, 783.99, 987.77};
+        double[] ph = new double[f.length];
+        double shimmer = 0, breath = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double tone = 0;
+            for (int k = 0; k < f.length; k++) {
+                double start = k * 0.085;
+                if (t < start) continue;
+                double local = t - start;
+                ph[k] += f[k] / SAMPLE_RATE;
+                tone += (0.2 * sine(ph[k]) + 0.09 * sine(ph[k] * 2.0) + 0.05 * tri(ph[k] * 3.0))
+                        * Math.exp(-local * (5.5 - k * 1.2)) / (1.0 + k * 0.12);
+            }
+            // 最后一记的高频闪光：只在 0.17 秒之后出现，随主音一起收走
+            double spark = 0;
+            if (t > 0.17) {
+                shimmer += (3.0 / SAMPLE_RATE);
+                spark = sine(shimmer * 6.2) * Math.exp(-(t - 0.17) * 9.0) * 0.12 * (0.6 + 0.4 * noise(r));
+            }
+            breath += (0.02 + 0.05 * Math.min(1.0, t / 0.4)) * (noise(r) - breath);
+            double swell = breath * Math.min(1.0, t / 0.25) * Math.exp(-Math.max(0.0, t - 0.45) * 12.0) * 0.32;
+            x[i] = (float) ((tone + spark + swell) * env(t, 0.66, 0.0018, 1.25));
+        }
+        echo(x, 0.13, 0.26);
         return x;
     }
 

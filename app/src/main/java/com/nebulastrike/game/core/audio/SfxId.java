@@ -105,5 +105,7 @@ public enum SfxId {
     /** v1.29：相位核心的冲刺冲击波（低频轰 + 快速上扫的气浪） */
     PHASE_BURST,
     /** v1.64：识破之后反击窗口开膛——两记上行的金属锁定音，末尾挂一层渐强的电流嗡鸣 */
-    COUNTER_STRIKE
+    COUNTER_STRIKE,
+    /** v1.65：某一型旗舰的识破升到新档位——三记递进的上行音，像把这本谱子翻到下一页 */
+    COUNTER_MASTERY
 }

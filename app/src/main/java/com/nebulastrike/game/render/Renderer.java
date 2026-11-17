@@ -857,20 +857,26 @@ public class Renderer {
     }
 
     /**
-     * v1.64 破招反击：识破之后 5 秒内打旗舰伤害 +50%。窗口只贴在飞船上画一道收走的弧，
-     * 不做全屏特效——它是"你读懂了"的即时回馈，余光能看到就够了。
+     * v1.64 破招反击：识破之后的反击窗口，飞船外圈画一道收走的弧——它是"你读懂了"的即时回馈，
+     * 不做全屏特效，余光能看到就够了。
+     * v1.65 破招精通：同一型读得越多，这道弧越长（5s / 6.5s / 8s）、加成越高（+50% / 65% / 80%），
+     * 刚升档的那 2.6 秒在弧下方多写一行"熟悉 · 已读 2 次"。
      */
     private void drawCounterStrike(Canvas c, GameWorld w) {
         if (w.counterStrikeTimer <= 0f) return;
-        float frac = Math.min(1f, w.counterStrikeTimer / GameWorld.COUNTER_STRIKE_WINDOW);
+        float total = w.counterStrikeWindowTotal > 0f
+                ? w.counterStrikeWindowTotal : GameWorld.COUNTER_STRIKE_WINDOW;
+        float frac = Math.min(1f, w.counterStrikeTimer / total);
         float pulse = w.settings.reducedFx ? 1f
                 : 0.72f + 0.28f * (float) Math.sin(w.timeAlive * 12f);
         int mint = GameWorld.FLOAT_COUNTER & 0x00FFFFFF;
         float r = Ship.RADIUS + 26f;
+        // v1.65：窗口越长，这道弧画得越厚一点，读透的那型一眼分得出来
+        float thick = 4f + 1.2f * w.counterStrikeTier;
         arcRect.set(w.ship.x - r, w.ship.y - r, w.ship.x + r, w.ship.y + r);
         paint.setStyle(Paint.Style.STROKE);
         paint.setShader(null);
-        paint.setStrokeWidth(4f);
+        paint.setStrokeWidth(thick);
         paint.setColor(((int) (0xC0 * frac * pulse) << 24) | mint);
         c.drawArc(arcRect, -90f, 360f * frac, false, paint);
         paint.setStrokeWidth(1.5f);
@@ -881,10 +887,27 @@ public class Renderer {
         paint.setFakeBoldText(true);
         paint.setTextSize(20f);
         paint.setColor(((int) (0xD0 * frac) << 24) | mint);
-        c.drawText("反击 +" + GameWorld.COUNTER_STRIKE_BONUS_PCT + "%",
+        c.drawText("反击 +" + GameWorld.counterStrikeBonusPctFor(w.counterStrikeTier) + "%",
                 w.ship.x, w.ship.y + r + 40f, paint);
+        if (w.counterMasteryBanner > 0f && w.counterStrikeTier > 0) {
+            // 升档瞬间：把"为什么这一弧变长了"写在旁边，不然玩家只会觉得窗口忽长忽短
+            float k = Math.min(1f, w.counterMasteryBanner / 0.5f);
+            paint.setTextSize(18f);
+            paint.setColor(((int) (0xE0 * k * frac) << 24) | 0xFFD8ECFF);
+            c.drawText(GameWorld.masteryLabel(w.counterStrikeTier)
+                            + " · 已读 " + w.formReads[w.counterStrikeForm.ordinal()] + " 次"
+                            + " · 窗口 " + windowText(GameWorld.counterStrikeWindowFor(w.counterStrikeTier)) + "s",
+                    w.ship.x, w.ship.y + r + 66f, paint);
+        }
         paint.setFakeBoldText(false);
         paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /** 6.5 / 8 这种窗口长度写成不带多余小数的一秒数。 */
+    private String windowText(float seconds) {
+        int tenth = Math.round(seconds * 10f);
+        if (tenth % 10 == 0) return String.valueOf(tenth / 10);
+        return (tenth / 10) + "." + (tenth % 10);
     }
 
     /** 把整数写进复用缓冲区并返回长度（飘字专用，零字符串分配）。 */
@@ -2400,7 +2423,15 @@ public class Renderer {
             // v1.63 破招提示：招式名底下紧跟一句"这一手该怎么读"，看懂了才吃得下识破赏金
             paint.setTextSize(19f);
             paint.setColor(((int) (0xA8 * k) << 24) | 0x00D8ECFF);
-            c.drawText("破招 · " + b.form.counter, b.x, b.y + r * 1.8f + 27f, paint);
+            // v1.65：同一型读到 2/4 次就升档，所以这里顺手报出"这型已经读了几次"
+            int reads = w.formReads[b.form.ordinal()];
+            String tip = "破招 · " + b.form.counter;
+            if (reads > 0) {
+                tip = tip + "  ×" + reads
+                        + (GameWorld.masteryTier(reads) >= 1 ? "（" + GameWorld.masteryLabel(
+                        GameWorld.masteryTier(reads)) + "）" : "");
+            }
+            c.drawText(tip, b.x, b.y + r * 1.8f + 27f, paint);
             paint.setTextAlign(Paint.Align.LEFT);
         }
 
@@ -4551,6 +4582,7 @@ public class Renderer {
                 "每型旗舰预警时开口说的是自己的话 · 击沉它还多掉一件正好治它那一手的补给",
                 "旗舰招牌出手时下面跟一句破招提示 · 整轮弹幕没打到你就算识破，额外加分",
                 "识破之后开启 5 秒反击窗口 · 飞船外圈那道青弧走完之前，打旗舰的伤害 +50%",
+                "同一型旗舰读到 2 次算熟悉、4 次算读透 · 那一型的招牌慢一档，反击窗口长到 6.5/8 秒、加成抬到 +65%/+80%",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
@@ -6427,7 +6459,7 @@ public class Renderer {
     /**
      * 本局数据卡（5 列 × 6 行 = 30 格）：火力质量（命中/连击/击坠/精英/擦弹）、
      * 弹幕操作（暴击/截弹/弹反/最高连反/冲刺）、吸收与终结（吞弹/喷还/井口/大招/折弹）、
-     * 收获（BOSS/圣物/异变/受伤/存活）、破招（识破/反击伤害）。
+     * 收获（BOSS/圣物/异变/受伤/存活）、破招（识破/反击伤害/精通形态数）。
      */
     private void drawRunStats(Canvas c, GameWorld w) {
         paint.setStyle(Paint.Style.FILL);
@@ -6445,7 +6477,7 @@ public class Renderer {
                 "EATEN", "BURST", "WELLS", "ULT", "REFLECT",
                 "BOSS", "RELICS", "MUTANTS", "HITS", "TIME",
                 "SPOTTED", "BENT", "BROOD", "ACHV", "FUSION",
-                "READS", "STRIKE"};
+                "READS", "STRIKE", "MASTERY"};
         String[] values = {
                 w.accuracyPct() + "%",
                 "x" + w.maxCombo,
@@ -6473,10 +6505,12 @@ public class Renderer {
                 String.valueOf(w.achievesThisRun),
                 String.valueOf(w.fusions),
                 String.valueOf(w.countersRead),
-                String.valueOf(w.counterStrikeDamage)
+                String.valueOf(w.counterStrikeDamage),
+                String.valueOf(w.formsMastered())
         };
         // v1.18 数据涨满 25 项：5×5 网格刚好铺满，行距压到 33 才不挤到下面的排行榜
         // v1.64 再加识破两项（27 项）：行距收到 29，卡片底边推到 734，仍留 6 像素给排行榜
+        // v1.65 破招精通补第 28 项，仍落在最后一行的第三列，卡片尺寸不用动
         float[] cx = {186f, 318f, 450f, 582f, 714f};
         float[] rowY = {564f, 593f, 622f, 651f, 680f, 709f};
         for (int i = 0; i < labels.length; i++) {
@@ -6493,7 +6527,8 @@ public class Renderer {
                     : i == 17 ? 0xFFB08FFF : i == 20 ? 0xFFE86BB0
                     : i == 21 ? 0xFF4DA6FF : i == 22 ? 0xFFFFAE3A
                     : i == 23 ? 0xFFFFD166 : i == 24 ? 0xFF7DF9FF
-                    : i == 25 ? 0xFF8FFFD0 : i == 26 ? 0xFF5FE0B8 : 0xFFE8F1FF);
+                    : i == 25 ? 0xFF8FFFD0 : i == 26 ? 0xFF5FE0B8
+                    : i == 27 ? 0xFF6BFFC9 : 0xFFE8F1FF);
             c.drawText(values[i], x, y + 19f, paint);
         }
         paint.setTextAlign(Paint.Align.LEFT);

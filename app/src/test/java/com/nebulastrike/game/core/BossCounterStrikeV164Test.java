@@ -243,8 +243,10 @@ public class BossCounterStrikeV164Test {
         readThisFormsSignature();
         assertEquals("第二次识破计数加一", 2, world.counterStrikes);
         assertTrue("窗口重新拉满而不是把时长叠两层",
-                world.counterStrikeTimer > GameWorld.COUNTER_STRIKE_WINDOW - 0.2f);
-        assertTrue(world.counterStrikeTimer <= GameWorld.COUNTER_STRIKE_WINDOW + 0.001f);
+                world.counterStrikeTimer > world.counterStrikeWindowTotal - 0.2f);
+        // v1.65 之后"拉满"可以是精通给的那一档，但绝不会变成两个窗口相加
+        assertTrue("拉满最远只到精通的顶: " + world.counterStrikeTimer,
+                world.counterStrikeTimer <= GameWorld.counterStrikeWindowFor(2) + 0.001f);
     }
 
     // ---- 加成只对旗舰 ----
