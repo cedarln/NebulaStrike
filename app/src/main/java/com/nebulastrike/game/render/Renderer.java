@@ -2210,10 +2210,10 @@ public class Renderer {
             c.drawCircle(b.ramTargetX, b.y, r * 1.5f, glow);
         }
 
-        // rotating outer ring
+        // rotating outer ring（形态色描边：一眼看出这段航程是哪一型旗舰）
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(7f);
-        paint.setColor(0x88B44DFF);
+        paint.setColor((0x88 << 24) | (formAccent(b.form) & 0x00FFFFFF));
         float ringR = r * 1.22f;
         int nodes = 6 + b.tier * 2;
         c.save();
@@ -2250,10 +2250,9 @@ public class Renderer {
             bossWing(c, b, 1f);
         }
 
-        // hull: layered hexagons + armor seams
+        // hull: v1.61 形态剪影——舰级管多大，形态管长什么样
         paint.setStyle(Paint.Style.FILL);
-        hexagon(c, b.x, b.y, r, 0xFF2A2350);
-        hexagon(c, b.x, b.y, r * 0.82f, hullColor);
+        drawFormHull(c, b, r, hullColor);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(2f);
         paint.setColor(0x330A0C18);
@@ -2295,6 +2294,20 @@ public class Renderer {
 
         drawBossParts(c, w, b);
 
+        // v1.61 招牌招式：招式名在舰体下方一闪，提醒玩家下一轮往哪边找缝
+        if (w.signatureFlash > 0f) {
+            String sig = b.form.signature;
+            int cut = sig.indexOf(" · ");
+            if (cut >= 0) sig = sig.substring(cut + 3);
+            float k = Math.min(1f, w.signatureFlash / 0.45f);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTextSize(26f);
+            paint.setColor(((int) (0xD8 * k) << 24) | (formAccent(b.form) & 0x00FFFFFF));
+            c.drawText("招牌 · " + sig, b.x, b.y + r * 1.8f, paint);
+            paint.setTextAlign(Paint.Align.LEFT);
+        }
+
         // top health bar
         float barW = 620f, barH = 22f;
         float bx = VW / 2f - barW / 2f, by = 30f;
@@ -2317,7 +2330,7 @@ public class Renderer {
                 ? "FINAL · " + Story.bossName(w.stageNumber())
                 : w.echoBossFight
                 ? "残响 · " + b.title() + "  MK-" + (b.level + 1)
-                : b.title() + "  MK-" + (b.level + 1);
+                : b.form.label + " · " + b.title() + "  MK-" + (b.level + 1);
         String head = barName + "   PHASE " + b.phase + "/3" + status;
         String affixTxt = b.affix == BossAffix.NONE ? ""
                 : "   ◆ " + b.affix.label + " " + b.affix.tag;
@@ -2408,6 +2421,264 @@ public class Renderer {
         c.drawPath(shapePath, paint);
         paint.setStyle(Paint.Style.FILL);
         c.restore();
+    }
+
+    /**
+     * v1.61 旗舰剪影：舰级管"多大"，形态管"长什么样"。
+     * 三层结构沿用老逻辑（暗色装甲底 / 阶段色舰体 / 形态色描边），
+     * 所以阶段色照旧可读，但八艘旗舰再也不会是同一个六边形。
+     * 剪影本身不转：部件与激光吊舱的世界坐标都挂在舰体上，转了就和碰撞盒错位；
+     * 旋转感交给 {@link #drawFormDetail} 里那圈真会转的转子。
+     */
+    private void drawFormHull(Canvas c, Boss b, float r, int hullColor) {
+        if (b.blink > 0.01f) {
+            // 静默闪现：一层错位的冷蓝重影，落点一眼能找到
+            formHullPath(b.form, r);
+            c.save();
+            c.translate(b.x - 36f * b.blink, b.y + 13f * b.blink);
+            paint.setColor(((int) (0x50 * b.blink) << 24) | 0x00B9F0FF);
+            c.drawPath(shapePath, paint);
+            c.restore();
+        }
+        formHullPath(b.form, r);
+        c.save();
+        c.translate(b.x, b.y);
+        paint.setColor(0xFF2A2350);
+        c.save();
+        c.scale(1.14f, 1.14f);
+        c.drawPath(shapePath, paint);
+        c.restore();
+        paint.setColor(hullColor);
+        c.drawPath(shapePath, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3f);
+        paint.setColor((0xB0 << 24) | (formAccent(b.form) & 0x00FFFFFF));
+        c.drawPath(shapePath, paint);
+        paint.setStyle(Paint.Style.FILL);
+        c.restore();
+        drawFormDetail(c, b, r);
+    }
+
+    /** 形态描边色：八种形态八个色相，负责"认船"，阶段色负责"认相位"。 */
+    private static int formAccent(Boss.Form form) {
+        switch (form) {
+            case SPECTER:  return 0xFF8FD5FF;
+            case CINDER:   return 0xFFFF7A45;
+            case DOCKYARD: return 0xFF7BE0A0;
+            case HIVE:     return 0xFFFFC94D;
+            case RIFT:     return 0xFFFF5CE0;
+            case MAGNET:   return 0xFF59E0FF;
+            case MIRROR:   return 0xFFEDE6FF;
+            default:       return 0xFFFFD98A;
+        }
+    }
+
+    /** 以舰心为原点填形态多边形（调用方自己 translate 到 b.x / b.y）。 */
+    private void formHullPath(Boss.Form form, float r) {
+        switch (form) {
+            case SPECTER:
+                // 静默：细长的梭形，舰首一根针，两侧后掠翼
+                polyPath(new float[][]{{0f, -1.18f}, {0.46f, -0.42f}, {0.98f, 0.30f},
+                        {0.42f, 0.78f}, {-0.42f, 0.78f}, {-0.98f, 0.30f}, {-0.46f, -0.42f}}, r);
+                break;
+            case CINDER:
+                // 灰烬：压得很扁的宽体驳船，下缘一道烧蚀的缺口
+                polyPath(new float[][]{{-1.30f, -0.30f}, {-0.72f, -0.68f}, {0.72f, -0.68f},
+                        {1.30f, -0.30f}, {1.02f, 0.34f}, {0.54f, 0.72f}, {0f, 0.44f},
+                        {-0.54f, 0.72f}, {-1.02f, 0.34f}}, r);
+                break;
+            case DOCKYARD:
+                // 船坞：方正的飞行甲板舰，前舷外扩、后舷收成斜坡
+                polyPath(new float[][]{{-1.06f, -0.64f}, {1.06f, -0.64f}, {1.20f, 0.32f},
+                        {0.68f, 0.86f}, {-0.68f, 0.86f}, {-1.20f, 0.32f}}, r);
+                break;
+            case HIVE:
+                // 蜂巢：六齿巢盘
+                starPath(6, 1.14f, 0.72f, r, 0);
+                break;
+            case RIFT:
+                // 裂谷：指向下方的箭头，横跳时箭头正对着玩家
+                polyPath(new float[][]{{0f, 1.08f}, {0.98f, -0.44f}, {0.34f, -0.20f},
+                        {0f, -0.88f}, {-0.34f, -0.20f}, {-0.98f, -0.44f}}, r);
+                break;
+            case MAGNET:
+                // 磁暴：上下极板的胶囊舰
+                shapePath.rewind();
+                shapePath.addRoundRect(new android.graphics.RectF(-1.12f * r, -0.64f * r,
+                        1.12f * r, 0.64f * r), 0.42f * r, 0.42f * r,
+                        android.graphics.Path.Direction.CW);
+                break;
+            case MIRROR:
+                // 镜面：八角星形，左右上下完全对称
+                starPath(8, 1.20f, 0.54f, r, Math.PI / 8.0);
+                break;
+            default:
+                // 星核：最终旗舰保留最经典的多层六边形
+                hexPath(0f, 0f, r);
+        }
+    }
+
+    /** 形态自己的装饰：转子、甲板槽、巢房、裂缝、极板、镜像缝、余烬、王冠。 */
+    private void drawFormDetail(Canvas c, Boss b, float r) {
+        switch (b.form) {
+            case SPECTER: {
+                // 静默：舰首观察窗 + 两道后掠翼的能量槽
+                paint.setColor(0xCC3A7FA8);
+                c.drawRect(b.x - r * 0.14f, b.y - r * 0.86f, b.x + r * 0.14f, b.y - r * 0.44f, paint);
+                paint.setColor(0x88B9F0FF);
+                for (int i = 0; i < 2; i++) {
+                    float sx = i == 0 ? -1f : 1f;
+                    shapePath.rewind();
+                    shapePath.moveTo(b.x + sx * r * 0.52f, b.y - r * 0.10f);
+                    shapePath.lineTo(b.x + sx * r * 0.90f, b.y + r * 0.26f);
+                    shapePath.lineTo(b.x + sx * r * 0.46f, b.y + r * 0.32f);
+                    shapePath.close();
+                    c.drawPath(shapePath, paint);
+                }
+                break;
+            }
+            case CINDER: {
+                // 灰烬：底部一排还在阴燃的余烬，随时间起伏
+                for (int i = 0; i < 7; i++) {
+                    float wob = (float) Math.sin(b.age * 1.7f + i * 0.9f);
+                    glow.setColor(0x99FF7A45);
+                    c.drawCircle(b.x + (-0.84f + 0.28f * i) * r,
+                            b.y + (0.56f + 0.1f * wob) * r, r * 0.075f, glow);
+                }
+                paint.setColor(0x8C1E1018);
+                c.drawRect(b.x - r * 0.5f, b.y - r * 0.34f, b.x + r * 0.5f, b.y - r * 0.08f, paint);
+                break;
+            }
+            case DOCKYARD: {
+                // 船坞：一条深色飞行甲板 + 三道跑道标线 + 末端弹射光
+                paint.setColor(0xFF12182C);
+                c.drawRect(b.x - r * 0.8f, b.y - r * 0.2f, b.x + r * 0.8f, b.y + r * 0.28f, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(3f);
+                paint.setColor(0x73EAD9FF);
+                for (int i = 0; i < 3; i++) {
+                    float lx = b.x - r * 0.5f + i * r * 0.5f;
+                    c.drawLine(lx, b.y - r * 0.12f, lx, b.y + r * 0.2f, paint);
+                }
+                paint.setStyle(Paint.Style.FILL);
+                glow.setColor(0x667BE0A0);
+                c.drawCircle(b.x, b.y + r * 0.3f, r * (0.18f + 0.04f * (float) Math.sin(b.age * 3f)), glow);
+                break;
+            }
+            case HIVE: {
+                // 蜂巢：六间巢房绕着核心转，转的就是它自己的 spin
+                c.save();
+                c.translate(b.x, b.y);
+                c.rotate((float) Math.toDegrees(b.spin));
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2.5f);
+                paint.setColor(0x99FFF3C4);
+                for (int i = 0; i < 6; i++) {
+                    double a = Math.PI / 3.0 * i;
+                    hexPath((float) Math.cos(a) * r * 0.6f, (float) Math.sin(a) * r * 0.6f, r * 0.2f);
+                    c.drawPath(shapePath, paint);
+                }
+                paint.setStyle(Paint.Style.FILL);
+                c.restore();
+                break;
+            }
+            case RIFT: {
+                // 裂谷：舰体正中一道发光裂缝，横跳的瞬间最亮
+                float g = 0.55f + 0.45f * (float) Math.sin(b.age * 5f);
+                glow.setColor(((int) (0x40 + 0x50 * g) << 24) | 0x00FF5CE0);
+                c.drawRect(b.x - r * 0.1f, b.y - r * 0.66f, b.x + r * 0.1f, b.y + r * 0.9f, glow);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(3f);
+                paint.setColor(0xAAFFC8F5);
+                c.drawLine(b.x - r * 0.62f, b.y - r * 0.3f, b.x - r * 0.18f, b.y + r * 0.14f, paint);
+                c.drawLine(b.x + r * 0.62f, b.y - r * 0.3f, b.x + r * 0.18f, b.y + r * 0.14f, paint);
+                paint.setStyle(Paint.Style.FILL);
+                break;
+            }
+            case MAGNET: {
+                // 磁暴：上下两条极板 + 三道随相位明灭的磁力环
+                paint.setColor(0xFFDCE9FF);
+                c.drawRect(b.x - r * 0.86f, b.y - r * 0.76f, b.x + r * 0.86f, b.y - r * 0.54f, paint);
+                c.drawRect(b.x - r * 0.86f, b.y + r * 0.54f, b.x + r * 0.86f, b.y + r * 0.76f, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(3f);
+                int lit = 0x60 + (int) (0x50 * (0.5f + 0.5f * (float) Math.sin(b.age * 2.6f)));
+                paint.setColor((lit << 24) | 0x0059E0FF);
+                for (int i = 0; i < 3; i++) {
+                    float rx = r * (0.24f + i * 0.17f);
+                    c.drawOval(new android.graphics.RectF(b.x - rx, b.y - r * 0.5f,
+                            b.x + rx, b.y + r * 0.5f), paint);
+                }
+                paint.setStyle(Paint.Style.FILL);
+                break;
+            }
+            case MIRROR: {
+                // 镜面：一条镜像缝 + 左右两枚对称的镜面眼，转子跟着 spin 反着转
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2.5f);
+                paint.setColor(0xB2EDE6FF);
+                c.drawLine(b.x, b.y - r * 1.05f, b.x, b.y + r * 0.95f, paint);
+                paint.setStyle(Paint.Style.FILL);
+                for (int i = 0; i < 2; i++) {
+                    float sx = i == 0 ? -1f : 1f;
+                    glow.setColor(0x88AFF6FF);
+                    c.drawCircle(b.x + sx * r * 0.44f, b.y - r * 0.08f, r * 0.14f, glow);
+                }
+                c.save();
+                c.translate(b.x, b.y);
+                c.rotate((float) Math.toDegrees(-b.spin * 1.6f));
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2f);
+                paint.setColor(0x73EDE6FF);
+                starPath(4, 0.9f, 0.34f, r, 0);
+                c.drawPath(shapePath, paint);
+                paint.setStyle(Paint.Style.FILL);
+                c.restore();
+                break;
+            }
+            default: {
+                // 星核：12 枚金色棱齿的王冠 + 呼吸的核心光
+                paint.setColor(0xCCFFD166);
+                for (int i = 0; i < 12; i++) {
+                    double a = Math.PI / 6.0 * i - b.spin;
+                    float px = b.x + (float) Math.cos(a) * r * 1.02f;
+                    float py = b.y + (float) Math.sin(a) * r * 1.02f;
+                    shapePath.rewind();
+                    shapePath.moveTo(px, py);
+                    shapePath.lineTo(b.x + (float) Math.cos(a + 0.16) * r * 0.74f,
+                            b.y + (float) Math.sin(a + 0.16) * r * 0.74f);
+                    shapePath.lineTo(b.x + (float) Math.cos(a - 0.16) * r * 0.74f,
+                            b.y + (float) Math.sin(a - 0.16) * r * 0.74f);
+                    shapePath.close();
+                    c.drawPath(shapePath, paint);
+                }
+                break;
+            }
+        }
+    }
+
+    /** 单位多边形（系数乘半径）→ shapePath。 */
+    private void polyPath(float[][] unit, float r) {
+        shapePath.rewind();
+        for (int i = 0; i < unit.length; i++) {
+            float px = unit[i][0] * r;
+            float py = unit[i][1] * r;
+            if (i == 0) shapePath.moveTo(px, py); else shapePath.lineTo(px, py);
+        }
+        shapePath.close();
+    }
+
+    /** points 角星，内外半径按系数缩放。 */
+    private void starPath(int points, float outer, float inner, float r, double phase) {
+        shapePath.rewind();
+        for (int i = 0; i < points * 2; i++) {
+            double a = phase + i * Math.PI / points;
+            float rad = (i % 2 == 0 ? outer : inner) * r;
+            float px = (float) Math.cos(a) * rad;
+            float py = (float) Math.sin(a) * rad;
+            if (i == 0) shapePath.moveTo(px, py); else shapePath.lineTo(px, py);
+        }
+        shapePath.close();
     }
 
     private void drawBossParts(Canvas c, GameWorld w, Boss b) {
@@ -3111,7 +3382,8 @@ public class Renderer {
             paint.setTextAlign(Paint.Align.LEFT);
             paint.setTextSize(20f);
             paint.setColor(0xFF7CFFB2);
-            c.drawText("模拟战 · " + Boss.titleFor(tier) + " · 击破 ×" + w.practiceKills,
+            c.drawText("模拟战 · " + Boss.formLabelFor(tier) + " · " + Boss.titleFor(tier)
+                    + " · 击破 ×" + w.practiceKills,
                     40f, 124f, paint);
             if (w.practiceBestClear > 0f) {
                 float f = Math.min(1f, w.practiceBestFlash / 1.2f);
@@ -3808,7 +4080,8 @@ public class Renderer {
             paint.setColor(((int) (0xF0 * k) << 24) | 0x00FFC8D0);
             if (w.practice()) {
                 int tier = Math.max(0, Math.min(3, w.practiceTier));
-                c.drawText("模拟战 · " + Boss.titleFor(tier), VW / 2f, 600f, paint);
+                c.drawText("模拟战 · " + Boss.formLabelFor(tier) + " · " + Boss.titleFor(tier),
+                        VW / 2f, 600f, paint);
             } else if (w.echoBossFight) {
                 c.drawText("残响 · " + Boss.titleFor(w.boss.tier), VW / 2f, 600f, paint);
             } else {
@@ -3820,7 +4093,7 @@ public class Renderer {
             paint.setColor(((int) (0xD8 * k) << 24) | 0xFFC8D6F0);
             c.drawText(w.practice() ? "已解锁舰体 · 不掉命 · 同一艘船可反复打"
                             : w.echoBossFight ? "无伤击沉的旗舰留下的影子 · 更脆、更快"
-                            : Story.sectorTag(w.stageNumber()) + " · 炮口已锁定",
+                            : w.boss.form.label + "形态 · " + w.boss.form.signature,
                     VW / 2f, 634f, paint);
             float barW = 360f;
             float frac = Math.max(0f, Math.min(1f,
@@ -4158,6 +4431,7 @@ public class Renderer {
                 "禁卫 WARDEN 的三片护环会挡直射弹 · 全打碎后核心暴露受击双倍，激光和长枪直接穿环",
                 "TIME 限时抢分只有 120 秒 · 击破旗舰加 15 秒、精英加 2 秒，钟不走完不结算",
                 "图鉴 BOSS 页点已解锁的旗舰就能开练 · 不掉命、不进榜，同一艘船可反复打",
+                "八段航程八种旗舰形态：静默会闪现、裂谷在横跳、磁暴丢追踪磁球 · 剪影、走位、招牌全都不一样",
                 "旗舰战全程不掉血，两段航程后它会以残响姿态回来 · 更脆更快，赏金照给",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
@@ -4451,7 +4725,8 @@ public class Renderer {
                 codexRowFrame(c, tier, known);
                 float y = Ui.CODEX_ROW_Y + tier * Ui.CODEX_ROW_H;
                 codexBossIcon(c, tier, 175f, y + 30f, known);
-                codexText(c, 250f, y, known ? Boss.titleFor(tier) : "？？？",
+                codexText(c, 250f, y, known ? Boss.formLabelFor(tier) + " · " + Boss.titleFor(tier)
+                        : "？？？",
                         known ? bossStats(tier) : "击败后解锁",
                         known ? bossDesc(tier) : "尚未战胜这艘舰体",
                         known ? 0xFFE8F1FF : 0xFF5A647F);
@@ -5533,12 +5808,16 @@ public class Renderer {
         return s;
     }
 
+    /** v1.61：图鉴第二行讲"这一档的旗舰是什么形态、占哪条航道、丢什么招"，硬数据仍在上一行。 */
     private static String bossDesc(int tier) {
-        switch (tier) {
-            case 0: return "直线弹幕，摧毁机炮即可压制";
-            case 1: return "展开侧翼，相位二起会横冲撞击";
-            case 2: return "护盾器削弱核心伤害，先拆发生器";
-            default: return "分裂舱投放僚机，脉冲环覆盖全场";
+        switch (Boss.formFor(tier)) {
+            case SPECTER:  return "静默形态 · 贴顶慢滑，二阶段起闪现换位";
+            case CINDER:   return "灰烬形态 · 压在最顶巡逻，落灰盖满全场";
+            case DOCKYARD: return "船坞形态 · 悬在中段放僚机，扇面护航";
+            case HIVE:     return "蜂巢形态 · 八字自旋，漂流水雷切通道";
+            case RIFT:     return "裂谷形态 · 高速横跳，两侧射出交叉束";
+            case MAGNET:   return "磁暴形态 · 压得最低，纵向浮动丢磁球";
+            default:       return "镜面形态 · 中线悬停自旋，镜像双环";
         }
     }
 

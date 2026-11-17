@@ -17,6 +17,11 @@ public class Boss {
     /** slightly smaller hitbox so grazing the hull edge is forgiving */
     public float hitRadius = 76f;
     public float arenaY = 150f;
+    /**
+     * 本场形态真正驻留的航道高度：{@code arenaY + form.lane}。
+     * 贴顶的形态把舰艏压到屏幕上沿，压低的形态给自己留出纵向起伏的空间。
+     */
+    public float stationY = 150f;
 
     public float x, y;
     public float hp, maxHp;
@@ -49,6 +54,86 @@ public class Boss {
     public float tempo = 1f;
     public float armor = 1f;
 
+    /** 走位模式：形态决定旗舰在场上怎么动。 */
+    public static final int MOVE_PATROL = 0;
+    public static final int MOVE_GLIDE = 1;
+    public static final int MOVE_HOLD = 2;
+    public static final int MOVE_FIGURE8 = 3;
+    public static final int MOVE_DASH = 4;
+    public static final int MOVE_BOB = 5;
+    public static final int MOVE_SPIN = 6;
+
+    /**
+     * v1.61 旗舰形态 FORM：八段航程的旗舰各有各的剪影、走位和招牌招式。
+     * 舰级（tier）只负责"多大、多硬"，形态负责"长什么样、怎么动、丢什么弹幕"。
+     * lane 是它占的航道高度：负数贴顶、正数压低，配合起伏幅度决定吊舱能不能被够着。
+     */
+    public enum Form {
+        /** 静默：慢滑 + 大起伏，二阶段起会闪现换位，招牌是高速针雨。 */
+        SPECTER("静默", "闪现换位 · 高速针雨", MOVE_GLIDE, 0.2f, -6f),
+        /** 灰烬：压得最低的巡逻舰，招牌是把全场盖住的落灰。 */
+        CINDER("灰烬", "贴顶巡逻 · 落灰覆盖", MOVE_PATROL, 0.3f, -14f),
+        /** 船坞：几乎停在原地，靠一波波僚机和护航弹压人。 */
+        DOCKYARD("船坞", "定点放机 · 护航弹幕", MOVE_HOLD, 0.15f, 26f),
+        /** 蜂巢：8 字环绕 + 自旋，招牌是切通道的水雷带。 */
+        HIVE("蜂巢", "八字自旋 · 漂流水雷", MOVE_FIGURE8, 1.1f, 10f),
+        /** 裂谷：短距高速横跳，招牌是贯穿全屏的交叉束。 */
+        RIFT("裂谷", "高速横跳 · 交叉光束", MOVE_DASH, 0.4f, 0f),
+        /** 磁暴：上下浮动的极板舰，招牌是慢速追踪磁球。 */
+        MAGNET("磁暴", "纵向浮动 · 追踪磁球", MOVE_BOB, 0.5f, 72f),
+        /** 镜面：中心悬停自旋，招牌是左右完全对称的镜像环。 */
+        MIRROR("镜面", "悬停自旋 · 镜像双环", MOVE_SPIN, 0.75f, 18f),
+        /** 星核：最终旗舰，棱镜 + 星核爆裂，招式最杂。 */
+        SENTINEL("星核", "棱镜护环 · 星核爆裂", MOVE_PATROL, 0.35f, -8f);
+
+        public final String label;
+        /** 图鉴与横幅用的一句话：它怎么动 + 它的招牌招式。 */
+        public final String signature;
+        public final int moveMode;
+        public final float spinRate;
+        /** 航道偏移（虚拟单位）：贴顶的把舰艏压到屏幕上沿，压低的给自己留出起伏空间。 */
+        public final float lane;
+
+        Form(String label, String signature, int moveMode, float spinRate, float lane) {
+            this.label = label;
+            this.signature = signature;
+            this.moveMode = moveMode;
+            this.spinRate = spinRate;
+            this.lane = lane;
+        }
+    }
+
+    /** 常规旗舰的形态循环：七种形态对应前七段航程，第八段由 {@link Form#SENTINEL} 压阵。 */
+    private static final Form[] FORM_CYCLE = {
+            Form.SPECTER, Form.CINDER, Form.DOCKYARD, Form.HIVE,
+            Form.RIFT, Form.MAGNET, Form.MIRROR
+    };
+
+    /** 第 level 艘常规旗舰的形态（无尽与回声周目按同一循环滚回来，只是舰级更高）。 */
+    public static Form formFor(int level) {
+        return FORM_CYCLE[Math.floorMod(level, FORM_CYCLE.length)];
+    }
+
+    /** 形态名（无实例场景用，例如图鉴按档位取第一艘的形态）。 */
+    public static String formLabelFor(int level) {
+        return formFor(level).label;
+    }
+
+    /** 本场的形态。 */
+    public Form form = Form.SPECTER;
+    /** 舰体自旋角（弧度），旋转系形态会真的转起来。 */
+    public float spin;
+    /** 闪现残影强度（>0 时渲染层画一层错位重影）。 */
+    public float blink;
+    /** 走位锚点 x：定点与环绕系形态绕着它移动。 */
+    public float anchorX = GameWorld.WIDTH / 2f;
+    /** 是否已经入场就位（到位后各形态才开始走自己的轨迹）。 */
+    private boolean arrived;
+    /** 下一次闪现 / 横跳的倒计时。 */
+    private float specialCd = 2.4f;
+    /** 横跳形态的目标 x。 */
+    private float dashTargetX;
+
     public Boss() {
         for (int i = 0; i < parts.length; i++) parts[i] = new BossPart();
     }
@@ -80,6 +165,14 @@ public class Boss {
         this.affix = BossAffix.NONE;
         this.tempo = 1f;
         this.armor = 1f;
+        // v1.61 形态：每段航程换一艘长得不一样、动得也不一样、招式更不一样的旗舰
+        applyForm(formFor(level));
+        this.spin = 0f;
+        this.blink = 0f;
+        this.anchorX = GameWorld.WIDTH / 2f;
+        this.arrived = false;
+        this.specialCd = 2.4f;
+        this.dashTargetX = this.x;
         layoutParts();
     }
 
@@ -178,7 +271,7 @@ public class Boss {
             if (phase >= 3 && tier >= 1) prismQueued = true;
         }
 
-        // entry glide then sine patrol; larger / later bosses move a bit quicker
+        // entry glide then form-specific station-keeping; later bosses move a bit quicker
         float speed = 55f + phase * 24f + tier * 7f;
         if (ramTimer > 0f) {
             // 横冲：向目标侧高速平移，撞到底部边缘再停下
@@ -187,20 +280,18 @@ public class Boss {
             float step = RAM_SPEED * dt;
             if (Math.abs(to) <= step) x = ramTargetX;
             else x += (to > 0f ? step : -step);
-            y = arenaY + (float) Math.sin(age * 6f) * 8f;
+            y = laneY(8f, 6f);
             if (ramTimer <= 0f) ramTimer = 0f;
             return;
         }
-        if (y < arenaY) {
+        if (blink > 0f) blink = Math.max(0f, blink - dt * 2.4f);
+        spin += form.spinRate * dt;
+        if (!arrived) {
+            // 入场滑入：一旦落到形态航道高度就"上锁"，之后各形态按自己的轨迹走
             y += 90f * dt;
+            if (y >= stationY) { y = stationY; arrived = true; }
         } else {
-            x += dir * speed * dt;
-            if (x < radius + 30f) { x = radius + 30f; dir = 1f; }
-            if (x > GameWorld.WIDTH - radius - 30f) {
-                x = GameWorld.WIDTH - radius - 30f;
-                dir = -1f;
-            }
-            y = arenaY + (float) Math.sin(age * 0.9f) * 26f;
+            moveByForm(dt, speed);
         }
 
         if (staggerTimer <= 0f) {
@@ -210,10 +301,123 @@ public class Boss {
         }
     }
 
+    /**
+     * 换上某个形态，并把航道基准挪到它该在的高度。最终旗舰、回声、模拟战都走这里，
+     * 保证"形态"和"它占的那条航道"永远成对出现。
+     */
+    public void applyForm(Form next) {
+        form = next;
+        stationY = clampStation(arenaY + next.lane);
+    }
+
+    /**
+     * 航道高度收口：舰体上沿与顶部吊舱不能被推出屏幕上沿——一旦画到画布外，
+     * 玩家既打不到护盾发生器，也看不出它下一步要丢什么。
+     */
+    private float clampStation(float want) {
+        float lowest = radius * 0.78f + 30f;
+        return want < lowest ? lowest : want;
+    }
+
+    /** 纵向波形：围绕 stationY 起伏，并对屏幕上沿收口。 */
+    private float laneY(float amp, float freq) {
+        return clampStation(stationY + (float) Math.sin(age * freq) * amp);
+    }
+
+    /**
+     * 形态走位：七种旗舰七种轨迹。测试里可以直接 {@link #update(float)} 观察 x / y，
+     * 因此这里只保证不越界（左右各留 30 虚拟单位的边距），不保证可预测的相位。
+     */
+    private void moveByForm(float dt, float speed) {
+        float left = radius + 30f;
+        float right = GameWorld.WIDTH - radius - 30f;
+        float mid = GameWorld.WIDTH / 2f;
+        switch (form.moveMode) {
+            case MOVE_GLIDE: {
+                // 静默：慢速滑行 + 大幅起伏，二阶段起会闪现到镜像位置
+                x += dir * speed * 0.42f * dt;
+                if (x < left) { x = left; dir = 1f; }
+                if (x > right) { x = right; dir = -1f; }
+                y = laneY(62f, 0.55f);
+                if (staggerTimer > 0f) break;
+                specialCd -= dt;
+                if (specialCd <= 0f && phase >= 2) {
+                    specialCd = 3.4f - 0.5f * phase;
+                    x = clamp(GameWorld.WIDTH - x, left, right);
+                    dir = x < mid ? 1f : -1f;
+                    blink = 1f;
+                    flash = Math.max(flash, 0.18f);
+                }
+                break;
+            }
+            case MOVE_HOLD: {
+                // 船坞：定点悬停，只留极小的起伏，把注意力全放在放僚机上
+                x += (anchorX - x) * Math.min(1f, dt * 0.55f);
+                y = laneY(10f, 0.8f);
+                break;
+            }
+            case MOVE_FIGURE8: {
+                // 蜂巢：绕锚点画 8 字，横向慢、纵向快，舰体同步自旋
+                x = clamp(anchorX + (float) Math.sin(age * 0.62f) * (mid - left) * 1.5f, left, right);
+                y = laneY(54f, 1.24f);
+                break;
+            }
+            case MOVE_DASH: {
+                // 裂谷：短距高速横跳，每次必然跳到航道的另一侧
+                if (staggerTimer <= 0f) {
+                    specialCd -= dt;
+                    if (specialCd <= 0f) {
+                        specialCd = 1.45f - 0.13f * phase;
+                        float span = mid - left;
+                        float side = x <= mid ? 1f : -1f;
+                        float reach = span * (0.55f + 0.4f * GameWorld.RNG.get().nextFloat());
+                        dashTargetX = clamp(mid + side * reach, left, right);
+                        flash = Math.max(flash, 0.12f);
+                    }
+                }
+                float dx = dashTargetX - x;
+                float step = (430f + 90f * phase) * dt;
+                x += Math.abs(dx) <= step ? dx : Math.copySign(step, dx);
+                x = clamp(x, left, right);
+                y = laneY(18f, 2.1f);
+                break;
+            }
+            case MOVE_BOB: {
+                // 磁暴：极板舰，横向几乎不动，纵向大幅浮动
+                x = clamp(anchorX + (float) Math.sin(age * 0.42f) * (mid - left) * 0.8f, left, right);
+                y = laneY(88f, 1.15f);
+                break;
+            }
+            case MOVE_SPIN: {
+                // 镜面：压在中线自旋，只留一点呼吸感
+                x += (anchorX - x) * Math.min(1f, dt * 0.9f);
+                y = laneY(22f, 0.9f);
+                break;
+            }
+            default: {
+                // 巡逻（灰烬 / 星核）：经典的左右压线
+                x += dir * speed * dt;
+                if (x < left) { x = left; dir = 1f; }
+                if (x > right) { x = right; dir = -1f; }
+                y = laneY(26f, 0.9f);
+            }
+        }
+    }
+
+    /** 本形态的走位模式名，供图鉴与调试文案。 */
+    public int moveMode() {
+        return form.moveMode;
+    }
+
+    /** 是否已经落到航道高度：入场滑入完成，或被外部直接摆到位（图鉴、模拟战、测试）。 */
+    public boolean inPosition() {
+        return arrived || y >= stationY - 4f || y >= arenaY - 4f;
+    }
+
     /** 横冲（撞击招式）是否可触发：第二艘 Boss 起、进入二阶段后。 */
     public boolean readyToRam() {
         return tier >= 1 && phase >= 2 && staggerTimer <= 0f && ramTimer <= 0f
-                && ramCd <= 0f && y >= arenaY - 4f && !partsAllDestroyed();
+                && ramCd <= 0f && inPosition() && !partsAllDestroyed();
     }
 
     /** 开始一次横冲：冲向远离当前的一侧，扫过全场。 */
@@ -254,7 +458,7 @@ public class Boss {
     /** 三阶段棱镜召唤：第二艘 Boss 起、入场就位、从硬直中恢复后才允许。 */
     public boolean readyToSummonPrism() {
         return tier >= 1 && phase >= 3 && prismQueued && !prismsSummoned
-                && staggerTimer <= 0f && y >= arenaY - 4f;
+                && staggerTimer <= 0f && inPosition();
     }
 
     /** 召唤一对反向环绕的棱镜，加到部件末尾；返回实际数量。 */

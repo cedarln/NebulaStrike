@@ -159,7 +159,11 @@ public class GameWorld {
         /** v1.58：限时抢分买到加时（code = 本次加时整秒） */
         TIME_BONUS,
         /** v1.58：限时抢分时间耗尽（code = 本局总加时秒数） */
-        TIME_UP
+        TIME_UP,
+        /** v1.61：旗舰形态揭晓（code = {@link Boss.Form#ordinal()}） */
+        BOSS_FORM,
+        /** v1.61：旗舰打出形态招牌招式（code = {@link Boss.Form#ordinal()}） */
+        BOSS_SIGNATURE
     }
     public static final class GameEvent {
         public final EventType type;
@@ -1057,6 +1061,13 @@ public class GameWorld {
     public int echoDefeats;
     /** 残响击破提示的余辉。 */
     public float echoFlash;
+    /**
+     * v1.61：形态招牌招式的余辉（渲染层用它把招式名打在旗舰下方）。
+     * 只在旗舰自己那一段攻击里非零，与代码路径无关的事件都能对齐。
+     */
+    public float signatureFlash;
+    /** 刚才打出来的那招属于哪个形态。 */
+    public Boss.Form signatureForm = Boss.Form.SPECTER;
     /** 残响只有本体的 55% 血，但出招更快：同一套招式，更紧的节拍。 */
     public static final float ECHO_SHADE_HP_SCALE = 0.55f;
     public static final float ECHO_SHADE_TEMPO = 1.18f;
@@ -1431,6 +1442,8 @@ public class GameWorld {
                             ? Math.max(0, Math.min(3, practiceTier))
                             : finalFight ? FINAL_BOSS_LEVEL : bossesDefeated;
                     boss.init(bossLevel);
+                    // v1.61：最终旗舰固定为「星核」形态，七种常规形态按航段循环登场
+                    if (finalFight) boss.applyForm(Boss.Form.SENTINEL);
                     // 练功固定招式：词缀会把同一艘船改成另一场，失去"反复练这一招"的意义
                     if (!practice()) rollBossAffix(bossLevel);
                     if (echo()) {
@@ -1447,6 +1460,9 @@ public class GameWorld {
                     events.add(new GameEvent(EventType.BOSS_AFFIX, boss.x, boss.y,
                             boss.affix.ordinal()));
                 }
+                // v1.61：形态横幅——这一段的旗舰是谁、它会怎么动、它的招牌是什么
+                events.add(new GameEvent(EventType.BOSS_FORM, boss.x, boss.y,
+                        boss.form.ordinal()));
                 finalBossRebirthed = false;
                 // Boss 入场时护航舰先行撤离：两套节拍不叠在一起，也避免它替玩家吃掉 Boss 弹
                 if (escort.active && !escort.leaving) escort.leaving = true;
@@ -1998,6 +2014,14 @@ public class GameWorld {
         attackSeq++;
         boolean ring = tier >= 1 && boss.phase >= 2 && attackSeq % 3 == 0;
         boolean net = tier >= 1 && boss.phase >= 2 && attackSeq % 4 == 0;
+        // v1.61：形态招牌招式插进常规节拍。扩散环与弹幕网是"旗舰级"的骨架招式，永远优先；
+        // 剩下的平A里每隔几次换一次本形态的看家招，一阶段更频繁（一阶段本来也没环和网）。
+        boolean signature = !ring && !net
+                && attackSeq % (boss.phase >= 2 && tier >= 1 ? 5 : 4) == 0;
+        if (signature) {
+            fireSignature(boss.form, tier);
+            return;
+        }
         switch (boss.phase) {
             case 1: // 简单扇形：随着 Boss 级别变宽
                 fireFan(5 + tier * 2, 290f + tier * 18f, 0.19f);
@@ -2109,6 +2133,183 @@ public class GameWorld {
             b.initRadius(boss.x, y0,
                     (float) Math.cos(ang) * speed, (float) Math.sin(ang) * speed, 12f);
         }
+    }
+
+    /**
+     * v1.61 形态招牌招式：八种形态各有一招自己的看家弹幕，打出去时广播一次
+     * {@link EventType#BOSS_SIGNATURE}，渲染层用它弹出招式名。返回本次敌弹数。
+     */
+    int fireSignature(Boss.Form form, int tier) {
+        int made;
+        switch (form) {
+            case SPECTER:  made = fireNeedleRain(6 + tier); break;
+            case CINDER:   made = fireAshRain(11 + tier * 2); break;
+            case DOCKYARD: made = fireEscortWave(tier); break;
+            case HIVE:     made = fireMineBelt(4 + tier); break;
+            case RIFT:     made = fireCrossBeam(tier); break;
+            case MAGNET:   made = fireMagnetOrbs(tier >= 2 ? 3 : 2); break;
+            case MIRROR:   made = fireMirrorRings(tier); break;
+            default:       made = fireCoreBurst(tier); break;
+        }
+        events.add(new GameEvent(EventType.BOSS_SIGNATURE, boss.x, boss.y, form.ordinal()));
+        signatureForm = form;
+        signatureFlash = 1.5f;
+        return made;
+    }
+
+    /** 静默·高速针雨：沿舰体一字排开的高速细针，几乎贴着玩家的走位穿过去。 */
+    int fireNeedleRain(int count) {
+        int made = 0;
+        float left = boss.x - boss.radius * 0.9f;
+        float span = boss.radius * 1.8f;
+        for (int i = 0; i < count; i++) {
+            EnemyBullet b = freeEnemyBullet();
+            if (b == null) break;
+            float px = count <= 1 ? boss.x : left + span * i / (count - 1);
+            float py = boss.y + boss.hitRadius * 0.5f;
+            float dx = ship.x - px, dy = ship.y - py;
+            float len = (float) Math.sqrt(dx * dx + dy * dy);
+            if (len < 1f) len = 1f;
+            float ang = (float) Math.atan2(dy, dx) + (RNG.get().nextFloat() - 0.5f) * 0.07f;
+            b.initRadius(px, py, (float) Math.cos(ang) * 480f, (float) Math.sin(ang) * 480f, 7f);
+            made++;
+        }
+        addShake(0.16f, 5f);
+        return made;
+    }
+
+    /** 灰烬·落灰覆盖：整幅屏幕宽度洒下的慢速余烬，把落点一寸寸盖住。 */
+    int fireAshRain(int columns) {
+        if (columns < 4) columns = 4;
+        int made = 0;
+        float margin = 44f;
+        float step = (WIDTH - margin * 2f) / (columns - 1);
+        float y0 = Math.max(40f, boss.y + boss.hitRadius * 0.3f);
+        for (int i = 0; i < columns; i++) {
+            EnemyBullet b = freeEnemyBullet();
+            if (b == null) break;
+            b.initRadius(margin + step * i, y0,
+                    (RNG.get().nextFloat() - 0.5f) * 30f,
+                    128f + RNG.get().nextFloat() * 76f, 9f);
+            made++;
+        }
+        addShake(0.12f, 4f);
+        return made;
+    }
+
+    /** 船坞·护航弹幕：一层慢速宽扇面替僚机挡枪，同时再放一批僚机出来。 */
+    int fireEscortWave(int tier) {
+        int count = 7 + tier * 2;
+        int made = 0;
+        for (int i = 0; i < count; i++) {
+            EnemyBullet b = freeEnemyBullet();
+            if (b == null) break;
+            float ang = (float) (Math.PI / 2 + (i - (count - 1) / 2f) * 0.26f);
+            b.initRadius(boss.x, boss.y + boss.hitRadius * 0.7f,
+                    (float) Math.cos(ang) * 205f, (float) Math.sin(ang) * 205f, 14f);
+            made++;
+        }
+        summonMinions();
+        addShake(0.2f, 6f);
+        return made;
+    }
+
+    /** 蜂巢·漂流水雷：从舰体下方抛出一条横滚的水雷带，把下面的通道切成几段。 */
+    int fireMineBelt(int count) {
+        int made = 0;
+        float left = boss.x - boss.radius * 1.1f;
+        float span = boss.radius * 2.2f;
+        for (int i = 0; i < count; i++) {
+            EnemyBullet b = freeEnemyBullet();
+            if (b == null) break;
+            float px = count <= 1 ? boss.x : left + span * i / (count - 1);
+            b.initDriftingMine(px, boss.y + boss.hitRadius * 0.8f,
+                    (i % 2 == 0 ? -1f : 1f) * (52f + 16f * boss.tier), 92f);
+            made++;
+        }
+        addShake(0.18f, 5f);
+        return made;
+    }
+
+    /** 裂谷·交叉光束：两侧屏幕边缘同时射出高速弹链，在场地中央拧成一个 X。 */
+    int fireCrossBeam(int tier) {
+        int per = 5 + tier;
+        int made = 0;
+        float y0 = Math.max(70f, boss.y + boss.hitRadius);
+        for (int i = 0; i < per; i++) {
+            float y = y0 + i * 112f;
+            EnemyBullet l = freeEnemyBullet();
+            if (l != null) {
+                l.initRadius(-12f, y, 520f, 96f + i * 12f, 10f);
+                made++;
+            }
+            EnemyBullet r = freeEnemyBullet();
+            if (r != null) {
+                r.initRadius(WIDTH + 12f, y, -520f, 96f + i * 12f, 10f);
+                made++;
+            }
+        }
+        addShake(0.24f, 7f);
+        return made;
+    }
+
+    /** 磁暴·追踪磁球：慢速但一路跟着玩家修的磁球，靠走位甩掉而不是靠速度躲开。 */
+    int fireMagnetOrbs(int count) {
+        int made = 0;
+        for (int i = 0; i < count; i++) {
+            EnemyBullet b = freeEnemyBullet();
+            if (b == null) break;
+            float px = boss.x + (i - (count - 1) / 2f) * boss.radius * 0.7f;
+            float py = boss.y + boss.hitRadius * 0.6f;
+            float dx = ship.x - px, dy = ship.y - py;
+            float len = (float) Math.sqrt(dx * dx + dy * dy);
+            if (len < 1f) len = 1f;
+            b.initHoming(px, py, dx / len * 165f, dy / len * 165f, 0.55f, 5.2f);
+            made++;
+        }
+        addShake(0.2f, 6f);
+        return made;
+    }
+
+    /** 镜面·镜像双环：左右两个对称的脉冲环同时张开，两半屏幕镜像一样难躲。 */
+    int fireMirrorRings(int tier) {
+        int count = 8 + tier * 2;
+        int made = 0;
+        float spin = boss.age * 1.4f;
+        float dx = boss.radius * 0.8f;
+        for (int side = 0; side < 2; side++) {
+            float cx = boss.x + (side == 0 ? -dx : dx);
+            for (int i = 0; i < count; i++) {
+                EnemyBullet b = freeEnemyBullet();
+                if (b == null) break;
+                float ang = (side == 0 ? spin : -spin) + i * ((float) (Math.PI * 2) / count);
+                b.initRadius(cx, boss.y,
+                        (float) Math.cos(ang) * 245f, (float) Math.sin(ang) * 245f, 11f);
+                made++;
+            }
+        }
+        addShake(0.22f, 6f);
+        return made;
+    }
+
+    /** 星核·星核爆裂：一圈双层速度的核心冲击 + 一轮针雨，最终旗舰的复合招式。 */
+    int fireCoreBurst(int tier) {
+        int count = 14 + tier * 4;
+        int made = 0;
+        float spin = boss.age * 1.9f;
+        for (int i = 0; i < count; i++) {
+            EnemyBullet b = freeEnemyBullet();
+            if (b == null) break;
+            float ang = spin + i * ((float) (Math.PI * 2) / count);
+            boolean fast = i % 2 == 0;
+            float sp = fast ? 305f : 185f;
+            b.initRadius(boss.x, boss.y,
+                    (float) Math.cos(ang) * sp, (float) Math.sin(ang) * sp, fast ? 9f : 13f);
+            made++;
+        }
+        made += fireNeedleRain(3 + tier);
+        addShake(0.3f, 8f);
+        return made;
     }
 
     private static float lerpAngle(float from, float to, float t) {
@@ -2975,6 +3176,7 @@ public class GameWorld {
         if (echoShardFlash > 0f) echoShardFlash = Math.max(0f, echoShardFlash - dt);
         if (practiceBestFlash > 0f) practiceBestFlash = Math.max(0f, practiceBestFlash - dt);
         if (echoFlash > 0f) echoFlash = Math.max(0f, echoFlash - dt);
+        if (signatureFlash > 0f) signatureFlash = Math.max(0f, signatureFlash - dt);
         if (novaFlash > 0f) novaFlash = Math.max(0f, novaFlash - dt * 2.2f);
         if (breakPulse > 0f) breakPulse = Math.max(0f, breakPulse - dt * 3.2f);
         if (mutatorBanner > 0f) mutatorBanner = Math.max(0f, mutatorBanner - dt);
@@ -6701,6 +6903,7 @@ public class GameWorld {
         echoBossFight = false;
         echoDefeats = 0;
         echoFlash = 0f;
+        signatureFlash = 0f;
         bossFightHits = 0;
         campaignVictory = false;
         campaignFirstClear = false;

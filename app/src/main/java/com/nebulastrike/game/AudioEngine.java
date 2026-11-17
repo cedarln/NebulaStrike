@@ -322,6 +322,16 @@ public class AudioEngine {
                     play(SfxId.ALARM, 0.5f, 0.74f + 0.06f * Math.max(0, e.code - 1),
                             panFor(e.x));
                     break;
+                case BOSS_FORM:
+                    // v1.61 形态揭晓：同一声警报按形态偏移音高，八种船听得出八种调
+                    play(SfxId.ALARM, 0.46f, 0.68f + 0.05f * Math.max(0, e.code),
+                            panFor(e.x));
+                    break;
+                case BOSS_SIGNATURE:
+                    // v1.61 招牌招式：比脉冲环更钝的一声，提醒"这招不是平时那招"
+                    play(SfxId.BOSS_NET, 0.5f, 0.82f + 0.04f * Math.max(0, e.code),
+                            panFor(e.x));
+                    break;
                 case ULT_READY:
                     play(SfxId.ULT_READY, 0.75f, 1f, 0f);
                     break;
