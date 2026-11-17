@@ -12,6 +12,9 @@
 #   本机已用 `gh auth login` 登录时不需要 token，脚本会优先走 gh。
 #   Release 正文里可以写占位符 {{SHA256}}，脚本会替换成真实校验和；
 #   没给 --notes 时自动汇总上个 tag 以来的中文提交生成正文。
+#   github.com 直连不通的机器（DNS 被污染 / 只走本机代理）：
+#     GIT_HTTPS_PROXY=http://127.0.0.1:7890 scripts/release.sh 1.10.0 --notes notes.md
+#   这个变量只加在 push 上（-c http.proxy/-c https.proxy）；gh 那几步照旧吃 HTTPS_PROXY。
 #
 # 流程（一条命令走完，失败自动回滚 build.gradle）:
 #   1. 环境探测   JDK 17 / Android SDK / build-tools / 签名密码
@@ -19,7 +22,7 @@
 #   3. 升版本     versionName 换新、versionCode +1
 #   4. 验证       scripts/verify.sh（SKIP_VERIFY=1 可跳过）
 #   5. 构建       assembleRelease + apksigner 验签 + aapt2 核对版本 + SHA-256
-#   6. 提交推送   中文提交 + tag + push main（gh 优先，其次 token）
+#   6. 提交推送   中文提交 + tag + push main（gh 优先，其次 token；可走 GIT_HTTPS_PROXY）
 #   7. 发布       创建 Release 并上传 APK
 #   8. 回验       latest 指向 + 重新下载 asset 比对 SHA-256
 # ============================================================================
@@ -34,6 +37,7 @@ SKIP_VERIFY="${SKIP_VERIFY:-}"
 NOTES_FILE="${NOTES_FILE:-}"
 COMMIT_MSG="${COMMIT_MESSAGE:-}"
 TOKEN="${GITHUB_TOKEN:-}"
+GIT_HTTPS_PROXY="${GIT_HTTPS_PROXY:-}"
 VER=""
 
 log() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
@@ -47,7 +51,7 @@ while [ $# -gt 0 ]; do
         --dry-run) DRY_RUN=1; shift ;;
         --message) COMMIT_MSG="${2:?--message 后面要跟提交说明}"; shift 2 ;;
         --message=*) COMMIT_MSG="${1#--message=}"; shift ;;
-        -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,/^# =\{5,\}/p' "$0"; exit 0 ;;
         v[0-9]*|[0-9]*) [ -z "$VER" ] && VER="${1#v}" || TOKEN="${1#v}"; shift ;;
         *) shift ;;
     esac
@@ -216,6 +220,15 @@ SIZE="$(ls -lh "$GRADLE_APK" | awk '{print $5}')"
 log "  签名有效（CN=$CERT_CN）· 大小 $SIZE · SHA-256 ${SHA:0:16}…"
 
 # ---- 6. 提交 / tag / 推送 ----
+# 有些机器上 github.com 直连不通（DNS 被污染），只能走本机代理。git 不会稳定吃到
+# http_proxy 环境变量，所以这里给了 GIT_HTTPS_PROXY 就显式传给 push：
+# 推送一旦失败，回滚会把本地 tag 删掉、版本号还原，而版本号提交已经落在 main 上，
+# 变成"提交在仓库里、Release 却不存在"的半发布状态，宁可在这里一次走通。
+PUSH_PROXY_ARGS=""
+if [ -n "${GIT_HTTPS_PROXY:-}" ]; then
+    PUSH_PROXY_ARGS="-c http.proxy=$GIT_HTTPS_PROXY -c https.proxy=$GIT_HTTPS_PROXY"
+    log "  推送走代理：$GIT_HTTPS_PROXY"
+fi
 if [ -z "$DRY_RUN" ]; then
     log "提交版本号变更并打 tag $TAG"
     [ -n "$COMMIT_MSG" ] || COMMIT_MSG="发布：v$VER 版本号升级 (versionCode $NEW_CODE)"
@@ -223,9 +236,11 @@ if [ -z "$DRY_RUN" ]; then
     git commit -q -m "$COMMIT_MSG"
     git tag "$TAG"
     if [ -n "$HAS_GH" ]; then
-        PUSH_LOG="$(git push origin main "$TAG" 2>&1)" || die "推送失败：$PUSH_LOG"
+        # shellcheck disable=SC2086
+        PUSH_LOG="$(git $PUSH_PROXY_ARGS push origin main "$TAG" 2>&1)" || die "推送失败：$PUSH_LOG"
     else
-        PUSH_LOG="$(git push "https://cedarln:$TOKEN@github.com/$REPO.git" main "$TAG" 2>&1)" \
+        # shellcheck disable=SC2086
+        PUSH_LOG="$(git $PUSH_PROXY_ARGS push "https://cedarln:$TOKEN@github.com/$REPO.git" main "$TAG" 2>&1)" \
             || die "推送失败，请检查 token 权限：$PUSH_LOG"
     fi
     PUSHED=1
