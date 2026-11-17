@@ -21,8 +21,8 @@ android {
         applicationId "com.nebulastrike.game"
         minSdk 21
         targetSdk 34
-        versionCode 69
-        versionName "1.66.0"
+        versionCode 70
+        versionName "1.67.0"
     }
 
     lint {
