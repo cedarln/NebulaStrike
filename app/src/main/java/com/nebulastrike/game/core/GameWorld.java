@@ -165,7 +165,9 @@ public class GameWorld {
         /** v1.61：旗舰打出形态招牌招式（code = {@link Boss.Form#ordinal()}） */
         BOSS_SIGNATURE,
         /** v1.63：一轮招牌弹幕散尽且没打中玩家 = 识破（code = {@link Boss.Form#ordinal()}） */
-        BOSS_COUNTER
+        BOSS_COUNTER,
+        /** v1.64：识破开启反击窗口（code = {@link Boss.Form#ordinal()}） */
+        BOSS_COUNTER_STRIKE
     }
     public static final class GameEvent {
         public final EventType type;
@@ -1103,6 +1105,19 @@ public class GameWorld {
     /** 本场旗舰战里真正掉血的次数：0 才留下残响。 */
     int bossFightHits;
 
+    /**
+     * v1.64 破招反击：识破之后剩下的反击窗口（秒）。窗口内玩家子弹打在旗舰舰体与部件上
+     * 伤害 ×1.5（{@link #counterStrikeDamage}）。读懂了才有，时间一到自己收走，挨打不掉。
+     */
+    public float counterStrikeTimer;
+    /** 本局开过几次反击窗口（≤ {@link #countersRead}）。 */
+    public int counterStrikes;
+    /** 反击窗口里额外打出去的伤害（结算与提示用）。 */
+    public int counterStrikeDamage;
+    /** 反击窗口长度与加成：5 秒、+50%。 */
+    public static final float COUNTER_STRIKE_WINDOW = 5f;
+    public static final int COUNTER_STRIKE_BONUS_PCT = 50;
+
 
     // ---- 得分构成（结算图用） ----
     public static final int SCORE_ENEMY = 0;
@@ -1481,6 +1496,8 @@ public class GameWorld {
                 bossFightHits = 0;
                 // v1.63：新旗舰入场，上一艘船那轮没散尽的招牌不再补发识破
                 cancelCounterRead();
+                // v1.64：反击窗口也只属于刚读懂的那艘船，下一艘从头再来
+                counterStrikeTimer = 0f;
                 if (boss.affix != BossAffix.NONE) {
                     events.add(new GameEvent(EventType.BOSS_AFFIX, boss.x, boss.y,
                             boss.affix.ordinal()));
@@ -2217,6 +2234,25 @@ public class GameWorld {
         events.add(new GameEvent(EventType.BOSS_COUNTER,
                 boss.active ? boss.x : ship.x, boss.active ? boss.y : ship.y,
                 signatureForm.ordinal()));
+        // v1.64 破招反击：读懂了就有 5 秒反击窗口，这段时间打旗舰伤害 +50%。
+        // 窗口是"已经读到"的奖励，所以之后挨一下也不收回；只在旗舰还在场时开启，不跨船继承。
+        if (boss.active) {
+            counterStrikeTimer = COUNTER_STRIKE_WINDOW;
+            counterStrikes++;
+            events.add(new GameEvent(EventType.BOSS_COUNTER_STRIKE,
+                    ship.x, ship.y, signatureForm.ordinal()));
+        }
+    }
+
+    /**
+     * v1.64：反击窗口内的旗舰伤害加成（{@link #COUNTER_STRIKE_BONUS_PCT}%，向上至少 +1）。
+     * 窗口没开就原样返回；额外打出去的部分累计进 {@link #counterStrikeDamage}。
+     */
+    int counterStrikeBoost(int dealt) {
+        if (counterStrikeTimer <= 0f || dealt <= 0) return dealt;
+        int boosted = dealt + Math.max(1, dealt * COUNTER_STRIKE_BONUS_PCT / 100);
+        counterStrikeDamage += boosted - dealt;
+        return boosted;
     }
 
     /** 挨了一下就把这一轮的识破判定作废：读懂没读懂，看的是这一轮有没有碰到你。 */
@@ -3247,6 +3283,8 @@ public class GameWorld {
         if (signatureFlash > 0f) signatureFlash = Math.max(0f, signatureFlash - dt);
         // v1.63：识破判定——每帧看一眼"这一轮招牌散尽了没有"，窗口到点就作废
         if (counterFlash > 0f) counterFlash = Math.max(0f, counterFlash - dt);
+        // v1.64：反击窗口自己收时间（先走表再判定，同帧识破仍能从满窗口开始计）
+        if (counterStrikeTimer > 0f) counterStrikeTimer = Math.max(0f, counterStrikeTimer - dt);
         if (pendingCounterSerial != 0) {
             counterWindow = Math.max(0f, counterWindow - dt);
             resolveCounterRead();
@@ -5591,9 +5629,12 @@ public class GameWorld {
                         if (b.cluster) burstFragments(b.x, b.y);
                         if (b.arc && b.arcJumps > 0) chainArc(b.x, b.y, b.arcJumps, null);
                         int dealt = damageOrCrit(b.damage);
-                        if (dealt != b.damage
-                                || dealt >= 3) spawnFloatText(b.x, b.y, dealt,
-                                dealt != b.damage ? FLOAT_CRIT : FLOAT_DAMAGE, dealt != b.damage);
+                        boolean crit = dealt != b.damage;
+                        // v1.64：反击窗口内连部件也一起多吃 50%
+                        boolean strike = counterStrikeTimer > 0f;
+                        dealt = counterStrikeBoost(dealt);
+                        if (crit || strike || dealt >= 3) spawnFloatText(b.x, b.y, dealt,
+                                crit ? FLOAT_CRIT : strike ? FLOAT_COUNTER : FLOAT_DAMAGE, crit);
                         damageBossPart(p, dealt);
                         hitPart = true;
                         break;
@@ -5618,10 +5659,13 @@ public class GameWorld {
                         bossCoreFlash = 1f;
                         addScore(CORE_HIT_SCORE, SCORE_OTHER);
                     }
+                    // v1.64：识破之后的反击窗口里，子弹（含激光段）再多吃 50%，与露核、暴击叠乘
+                    boolean strike = counterStrikeTimer > 0f;
+                    dealt = counterStrikeBoost(dealt);
                     boss.damage(dealt);
-                    if (crit || coreHit) {
+                    if (crit || coreHit || strike) {
                         spawnFloatText(b.x, b.y, dealt,
-                                coreHit ? FLOAT_CORE : FLOAT_CRIT, crit);
+                                coreHit ? FLOAT_CORE : crit ? FLOAT_CRIT : FLOAT_COUNTER, crit);
                     }
                     if (crit) events.add(new GameEvent(EventType.CRIT, b.x, b.y, dealt));
                     spark(b.x, b.y, 2, 2);
@@ -6984,6 +7028,10 @@ public class GameWorld {
         countersRead = 0;
         counterFlash = 0f;
         counterScore = 0;
+        // v1.64：反击窗口与它多打出来的伤害也不跨局
+        counterStrikeTimer = 0f;
+        counterStrikes = 0;
+        counterStrikeDamage = 0;
         cancelCounterRead();
         bossFightHits = 0;
         campaignVictory = false;

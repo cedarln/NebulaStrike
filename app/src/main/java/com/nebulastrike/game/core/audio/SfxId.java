@@ -103,5 +103,7 @@ public enum SfxId {
     /** v1.28：点亮一组道具连携的双音"接通"铃 */
     SYNERGY_ON,
     /** v1.29：相位核心的冲刺冲击波（低频轰 + 快速上扫的气浪） */
-    PHASE_BURST
+    PHASE_BURST,
+    /** v1.64：识破之后反击窗口开膛——两记上行的金属锁定音，末尾挂一层渐强的电流嗡鸣 */
+    COUNTER_STRIKE
 }

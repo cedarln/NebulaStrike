@@ -82,6 +82,7 @@ public final class SfxBank {
         put(SfxId.BOUNTY_FAIL, bountyFail(), 0.42f);
         put(SfxId.SYNERGY_ON, synergyLink(), 0.78f);
         put(SfxId.PHASE_BURST, phaseBurst(), 0.86f);
+        put(SfxId.COUNTER_STRIKE, counterStrike(), 0.82f);
     }
 
     public static SfxBank create() {
@@ -1196,6 +1197,43 @@ public final class SfxBank {
             x[i] = (float) ((thump + air + sweep) * env(t, 0.42, 0.0018, 1.4));
         }
         echo(x, 0.09, 0.26);
+        return x;
+    }
+
+    /**
+     * v1.64 反击窗口开膛：E5 → B5 两记上行的金属锁定音，底下垫一层前段渐强、末尾硬切的
+     * 电流嗡鸣，最后一记低频点头——"这 5 秒你可以压着它打"。
+     */
+    private static float[] counterStrike() {
+        int n = frames(0.52);
+        float[] x = new float[n];
+        Random r = new Random(1607);
+        double[] f = {659.25, 987.77};
+        double[] ph = new double[f.length];
+        double[] phBend = new double[f.length];
+        double buzz = 0, lp = 0, sub = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double p = t / 0.52;
+            double tone = 0;
+            for (int k = 0; k < f.length; k++) {
+                double start = k * 0.075;
+                if (t < start) continue;
+                double local = t - start;
+                ph[k] += f[k] / SAMPLE_RATE;
+                phBend[k] += f[k] * 2.01 / SAMPLE_RATE;
+                tone += (0.22 * sine(ph[k]) + 0.1 * sine(phBend[k]) + 0.06 * tri(ph[k] * 1.5))
+                        * Math.exp(-local * (6.5 - k * 1.8)) / (1.0 + k * 0.15);
+            }
+            // 上膛的电流：低频噪声带通，前 0.2 秒渐强，之后被硬切走
+            double swell = Math.min(1.0, t / 0.2);
+            lp += (0.04 + 0.22 * swell) * (noise(r) - lp);
+            double hum = lp * swell * Math.exp(-Math.max(0.0, t - 0.3) * 26.0) * 0.5;
+            sub += (78.0 + 26.0 * swell) / SAMPLE_RATE;
+            double nod = sine(sub) * Math.exp(-t * 6.5) * 0.42 * (t < 0.05 ? 1.0 : 0.35);
+            x[i] = (float) ((tone + hum + nod) * env(t, 0.52, 0.0016, 1.3));
+        }
+        echo(x, 0.11, 0.22);
         return x;
     }
 

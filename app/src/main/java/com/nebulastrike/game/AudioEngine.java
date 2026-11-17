@@ -337,6 +337,11 @@ public class AudioEngine {
                     play(SfxId.PARRY, 0.55f, 1.18f + 0.03f * Math.max(0, e.code),
                             panFor(e.x));
                     break;
+                case BOSS_COUNTER_STRIKE:
+                    // v1.64 反击窗口开膛：紧接识破那一声，把"读懂"落到"能打"
+                    play(SfxId.COUNTER_STRIKE, 0.62f, 1f + 0.02f * Math.max(0, e.code),
+                            panFor(e.x));
+                    break;
                 case ULT_READY:
                     play(SfxId.ULT_READY, 0.75f, 1f, 0f);
                     break;

@@ -128,6 +128,7 @@ public class Renderer {
         drawShip(c, w);
         drawMagnetField(c, w);
         drawOrbitSpheres(c, w);
+        drawCounterStrike(c, w);  // v1.64：识破之后的反击窗口，飞船外圈一道倒计时
         drawFloatTexts(c, w);   // 伤害/得分飘字，跟随震屏一起位移
         drawCounterRead(c, w);  // v1.63：识破一轮招牌弹幕的收口提示
 
@@ -851,6 +852,37 @@ public class Renderer {
                 w.ship.y - 236f + 1.5f, paint);
         paint.setColor(((int) (0xE8 * k) << 24) | (GameWorld.FLOAT_COUNTER & 0x00FFFFFF));
         c.drawText("识破 · " + w.counterForm.label, w.ship.x, w.ship.y - 236f, paint);
+        paint.setFakeBoldText(false);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /**
+     * v1.64 破招反击：识破之后 5 秒内打旗舰伤害 +50%。窗口只贴在飞船上画一道收走的弧，
+     * 不做全屏特效——它是"你读懂了"的即时回馈，余光能看到就够了。
+     */
+    private void drawCounterStrike(Canvas c, GameWorld w) {
+        if (w.counterStrikeTimer <= 0f) return;
+        float frac = Math.min(1f, w.counterStrikeTimer / GameWorld.COUNTER_STRIKE_WINDOW);
+        float pulse = w.settings.reducedFx ? 1f
+                : 0.72f + 0.28f * (float) Math.sin(w.timeAlive * 12f);
+        int mint = GameWorld.FLOAT_COUNTER & 0x00FFFFFF;
+        float r = Ship.RADIUS + 26f;
+        arcRect.set(w.ship.x - r, w.ship.y - r, w.ship.x + r, w.ship.y + r);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setShader(null);
+        paint.setStrokeWidth(4f);
+        paint.setColor(((int) (0xC0 * frac * pulse) << 24) | mint);
+        c.drawArc(arcRect, -90f, 360f * frac, false, paint);
+        paint.setStrokeWidth(1.5f);
+        paint.setColor(((int) (0x30 * frac) << 24) | mint);
+        c.drawCircle(w.ship.x, w.ship.y, r + 10f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setFakeBoldText(true);
+        paint.setTextSize(20f);
+        paint.setColor(((int) (0xD0 * frac) << 24) | mint);
+        c.drawText("反击 +" + GameWorld.COUNTER_STRIKE_BONUS_PCT + "%",
+                w.ship.x, w.ship.y + r + 40f, paint);
         paint.setFakeBoldText(false);
         paint.setTextAlign(Paint.Align.LEFT);
     }
@@ -4518,6 +4550,7 @@ public class Renderer {
                 "旗舰战全程不掉血，两段航程后它会以残响姿态回来 · 更脆更快，赏金照给",
                 "每型旗舰预警时开口说的是自己的话 · 击沉它还多掉一件正好治它那一手的补给",
                 "旗舰招牌出手时下面跟一句破招提示 · 整轮弹幕没打到你就算识破，额外加分",
+                "识破之后开启 5 秒反击窗口 · 飞船外圈那道青弧走完之前，打旗舰的伤害 +50%",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
@@ -6392,18 +6425,18 @@ public class Renderer {
     }
 
     /**
-     * 本局数据卡（5 列 × 4 行 = 20 格）：火力质量（命中/连击/击坠/精英/擦弹）、
+     * 本局数据卡（5 列 × 6 行 = 30 格）：火力质量（命中/连击/击坠/精英/擦弹）、
      * 弹幕操作（暴击/截弹/弹反/最高连反/冲刺）、吸收与终结（吞弹/喷还/井口/大招/折弹）、
-     * 收获（BOSS/圣物/异变/受伤/存活）。
+     * 收获（BOSS/圣物/异变/受伤/存活）、破招（识破/反击伤害）。
      */
     private void drawRunStats(Canvas c, GameWorld w) {
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(0x99000011);
-        c.drawRoundRect(120f, 548f, 780f, 722f, 18f, 18f, paint);
+        c.drawRoundRect(120f, 548f, 780f, 734f, 18f, 18f, paint);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(2f);
         paint.setColor(0x66FF8FD1);
-        c.drawRoundRect(120f, 548f, 780f, 722f, 18f, 18f, paint);
+        c.drawRoundRect(120f, 548f, 780f, 734f, 18f, 18f, paint);
         paint.setStyle(Paint.Style.FILL);
         paint.setTextAlign(Paint.Align.CENTER);
 
@@ -6411,7 +6444,8 @@ public class Renderer {
                 "CRITS", "BREAK", "PARRY", "MAX STREAK", "DASH",
                 "EATEN", "BURST", "WELLS", "ULT", "REFLECT",
                 "BOSS", "RELICS", "MUTANTS", "HITS", "TIME",
-                "SPOTTED", "BENT", "BROOD", "ACHV", "FUSION"};
+                "SPOTTED", "BENT", "BROOD", "ACHV", "FUSION",
+                "READS", "STRIKE"};
         String[] values = {
                 w.accuracyPct() + "%",
                 "x" + w.maxCombo,
@@ -6437,11 +6471,14 @@ public class Renderer {
                 String.valueOf(w.bulletsBent),
                 String.valueOf(w.broodSpawned),
                 String.valueOf(w.achievesThisRun),
-                String.valueOf(w.fusions)
+                String.valueOf(w.fusions),
+                String.valueOf(w.countersRead),
+                String.valueOf(w.counterStrikeDamage)
         };
         // v1.18 数据涨满 25 项：5×5 网格刚好铺满，行距压到 33 才不挤到下面的排行榜
+        // v1.64 再加识破两项（27 项）：行距收到 29，卡片底边推到 734，仍留 6 像素给排行榜
         float[] cx = {186f, 318f, 450f, 582f, 714f};
-        float[] rowY = {564f, 597f, 630f, 663f, 696f};
+        float[] rowY = {564f, 593f, 622f, 651f, 680f, 709f};
         for (int i = 0; i < labels.length; i++) {
             float x = cx[i % 5];
             float y = rowY[i / 5];
@@ -6455,7 +6492,8 @@ public class Renderer {
                     : i == 13 ? 0xFFFFE08A : i == 14 ? 0xFFB0FFF6
                     : i == 17 ? 0xFFB08FFF : i == 20 ? 0xFFE86BB0
                     : i == 21 ? 0xFF4DA6FF : i == 22 ? 0xFFFFAE3A
-                    : i == 23 ? 0xFFFFD166 : i == 24 ? 0xFF7DF9FF : 0xFFE8F1FF);
+                    : i == 23 ? 0xFFFFD166 : i == 24 ? 0xFF7DF9FF
+                    : i == 25 ? 0xFF8FFFD0 : i == 26 ? 0xFF5FE0B8 : 0xFFE8F1FF);
             c.drawText(values[i], x, y + 19f, paint);
         }
         paint.setTextAlign(Paint.Align.LEFT);
