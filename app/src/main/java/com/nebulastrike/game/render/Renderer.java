@@ -129,6 +129,7 @@ public class Renderer {
         drawMagnetField(c, w);
         drawOrbitSpheres(c, w);
         drawFloatTexts(c, w);   // 伤害/得分飘字，跟随震屏一起位移
+        drawCounterRead(c, w);  // v1.63：识破一轮招牌弹幕的收口提示
 
         // 连击边缘辉光：combo 越高，四边越亮（reducedFx 下关闭）；
         // 狂热期间换成余烬橙并加快脉动，光凭余光就能知道射速加成还在
@@ -829,6 +830,27 @@ public class Renderer {
             paint.setColor((a << 24) | f.color);
             c.drawText(textBuf, 0, len, f.x, f.y, paint);
         }
+        paint.setFakeBoldText(false);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /**
+     * v1.63 识破收口：一轮招牌弹幕散尽又没打中你，就在飞船头顶写一句"识破 · 形态"，
+     * 分数由飘字负责，这里只负责把"你读懂了"这件事说出口。
+     */
+    private void drawCounterRead(Canvas c, GameWorld w) {
+        if (w.counterFlash <= 0f) return;
+        float k = Math.min(1f, w.counterFlash / 0.5f);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setShader(null);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setFakeBoldText(true);
+        paint.setTextSize(25f);
+        paint.setColor(((int) (0x40 * k) << 24) | 0x081018);
+        c.drawText("识破 · " + w.counterForm.label, w.ship.x + 1.5f,
+                w.ship.y - 236f + 1.5f, paint);
+        paint.setColor(((int) (0xE8 * k) << 24) | (GameWorld.FLOAT_COUNTER & 0x00FFFFFF));
+        c.drawText("识破 · " + w.counterForm.label, w.ship.x, w.ship.y - 236f, paint);
         paint.setFakeBoldText(false);
         paint.setTextAlign(Paint.Align.LEFT);
     }
@@ -2343,6 +2365,10 @@ public class Renderer {
             paint.setTextSize(26f);
             paint.setColor(((int) (0xD8 * k) << 24) | (formAccent(b.form) & 0x00FFFFFF));
             c.drawText("招牌 · " + sig, b.x, b.y + r * 1.8f, paint);
+            // v1.63 破招提示：招式名底下紧跟一句"这一手该怎么读"，看懂了才吃得下识破赏金
+            paint.setTextSize(19f);
+            paint.setColor(((int) (0xA8 * k) << 24) | 0x00D8ECFF);
+            c.drawText("破招 · " + b.form.counter, b.x, b.y + r * 1.8f + 27f, paint);
             paint.setTextAlign(Paint.Align.LEFT);
         }
 
@@ -4491,6 +4517,7 @@ public class Renderer {
                 "八段航程八种旗舰形态：静默会闪现、裂谷在横跳、磁暴丢追踪磁球 · 剪影、走位、招牌全都不一样",
                 "旗舰战全程不掉血，两段航程后它会以残响姿态回来 · 更脆更快，赏金照给",
                 "每型旗舰预警时开口说的是自己的话 · 击沉它还多掉一件正好治它那一手的补给",
+                "旗舰招牌出手时下面跟一句破招提示 · 整轮弹幕没打到你就算识破，额外加分",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);

@@ -332,6 +332,11 @@ public class AudioEngine {
                     play(SfxId.BOSS_NET, 0.5f, 0.82f + 0.04f * Math.max(0, e.code),
                             panFor(e.x));
                     break;
+                case BOSS_COUNTER:
+                    // v1.63 识破：借用弹反那声金属上扬，音更高一点——"这手我读明白了"
+                    play(SfxId.PARRY, 0.55f, 1.18f + 0.03f * Math.max(0, e.code),
+                            panFor(e.x));
+                    break;
                 case ULT_READY:
                     play(SfxId.ULT_READY, 0.75f, 1f, 0f);
                     break;

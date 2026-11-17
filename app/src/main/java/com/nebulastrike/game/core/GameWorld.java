@@ -163,7 +163,9 @@ public class GameWorld {
         /** v1.61：旗舰形态揭晓（code = {@link Boss.Form#ordinal()}） */
         BOSS_FORM,
         /** v1.61：旗舰打出形态招牌招式（code = {@link Boss.Form#ordinal()}） */
-        BOSS_SIGNATURE
+        BOSS_SIGNATURE,
+        /** v1.63：一轮招牌弹幕散尽且没打中玩家 = 识破（code = {@link Boss.Form#ordinal()}） */
+        BOSS_COUNTER
     }
     public static final class GameEvent {
         public final EventType type;
@@ -321,6 +323,8 @@ public class GameWorld {
     public static final int FLOAT_CORE = 0xFF7A45;
     /** 终极技充能折算 / 折弹得分的飘字色（金色）。 */
     public static final int FLOAT_ULT = 0xFFE08A;
+    /** v1.63：识破一轮招牌弹幕的赏金飘字色（薄荷青，和弹反的浅青区分开）。 */
+    public static final int FLOAT_COUNTER = 0x8FFFD0;
 
     /** 暴击：命中有小概率加成伤害，过载期间概率更高。 */
     public static final float CRIT_CHANCE = 0.08f;
@@ -1068,6 +1072,25 @@ public class GameWorld {
     public float signatureFlash;
     /** 刚才打出来的那招属于哪个形态。 */
     public Boss.Form signatureForm = Boss.Form.SPECTER;
+    /**
+     * v1.63 破招：本局识破次数。一轮招牌弹幕的弹全部散尽、且这一轮里玩家没掉血，
+     * 就算读懂了这一手——只加分，不动任何既有节拍与掉落。
+     */
+    public int countersRead;
+    /** 识破提示的余辉、读的是哪一型、加了多少分（渲染层用）。 */
+    public float counterFlash;
+    public Boss.Form counterForm = Boss.Form.SPECTER;
+    public int counterScore;
+    /** 当前正在批量分配的招牌轮次号：0 表示这批敌弹不是招牌。 */
+    private int signatureTag;
+    /** 已发放出去的招牌轮次号（单调递增，永不复用）。 */
+    private int signatureSerial;
+    /** 等着判定的那一轮招牌：轮次号 + 剩余判定窗口（秒）。 */
+    private int pendingCounterSerial;
+    private float counterWindow;
+    /** 识破赏金：180 + 20 × 舰级；判定窗口 9 秒，超时算没读懂。 */
+    public static final int COUNTER_SCORE_BASE = 180;
+    public static final float COUNTER_WINDOW = 9f;
     /** 残响只有本体的 55% 血，但出招更快：同一套招式，更紧的节拍。 */
     public static final float ECHO_SHADE_HP_SCALE = 0.55f;
     public static final float ECHO_SHADE_TEMPO = 1.18f;
@@ -1456,6 +1479,8 @@ public class GameWorld {
                 }
                 resetBossCore();
                 bossFightHits = 0;
+                // v1.63：新旗舰入场，上一艘船那轮没散尽的招牌不再补发识破
+                cancelCounterRead();
                 if (boss.affix != BossAffix.NONE) {
                     events.add(new GameEvent(EventType.BOSS_AFFIX, boss.x, boss.y,
                             boss.affix.ordinal()));
@@ -2144,20 +2169,60 @@ public class GameWorld {
      */
     int fireSignature(Boss.Form form, int tier) {
         int made;
-        switch (form) {
-            case SPECTER:  made = fireNeedleRain(6 + tier); break;
-            case CINDER:   made = fireAshRain(11 + tier * 2); break;
-            case DOCKYARD: made = fireEscortWave(tier); break;
-            case HIVE:     made = fireMineBelt(4 + tier); break;
-            case RIFT:     made = fireCrossBeam(tier); break;
-            case MAGNET:   made = fireMagnetOrbs(tier >= 2 ? 3 : 2); break;
-            case MIRROR:   made = fireMirrorRings(tier); break;
-            default:       made = fireCoreBurst(tier); break;
+        // v1.63：这一批敌弹打上同一个轮次号，散尽时才算"读懂了这一手"
+        signatureTag = ++signatureSerial;
+        try {
+            switch (form) {
+                case SPECTER:  made = fireNeedleRain(6 + tier); break;
+                case CINDER:   made = fireAshRain(11 + tier * 2); break;
+                case DOCKYARD: made = fireEscortWave(tier); break;
+                case HIVE:     made = fireMineBelt(4 + tier); break;
+                case RIFT:     made = fireCrossBeam(tier); break;
+                case MAGNET:   made = fireMagnetOrbs(tier >= 2 ? 3 : 2); break;
+                case MIRROR:   made = fireMirrorRings(tier); break;
+                default:       made = fireCoreBurst(tier); break;
+            }
+        } finally {
+            signatureTag = 0;
         }
         events.add(new GameEvent(EventType.BOSS_SIGNATURE, boss.x, boss.y, form.ordinal()));
         signatureForm = form;
         signatureFlash = 1.5f;
+        if (made > 0) {
+            pendingCounterSerial = signatureSerial;
+            counterWindow = COUNTER_WINDOW;
+        }
         return made;
+    }
+
+    /** v1.63：这一轮招牌散尽了没有？散尽且没掉血 = 识破。 */
+    private void resolveCounterRead() {
+        if (pendingCounterSerial == 0) return;
+        if (counterWindow <= 0f) {
+            // 弹还在场上（或被拖太久）：这一手算没读懂，直接放弃判定
+            pendingCounterSerial = 0;
+            return;
+        }
+        for (EnemyBullet b : enemyBullets) {
+            if (b.active && b.sigSerial == pendingCounterSerial) return;
+        }
+        pendingCounterSerial = 0;
+        counterWindow = 0f;
+        countersRead++;
+        counterForm = signatureForm;
+        counterScore = COUNTER_SCORE_BASE + 20 * boss.level;
+        counterFlash = 2.2f;
+        addScore(counterScore, SCORE_BOSS);
+        spawnFloatText(ship.x, ship.y - 190f, counterScore, FLOAT_COUNTER, true);
+        events.add(new GameEvent(EventType.BOSS_COUNTER,
+                boss.active ? boss.x : ship.x, boss.active ? boss.y : ship.y,
+                signatureForm.ordinal()));
+    }
+
+    /** 挨了一下就把这一轮的识破判定作废：读懂没读懂，看的是这一轮有没有碰到你。 */
+    private void cancelCounterRead() {
+        pendingCounterSerial = 0;
+        counterWindow = 0f;
     }
 
     /** 静默·高速针雨：沿舰体一字排开的高速细针，几乎贴着玩家的走位穿过去。 */
@@ -3180,6 +3245,12 @@ public class GameWorld {
         if (practiceBestFlash > 0f) practiceBestFlash = Math.max(0f, practiceBestFlash - dt);
         if (echoFlash > 0f) echoFlash = Math.max(0f, echoFlash - dt);
         if (signatureFlash > 0f) signatureFlash = Math.max(0f, signatureFlash - dt);
+        // v1.63：识破判定——每帧看一眼"这一轮招牌散尽了没有"，窗口到点就作废
+        if (counterFlash > 0f) counterFlash = Math.max(0f, counterFlash - dt);
+        if (pendingCounterSerial != 0) {
+            counterWindow = Math.max(0f, counterWindow - dt);
+            resolveCounterRead();
+        }
         if (novaFlash > 0f) novaFlash = Math.max(0f, novaFlash - dt * 2.2f);
         if (breakPulse > 0f) breakPulse = Math.max(0f, breakPulse - dt * 3.2f);
         if (mutatorBanner > 0f) mutatorBanner = Math.max(0f, mutatorBanner - dt);
@@ -6557,6 +6628,8 @@ public class GameWorld {
         hitsTaken++;
         // v1.60：护盾挡下的那一下不算"掉血"（上面已经 return），这里才记真正的伤
         if (boss.active && !practice()) bossFightHits++;
+        // v1.63：这一轮招牌碰到你了，识破判定当场作废
+        cancelCounterRead();
         addShake(0.4f, 16f);
         addHitStop(0.09f);
         // 模拟战不掉命：挨打只断连杀并清掉身边弹幕，练功不因为一次失误结束
@@ -6907,6 +6980,11 @@ public class GameWorld {
         echoDefeats = 0;
         echoFlash = 0f;
         signatureFlash = 0f;
+        // v1.63：破招读数与待判定的招牌轮次一起清零
+        countersRead = 0;
+        counterFlash = 0f;
+        counterScore = 0;
+        cancelCounterRead();
         bossFightHits = 0;
         campaignVictory = false;
         campaignFirstClear = false;
@@ -7246,7 +7324,11 @@ public class GameWorld {
     }
 
     private EnemyBullet freeEnemyBullet() {
-        for (EnemyBullet b : enemyBullets) if (!b.active) return b;
+        for (EnemyBullet b : enemyBullets) if (!b.active) {
+            // v1.63：招牌轮次在分配点重打标记——弹池会复用，标记不能留在上一轮
+            b.sigSerial = signatureTag;
+            return b;
+        }
         return null;
     }
 

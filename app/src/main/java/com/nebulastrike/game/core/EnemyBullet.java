@@ -20,6 +20,11 @@ public class EnemyBullet {
     public float life;
     /** 追踪弹每秒最大转向角（弧度）。 */
     public float turnRate;
+    /**
+     * v1.63 招牌轮次：由旗舰形态招牌招式打出的那一批敌弹共享同一个正整数轮次号，
+     * 常规弹幕为 0。识破判定靠它数"这一轮散尽了没有"，弹池复用时在分配点重打标记。
+     */
+    public int sigSerial;
 
     public void init(float x, float y, float vx, float vy) {
         this.x = x;
