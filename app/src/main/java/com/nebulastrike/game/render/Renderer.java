@@ -4324,6 +4324,12 @@ public class Renderer {
                     | (w.echoBossFight ? 0x00E86BFF : 0x00FF5C6E));
             c.drawRoundRect(VW / 2f - barW / 2f, 652f,
                     VW / 2f - barW / 2f + barW * (1f - frac), 660f, 4f, 4f, paint);
+            // v1.70：舰装。同一型的部件挂在船体哪一处，八型八种排法——先报一句，
+            // 玩家进战场才知道该从哪个方向拆起。
+            paint.setTextSize(20f);
+            paint.setColor(((int) (0xA8 * k) << 24) | 0xFF9FB4D8);
+            c.drawText("舰装「" + w.boss.form.loadout + "」 · 部件 " + w.boss.partCount,
+                    VW / 2f, 688f, paint);
             // v1.62：旗舰开口。预警横幅压进度条之下，念的是这一型形态自己的台词，
             // 再下面一行预告"击沉它多掉的那件补给"——它怎么治你，它就交什么解药。
             paint.setTextSize(26f);
@@ -4677,6 +4683,7 @@ public class Renderer {
                 "把同一型旗舰读到「读透」（4 次）再击沉，它会交双份专属解药 · 双份照样叠加，不会把你换掉",
                 "旗舰说到三阶段那句狠话就会出「终式」· 招牌与终式交替出手，读法不一样，但读懂了记在同一型的账上",
                 "同一型读到「熟悉」以上，它刚丢的那一手会被原样回敬打回去 · 金色弹道不算你的命中率，读透了回得更密",
+                "八型旗舰八种舰装 · 部件挂在船体的哪几处每一型都不同，进场前看一眼预警横幅的「舰装」，拆法就顺着那条线走",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
@@ -6054,15 +6061,18 @@ public class Renderer {
 
     /** v1.61：图鉴第二行讲"这一档的旗舰是什么形态、占哪条航道、丢什么招"，硬数据仍在上一行。 */
     private static String bossDesc(int tier) {
+        String move;
         switch (Boss.formFor(tier)) {
-            case SPECTER:  return "静默形态 · 贴顶慢滑，二阶段起闪现换位";
-            case CINDER:   return "灰烬形态 · 压在最顶巡逻，落灰盖满全场";
-            case DOCKYARD: return "船坞形态 · 悬在中段放僚机，扇面护航";
-            case HIVE:     return "蜂巢形态 · 八字自旋，漂流水雷切通道";
-            case RIFT:     return "裂谷形态 · 高速横跳，两侧射出交叉束";
-            case MAGNET:   return "磁暴形态 · 压得最低，纵向浮动丢磁球";
-            default:       return "镜面形态 · 中线悬停自旋，镜像双环";
+            case SPECTER:  move = "静默形态 · 贴顶慢滑，二阶段起闪现换位"; break;
+            case CINDER:   move = "灰烬形态 · 压在最顶巡逻，落灰盖满全场"; break;
+            case DOCKYARD: move = "船坞形态 · 悬在中段放僚机，扇面护航"; break;
+            case HIVE:     move = "蜂巢形态 · 八字自旋，漂流水雷切通道"; break;
+            case RIFT:     move = "裂谷形态 · 高速横跳，两侧射出交叉束"; break;
+            case MAGNET:   move = "磁暴形态 · 压得最低，纵向浮动丢磁球"; break;
+            default:       move = "镜面形态 · 中线悬停自旋，镜像双环"; break;
         }
+        // v1.70：同一行的后半句报舰装——部件挂在船体的哪几处，八型八种拆法
+        return move + " · 舰装「" + Boss.formFor(tier).loadout + "」";
     }
 
     private void stepper(Canvas c, Ui.Rect minus, Ui.Rect plus, String label, String value) {

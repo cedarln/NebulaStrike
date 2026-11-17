@@ -2,6 +2,7 @@ package com.nebulastrike.game.core;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import java.util.ArrayList;
@@ -112,6 +113,10 @@ public class BossCounterMasteryV165Test {
      *
      * <p>每帧顺手清空敌弹：旗舰的弹幕会半路截掉玩家的子弹（点弹幕那套规则），
      * 不清掉的话量到的其实是"两秒里谁运气好"，10% 与 20% 的差距会被噪声吃掉。
+     *
+     * <p>v1.70：先把这一档的护盾发生器摘掉。账本记的是窗口多打出去的那一截<b>减伤前</b>的伤害，
+     * 而舰体净掉血还要乘护盾减伤；带着发生器比，两边天生对不上——部件排布一变（舰装），
+     * 打在发生器/舰体上的比例一动，误差就被放大成假失败。摘掉之后减伤恒为 1，比的才是同一件事。
      */
     private float damageToBossAtTier(int frames, int tier) {
         world.boss.maxHp = 400000f;
@@ -121,6 +126,7 @@ public class BossCounterMasteryV165Test {
             BossPart p = world.boss.parts[i];
             p.maxHp = 400000f;
             p.hp = 400000f;
+            if (p.kind == BossPart.Kind.SHIELD) p.active = false;   // 减伤归 1，账本才可比
             partBefore[i] = p.hp;
         }
         clearBullets();
@@ -377,6 +383,64 @@ public class BossCounterMasteryV165Test {
         }
     }
 
+    /**
+     * 从零开局，只放一发受控子弹打在舰体正中（部件全摘、护盾器不在场、飞船自己不开火），
+     * 返回 {@code {净伤害, 窗口账本}}。同一档位、同一随机数走位，两次的差别只有窗口。
+     */
+    private float[] oneControlledShot(int level, int tier, int damage) {
+        setUp();
+        triggerBoss(level);
+        for (int i = 0; i < world.boss.partCount; i++) world.boss.parts[i].active = false;
+        world.boss.maxHp = 400000f;
+        world.boss.hp = 400000f;
+        clearBullets();
+        world.counterStrikeDamage = 0;
+        world.counterStrikeTier = Math.max(0, tier);
+        world.ship.nanoTimer = 0f;
+        world.ship.orbitTimer = 0f;
+        world.ship.wingmanTimer = 0f;
+        Bullet shot = null;
+        for (Bullet b : world.bullets) {
+            if (!b.active) { shot = b; break; }
+        }
+        assertNotNull("弹池该有空位", shot);
+        world.boss.x = world.ship.x;
+        world.boss.y = world.boss.stationY;
+        shot.init(world.ship.x, world.boss.y + 120f, 0f, -1200f, damage, false);
+        float before = world.boss.hp;
+        for (int i = 0; i < 12; i++) {
+            world.boss.x = world.ship.x;
+            world.boss.y = world.boss.stationY;
+            world.counterStrikeTimer = tier < 0 ? 0f : GameWorld.counterStrikeWindowFor(tier);
+            world.ship.weaponTimer = 999f;   // 别让飞船自己的弹混进这一发
+            world.update(1f / 60f);
+            events.addAll(world.pollEvents());
+            for (EnemyBullet b : world.enemyBullets) b.active = false;
+        }
+        return new float[]{before - world.boss.hp, world.counterStrikeDamage};
+    }
+
+    /**
+     * v1.70：账本对账改成一发受控子弹——真打一场里，窗口越狠越早把招牌弹打散，
+     * 招牌轮次因此变多、识破变多、回敬也变多，两场的伤害本来就不同量，拿它验账本只会验出噪声。
+     */
+    @Test
+    public void theLedgerIsExactlyTheExtraThatShotCost() {
+        for (int tier = 0; tier <= 2; tier++) {
+            float[] off = oneControlledShot(4, -1, 10);
+            float[] on = oneControlledShot(4, tier, 10);
+            assertTrue("基线要真打出伤害", off[0] > 0f);
+            assertEquals("没开窗口不记账", 0f, off[1], 0.001f);
+            assertTrue("窗口里记了账 tier=" + tier, on[1] > 0);
+            assertEquals("tier " + tier + "：净伤害多出来的那一截就是账本 " + on[0] + "-" + off[0],
+                    off[0] + on[1], on[0], 0.001f);
+        }
+        float l0 = oneControlledShot(4, 0, 10)[1];
+        float l1 = oneControlledShot(4, 1, 10)[1];
+        float l2 = oneControlledShot(4, 2, 10)[1];
+        assertTrue("档越高多打越多: " + l0 + "/" + l1 + "/" + l2, l0 < l1 && l1 < l2);
+    }
+
     @Test
     public void windowedShotsReallyDoMoreDamage() {
         triggerBoss(4);
@@ -388,8 +452,6 @@ public class BossCounterMasteryV165Test {
         assertTrue("窗口里记了账", extra > 0);
         assertTrue("多出来的部分不超过 +80% 那一截: " + plain + " -> " + mastered,
                 mastered <= plain * 1.9f);
-        assertTrue("账本对得上多打的那截: " + extra + " vs " + (mastered - plain),
-                Math.abs(extra - (mastered - plain)) <= Math.max(2f, plain * 0.35f));
     }
 
     @Test

@@ -76,42 +76,42 @@ public class Boss {
         SPECTER("静默", "闪现换位 · 高速针雨", MOVE_GLIDE, 0.2f, -6f,
                 "你连我在哪儿都没记住。", "我在这儿。不在这儿。在这儿。",
                 PowerUp.Kind.REFLECT, "针出厂就锁死了位置 · 出手那刻横向一让",
-                "三重针幕", "三层针错开落点 · 躲过第一层还得往里收半步"),
+                "三重针幕", "三层针错开落点 · 躲过第一层还得往里收半步", "两翼拉开"),
         /** 灰烬：压得最低的巡逻舰，招牌是把全场盖住的落灰。 */
         CINDER("灰烬", "贴顶巡逻 · 落灰覆盖", MOVE_PATROL, 0.3f, -14f,
                 "灰烬会落满你所有的空隙。", "灰烬底下还是火。",
                 PowerUp.Kind.NOVA, "落灰之间留着空巷 · 挑最宽那道走",
-                "灰烬塌陷", "灰烬塌两层 · 第一层底下压着更快的第二层"),
+                "灰烬塌陷", "灰烬塌两层 · 第一层底下压着更快的第二层", "前压一字"),
         /** 船坞：几乎停在原地，靠一波波僚机和护航弹压人。 */
         DOCKYARD("船坞", "定点放机 · 护航弹幕", MOVE_HOLD, 0.15f, 26f,
                 "我不需要亲自动手。", "全部出击。",
                 PowerUp.Kind.ARC, "扇面慢得来得及绕 · 先清僚机再说",
-                "全甲板出击", "快扇从慢扇背后穿出 · 让开慢的未必让得开快的"),
+                "全甲板出击", "快扇从慢扇背后穿出 · 让开慢的未必让得开快的", "双层甲板"),
         /** 蜂巢：8 字环绕 + 自旋，招牌是切通道的水雷带。 */
         HIVE("蜂巢", "八字自旋 · 漂流水雷", MOVE_FIGURE8, 1.1f, 10f,
                 "通道正在合上。", "巢破了，蜂还在。",
                 PowerUp.Kind.BOOMERANG, "水雷往中间合 · 顺它让开的那条缝走",
-                "巢门合拢", "两道水雷一先一后 · 等第一道让开再走同一条缝"),
+                "巢门合拢", "两道水雷一先一后 · 等第一道让开再走同一条缝", "六格巢环"),
         /** 裂谷：短距高速横跳，招牌是贯穿全屏的交叉束。 */
         RIFT("裂谷", "高速横跳 · 交叉光束", MOVE_DASH, 0.4f, 0f,
                 "别眨眼，我在你身后。", "追得上我吗？",
                 PowerUp.Kind.TIME, "交叉束只从两侧射 · 守中线最稳",
-                "三面裂束", "三束里中线那束最慢 · 交叉过了再回中线"),
+                "三面裂束", "三束里中线那束最慢 · 交叉过了再回中线", "斜交叉架"),
         /** 磁暴：上下浮动的极板舰，招牌是慢速追踪磁球。 */
         MAGNET("磁暴", "纵向浮动 · 追踪磁球", MOVE_BOB, 0.5f, 72f,
                 "你会自己把弹送过来。", "你的弹现在听我的。",
                 PowerUp.Kind.MAGNET, "磁球追得慢 · 绕大圈把它拖出屏幕",
-                "磁极旋涡", "漩涡球绕大圈才收口 · 往边角拖，别在中央转身"),
+                "磁极旋涡", "漩涡球绕大圈才收口 · 往边角拖，别在中央转身", "双极团簇"),
         /** 镜面：中心悬停自旋，招牌是左右完全对称的镜像环。 */
         MIRROR("镜面", "悬停自旋 · 镜像双环", MOVE_SPIN, 0.75f, 18f,
                 "你打的每一个我，都是真的。", "碎一片，照出两片。",
                 PowerUp.Kind.BOUNCE, "镜像环左右同相 · 沿中线直穿就行",
-                "千镜叠影", "四层环仍是同相 · 中线一次穿过去，别回头补躲"),
+                "千镜叠影", "四层环仍是同相 · 中线一次穿过去，别回头补躲", "内外双环"),
         /** 星核：最终旗舰，棱镜 + 星核爆裂，招式最杂。 */
         SENTINEL("星核", "棱镜护环 · 星核爆裂", MOVE_PATROL, 0.35f, -8f,
                 "回溯到此为止，星火号。", "我是最后一道回声。",
                 PowerUp.Kind.LIFE, "星核散得匀 · 侧移半个弹距就漏过去",
-                "星核崩塌", "崩塌一圈套一圈 · 贴着舰影横移比后退快");
+                "星核崩塌", "崩塌一圈套一圈 · 贴着舰影横移比后退快", "护心弧墙");
 
         public final String label;
         /** 图鉴与横幅用的一句话：它怎么动 + 它的招牌招式。 */
@@ -141,10 +141,15 @@ public class Boss {
         public final String finale;
         /** v1.68 终式的破招提示，与 {@link #counter} 同一套口径，只是这一手更狠、读法也不一样。 */
         public final String finaleCounter;
+        /**
+         * v1.70 舰装排布：这一型的部件挂在船体的哪些位置。件数与种类仍然只看舰级，
+         * 形态只改"这些件摆在哪儿"——八型八种攻坚顺序，先拆哪一件、哪件挡在核心前面各不一样。
+         */
+        public final String loadout;
 
         Form(String label, String signature, int moveMode, float spinRate, float lane,
              String taunt, String rage, PowerUp.Kind supply, String counter,
-             String finale, String finaleCounter) {
+             String finale, String finaleCounter, String loadout) {
             this.label = label;
             this.signature = signature;
             this.moveMode = moveMode;
@@ -156,6 +161,7 @@ public class Boss {
             this.counter = counter;
             this.finale = finale;
             this.finaleCounter = finaleCounter;
+            this.loadout = loadout;
         }
     }
 
@@ -249,9 +255,13 @@ public class Boss {
         }
     }
 
-    private void layoutParts() {
-        for (BossPart p : parts) p.active = false;
-        partCount = 0;
+    /**
+     * 舰装排布（v1.70）：<b>件数、种类、半径、血量、开火节奏全都只看舰级</b>——v1.31 起那本平衡账
+     * 一个字都没动。形态只决定一件事：这些件<b>摆在船体的哪儿</b>。静默把炮推到两翼尖、
+     * 船坞摊成上下两层甲板、星核拿部件在核心前面垒一道弧墙。同一艘船换个形态，
+     * 就是换一套攻坚顺序：先拆哪一件、哪件挡在核心前面，八型八种答案。
+     */
+    void layoutParts() {
         float r = radius;
         float pr = clamp(radius * 0.24f, 15f, 26f);
         int guns = tier == 0 ? 2 : tier == 1 ? 4 : tier == 2 ? 4 : 5;
@@ -260,48 +270,181 @@ public class Boss {
         int pods = tier >= 3 ? 2 : tier >= 1 ? 1 : 0;      // 分裂舱：投放僚机
         int shields = tier >= 3 ? 2 : tier >= 2 ? 1 : 0;   // 护盾发生器：削弱核心伤害
         int mineBays = tier >= 2 ? 1 : 0;                  // 布雷舱：底部通道投放漂流水雷
-        float[][] gunOffsets = {
-                {-0.92f, 0.06f}, {0.92f, 0.06f},
-                {-0.52f, 0.72f}, {0.52f, 0.72f},
-                {-0.98f, -0.38f}, {0.98f, -0.38f}
-        };
+        int n = guns + lasers + pods + shields + mineBays;
+        BossPart.Kind[] kind = new BossPart.Kind[parts.length];
+        float[] rad = new float[parts.length];
+        float[] hp = new float[parts.length];
+        float[] cd = new float[parts.length];
         float gunHp = 26f + 9f * level;
-        for (int i = 0; i < guns && i < gunOffsets.length; i++) {
-            parts[partCount].init(BossPart.Kind.GUN,
-                    gunOffsets[i][0] * r, gunOffsets[i][1] * r,
-                    pr, gunHp, 1.3f + i * 0.3f);
-            partCount++;
-        }
-        float[][] laserOffsets = lasers == 1
-                ? new float[][]{{0f, -0.72f}}
-                : new float[][]{{-0.56f, -0.68f}, {0.56f, -0.68f}};
         float laserHp = 34f + 12f * level;
-        for (int i = 0; i < lasers; i++) {
-            parts[partCount].init(BossPart.Kind.LASER,
-                    laserOffsets[i][0] * r, laserOffsets[i][1] * r,
-                    pr * 1.08f, laserHp, 3.4f + i * 0.9f);
-            partCount++;
-        }
-        float[][] podOffsets = {{-0.74f, 0.44f}, {0.74f, 0.44f}};
         float podHp = 30f + 10f * level;
-        for (int i = 0; i < pods; i++) {
-            parts[partCount].init(BossPart.Kind.POD,
-                    podOffsets[i][0] * r, podOffsets[i][1] * r,
-                    pr * 1.15f, podHp, 4.2f + i * 1.6f);
-            partCount++;
-        }
-        float[][] shieldOffsets = {{-0.34f, -0.62f}, {0.34f, -0.62f}};
         float shieldHp = 40f + 14f * level;
+        float mineHp = 34f + 11f * level;
+        // 先按旧顺序排成一本清单（GUN → LASER → POD → SHIELD → MINE），再按形态把它们摆上站位
+        int at = 0;
+        for (int i = 0; i < guns; i++) {
+            kind[at] = BossPart.Kind.GUN;
+            rad[at] = pr;
+            hp[at] = gunHp;
+            cd[at] = 1.3f + i * 0.3f;
+            at++;
+        }
+        for (int i = 0; i < lasers; i++) {
+            kind[at] = BossPart.Kind.LASER;
+            rad[at] = pr * 1.08f;
+            hp[at] = laserHp;
+            cd[at] = 3.4f + i * 0.9f;
+            at++;
+        }
+        for (int i = 0; i < pods; i++) {
+            kind[at] = BossPart.Kind.POD;
+            rad[at] = pr * 1.15f;
+            hp[at] = podHp;
+            cd[at] = 4.2f + i * 1.6f;
+            at++;
+        }
         for (int i = 0; i < shields; i++) {
-            parts[partCount].init(BossPart.Kind.SHIELD,
-                    shieldOffsets[i][0] * r, shieldOffsets[i][1] * r,
-                    pr * 1.05f, shieldHp, -1f);
-            partCount++;
+            kind[at] = BossPart.Kind.SHIELD;
+            rad[at] = pr * 1.05f;
+            hp[at] = shieldHp;
+            cd[at] = -1f;
+            at++;
         }
         for (int i = 0; i < mineBays; i++) {
-            parts[partCount].init(BossPart.Kind.MINE,
-                    0f, 0.86f * r, pr * 0.94f, 34f + 11f * level, 3.4f + i * 1.2f);
-            partCount++;
+            kind[at] = BossPart.Kind.MINE;
+            rad[at] = pr * 0.94f;
+            hp[at] = mineHp;
+            cd[at] = 3.4f + i * 1.2f;
+            at++;
+        }
+        float[][] station = formStations(form, at);
+        for (int i = 0; i < parts.length; i++) parts[i].active = false;
+        partCount = 0;
+        for (int i = 0; i < at && i < parts.length; i++) {
+            parts[i].init(kind[i], station[i][0] * r, station[i][1] * r,
+                    rad[i], hp[i], cd[i]);
+            partCount = i + 1;
+        }
+    }
+
+    /** 站位之间的最小间距（归一化舰半径）：叠成一件的部件既看不出两种打法，也点不着第二件。 */
+    private static final float STATION_MIN_GAP = 0.26f;
+    /** 互相推开再收边的轮数：站位形状是给定的，几轮就收敛。 */
+    private static final int STATION_SETTLE_ROUNDS = 24;
+    /** 站位包络：横向不推出舰影，纵向既不贴屏幕上沿也不压到核心底下。 */
+    private static final float STATION_MAX_X = 1.05f;
+    private static final float STATION_MIN_Y = -0.7f;
+    private static final float STATION_MAX_Y = 0.96f;
+
+    /**
+     * 按形态生成 n 个舰装站位（归一化到舰体半径）。形状左右成对，n 为奇数时中位落在轴线上；
+     * 生成后收进包络并互相推开到最小间距。包内可见：舰装排布的全部规则都在这一个函数里，
+     * 测试直接按形态与件数预演，不需要真开一局。
+     */
+    static float[][] formStations(Form form, int n) {
+        float[][] p = new float[Math.max(0, n)][2];
+        int pairs = n / 2;
+        for (int k = 0; k < pairs; k++) {
+            // u：从里侧那一翼走到外侧，左右两翼共用同一个层次，保证镜像成对
+            float u = pairs == 1 ? 0.5f : k / (float) (pairs - 1);
+            float[] side = stationFor(form, u);
+            p[k][0] = -side[0];
+            p[k][1] = side[1];
+            p[n - 1 - k][0] = side[0];
+            p[n - 1 - k][1] = side[1];
+        }
+        if (n % 2 == 1) {
+            float[] mid = middleStationFor(form);
+            p[pairs][0] = mid[0];
+            p[pairs][1] = mid[1];
+        }
+        for (int round = 0; round < STATION_SETTLE_ROUNDS; round++) {
+            for (float[] q : p) {
+                q[0] = clamp(q[0], -STATION_MAX_X, STATION_MAX_X);
+                q[1] = clamp(q[1], STATION_MIN_Y, STATION_MAX_Y);
+            }
+            for (int i = 0; i < p.length; i++) {
+                for (int j = i + 1; j < p.length; j++) {
+                    float dx = p[j][0] - p[i][0];
+                    float dy = p[j][1] - p[i][1];
+                    float d = (float) Math.sqrt(dx * dx + dy * dy);
+                    if (d >= STATION_MIN_GAP) continue;
+                    if (d < 1e-4f) {
+                        // 完全重合：按站位序左右岔开，不然推不动
+                        dx = (i % 2 == 0 ? -1f : 1f) * STATION_MIN_GAP;
+                        dy = 0f;
+                        d = STATION_MIN_GAP;
+                    }
+                    float push = (STATION_MIN_GAP - d) * 0.5f / d;
+                    p[i][0] -= dx * push;
+                    p[i][1] -= dy * push;
+                    p[j][0] += dx * push;
+                    p[j][1] += dy * push;
+                }
+            }
+        }
+        for (float[] q : p) {
+            q[0] = clamp(q[0], -STATION_MAX_X, STATION_MAX_X);
+            q[1] = clamp(q[1], STATION_MIN_Y, STATION_MAX_Y);
+        }
+        return p;
+    }
+
+    /** 右半侧的舰装站位（左半边镜像出来）：u=0 是最靠中线的那一层，u=1 是最外那一层。 */
+    private static float[] stationFor(Form form, float u) {
+        switch (form) {
+            case SPECTER:
+                // 两翼拉开：炮位一路推到翼尖，越往外压得越低，逼玩家横着追
+                return new float[]{0.42f + 0.6f * u, -0.48f + 0.62f * u};
+            case CINDER:
+                // 前压一字：所有件摊在舰体下缘一条弧上，正面能同时够着三件
+                return new float[]{0.18f + 0.72f * u, 0.82f - 0.24f * u};
+            case DOCKYARD:
+                // 双层甲板：件按由内到外分给两条线——靠中线的上半排在上甲板（y=0.52），
+                // 往外那一半落到下甲板（y=-0.06），舰级越高两条线各 6 件
+                return u < 0.5f
+                        ? new float[]{0.3f + 0.66f * (u * 2f), 0.52f}
+                        : new float[]{0.3f + 0.66f * ((u - 0.5f) * 2f), -0.06f};
+            case HIVE:
+                // 六格巢环：件沿舰体围成一圈斜臂，环上处处都有东西要拆
+                return new float[]{0.75f - 0.42f * u, -0.55f + 1.05f * u};
+            case RIFT:
+                // 斜交叉架：两对对角线拉开，跟它的交叉光束一个方向
+                return new float[]{0.24f + 0.72f * u, -0.62f + 1.15f * u};
+            case MAGNET:
+                // 双极团簇：件挤在左右两个极点上，一簇一簇地拆
+                return new float[]{0.62f + 0.28f * u, -0.2f + 0.42f * u};
+            case MIRROR: {
+                // 内外双环：内外两圈交替，外环比内环矮一点
+                float rr = 0.5f + 0.48f * (u * 2f % 1f < 0.5f ? 0f : 1f);
+                float ang = 0.2f + 1.15f * u;
+                return new float[]{rr * (float) Math.sin(ang), -rr * (float) Math.cos(ang) + 0.18f};
+            }
+            default:
+                // 护心弧墙：件在核心前面垒成一道朝玩家的弧，想打船体得先破墙
+                return new float[]{0.93f - 0.8f * u, 0.32f + 0.6f * u};
+        }
+    }
+
+    /** 奇数件时落在轴线上的那一件（布雷舱、单激光吊舱这些本来就该在正中）。 */
+    private static float[] middleStationFor(Form form) {
+        switch (form) {
+            case SPECTER:
+                return new float[]{0f, -0.6f};
+            case CINDER:
+                return new float[]{0f, 0.9f};
+            case DOCKYARD:
+                return new float[]{0f, 0.52f};
+            case HIVE:
+                return new float[]{0f, -0.66f};
+            case RIFT:
+                return new float[]{0f, 0.6f};
+            case MAGNET:
+                return new float[]{0f, -0.62f};
+            case MIRROR:
+                return new float[]{0f, -0.68f};
+            default:
+                return new float[]{0f, 0.94f};
         }
     }
 
