@@ -172,6 +172,73 @@ public class Boss {
         }
     }
 
+    // ---- v1.73：终章 CORE FINALE · 核心摊开那几秒，每型旗舰挣扎的方式不一样 ----
+    /** 终章行为：开核期间那一拍它整个憋着，招牌和常规弹幕一发都出不来。 */
+    public static final int CORE_SILENT = 0;
+    /**
+     * 终章行为：开核期间舰体钉在开核那一刻的坐标。冲撞例外——钉住一艘正在撞过来的船
+     * 等于替玩家挡下这一手，那是罚不是奖。
+     */
+    public static final int CORE_ANCHOR = 1;
+    /** 终章行为：窗口内的玩家弹头被牵索拽向判定圈（只改方向，不改速度）。 */
+    public static final int CORE_PULL = 2;
+
+    /** 镜面双核：两片判定圈各偏离舰体中心这么多虚拟单位。 */
+    public static final float CORE_ZONE_OFFSET = 42f;
+
+    /**
+     * v1.73 终章数据：一型一条，按 {@link Form#ordinal()} 对齐（顺序与 Form 声明一致，
+     * 测试逐型钉住）。窗口秒数与判定半径一型一个数，但 {@link CoreFinale#weight()}
+     * ——时长 × 判定面积——压在同一个带宽里：差异是手感的差异，没有哪一型是白拆的。
+     */
+    public static final class CoreFinale {
+        /** 核心摊开的秒数。 */
+        public final float window;
+        /** 单个双倍判定圈的半径。 */
+        public final float radius;
+        /** 判定圈个数：1 = 正中一圈，2 = 左右各一片（正中留一道缝）。 */
+        public final int zones;
+        /** {@link #CORE_SILENT} / {@link #CORE_ANCHOR} / {@link #CORE_PULL} 之一。 */
+        public final int mode;
+        /** HUD 那一行：告诉玩家这几秒跟平时不一样在哪儿。 */
+        public final String note;
+
+        CoreFinale(float window, float radius, int zones, int mode, String note) {
+            this.window = window;
+            this.radius = radius;
+            this.zones = zones;
+            this.mode = mode;
+            this.note = note;
+        }
+
+        /** 终章收益量纲：时长 × 判定面积，用来钉住"八型大致等价"这条平衡线。 */
+        public float weight() {
+            return window * zones * radius * radius;
+        }
+    }
+
+    /** 顺序与 Form 的声明顺序严格一致：静默、灰烬、船坞、蜂巢、裂谷、磁暴、镜面、星核。 */
+    private static final CoreFinale[] CORE_FINALES = {
+            new CoreFinale(3.8f, 42f, 1, CORE_PULL, "牵索 · 你的弹头会被拽进核心"),
+            new CoreFinale(3.4f, 44f, 1, CORE_SILENT, "静默 · 这几秒它一发都打不出"),
+            new CoreFinale(3.2f, 32f, 2, CORE_ANCHOR, "双层甲板 · 核心左右各露出一片"),
+            new CoreFinale(3.0f, 42f, 1, CORE_ANCHOR, "钉死 · 八字环在这一拍停住"),
+            new CoreFinale(3.4f, 40f, 1, CORE_PULL, "牵索 · 横跳再快也拐得回来"),
+            new CoreFinale(3.4f, 42f, 1, CORE_SILENT, "静默 · 磁球这一拍全憋回去"),
+            new CoreFinale(3.6f, 28f, 2, CORE_ANCHOR, "千镜叠影 · 核心碎成两片对映"),
+            new CoreFinale(4.2f, 36f, 1, CORE_SILENT, "星核熄火 · 崩塌那一圈没点着")
+    };
+
+    /** 这一型的终章数据（无形态时按静默兜底，不让渲染层拿到空指针）。 */
+    public static CoreFinale coreFinaleFor(Form f) {
+        return CORE_FINALES[f == null ? Form.SPECTER.ordinal() : f.ordinal()];
+    }
+
+    /** 终章数据的条数，测试用来核对它跟 Form 是不是还一对一。 */
+    public static int coreFinaleCount() {
+        return CORE_FINALES.length;
+    }
+
     /** 常规旗舰的形态循环：七种形态对应前七段航程，第八段由 {@link Form#SENTINEL} 压阵。 */
     private static final Form[] FORM_CYCLE = {
             Form.SPECTER, Form.CINDER, Form.DOCKYARD, Form.HIVE,

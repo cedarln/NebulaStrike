@@ -102,7 +102,7 @@ public class BossCoreV145Test {
 
         assertNotNull("入场 6.5 秒后应当开核", open);
         assertTrue(world.bossCoreOpen());
-        assertEquals("开核事件带上窗口秒数", (int) GameWorld.CORE_WINDOW, open.code);
+        assertEquals("开核事件带上窗口秒数", Math.round(world.coreFinale().window), open.code);
         assertTrue("窗口期有命中闪光铺垫", world.bossCoreFlash > 0f);
     }
 
@@ -111,7 +111,7 @@ public class BossCoreV145Test {
         triggerBoss();
         assertNotNull(waitFor(GameWorld.EventType.BOSS_CORE_OPEN, 12 * 60));
         GameWorld.GameEvent close = waitFor(GameWorld.EventType.BOSS_CORE_CLOSE,
-                (int) (GameWorld.CORE_WINDOW * 60f) + 40);
+                (int) (world.coreFinale().window * 60f) + 40);
 
         assertNotNull("窗口到点必须合拢", close);
         assertFalse(world.bossCoreOpen());
@@ -127,7 +127,7 @@ public class BossCoreV145Test {
         world.boss.hp = 200_000f;
         assertNotNull(waitFor(GameWorld.EventType.BOSS_CORE_OPEN, 12 * 60));
         assertNotNull(waitFor(GameWorld.EventType.BOSS_CORE_CLOSE,
-                (int) (GameWorld.CORE_WINDOW * 60f) + 40));
+                (int) (world.coreFinale().window * 60f) + 40));
         assertNotNull("合拢后按间隔再开一次", waitFor(GameWorld.EventType.BOSS_CORE_OPEN,
                 20 * 60));
         assertTrue(world.bossCoreOpen());
@@ -161,7 +161,7 @@ public class BossCoreV145Test {
     public void coreHitDealsDoubleDamage() {
         triggerBoss();
         disableParts();
-        world.bossCoreTimer = GameWorld.CORE_WINDOW;
+        world.bossCoreTimer = world.coreFinale().window;
         float before = world.boss.hp;
         playerBulletAt(world.boss.x, world.boss.y, 1);
         world.update(1f / 60f);
@@ -186,9 +186,9 @@ public class BossCoreV145Test {
         triggerBoss();
         disableParts();
         world.boss.hitRadius = 90f;   // 放大判定，留出"核心之外、舰体之内"的环
-        world.bossCoreTimer = GameWorld.CORE_WINDOW;
+        world.bossCoreTimer = world.coreFinale().window;
         float before = world.boss.hp;
-        playerBulletAt(world.boss.x + GameWorld.CORE_RADIUS + 16f, world.boss.y, 1);
+        playerBulletAt(world.boss.x + world.coreZoneRadius() + 16f, world.boss.y, 1);
         world.update(1f / 60f);
 
         assertEquals("贴着核心外沿打舰体不算核心命中", before - 1f, world.boss.hp, 0.001f);
@@ -197,7 +197,7 @@ public class BossCoreV145Test {
     @Test
     public void partHitsDoNotGetTheBonus() {
         triggerBoss();
-        world.bossCoreTimer = GameWorld.CORE_WINDOW;
+        world.bossCoreTimer = world.coreFinale().window;
         BossPart part = world.boss.parts[0];
         float before = part.hp;
         playerBulletAt(part.worldX(world.boss), part.worldY(world.boss), 1);
@@ -210,7 +210,7 @@ public class BossCoreV145Test {
     public void coreHitsAddScore() {
         triggerBoss();
         disableParts();
-        world.bossCoreTimer = GameWorld.CORE_WINDOW;
+        world.bossCoreTimer = world.coreFinale().window;
         int before = world.score;
         playerBulletAt(world.boss.x, world.boss.y, 1);
         world.update(1f / 60f);

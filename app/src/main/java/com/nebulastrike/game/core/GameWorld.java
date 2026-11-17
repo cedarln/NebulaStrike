@@ -854,9 +854,15 @@ public class GameWorld {
     public static final float CORE_FIRST_DELAY = 6.5f;
     /** 两次开核之间的间隔。 */
     public static final float CORE_INTERVAL = 11.5f;
-    /** 每次核心暴露的窗口时长。 */
+    /**
+     * 核心暴露窗口的基准时长。v1.73 起真正的秒数一型一条，见
+     * {@link Boss#coreFinaleFor(Boss.Form)}；这个常数留着当量级参照与图鉴底稿。
+     */
     public static final float CORE_WINDOW = 3.4f;
-    /** 核心命中圈：只有打在舰体正中这一小块才算"打中核心"。 */
+    /**
+     * 核心命中圈的基准半径，同上一条：v1.73 起按形态取值，命中判定一律走
+     * {@link #coreHitAt(float, float)}。
+     */
     public static final float CORE_RADIUS = 48f;
     /** 核心期的伤害倍率（护盾发生器的减伤仍会在 Boss.damage 里叠乘）。 */
     public static final int CORE_DAMAGE_MULT = 2;
@@ -868,6 +874,18 @@ public class GameWorld {
     public float bossCoreCooldown;
     /** 核心命中反馈（渲染层读它闪白）。 */
     public float bossCoreFlash;
+
+    // ---- v1.73：终章 CORE FINALE ----
+    /** 牵索生效半径：只拽离核心不远的弹头，远在天边的弹该按玩家瞄的方向走。 */
+    public static final float CORE_PULL_RANGE = 150f;
+    /** 牵索每秒最多把弹头拧过这么多弧度（约 150°/秒），不会出现直角急弯。 */
+    public static final float CORE_PULL_TURN = 2.6f;
+    /** 终章提示行在 HUD 上的余辉时长。 */
+    public static final float CORE_FINALE_FLASH_TIME = 1.1f;
+    /** ANCHOR 型钉住的坐标：开核那一刻记下，窗口里每一帧把舰体按回去。 */
+    private float coreAnchorX, coreAnchorY;
+    /** 终章提示行的余辉（开核瞬间提亮，之后自己收走）。 */
+    public float coreFinaleFlash;
 
     // ---- v1.47：Boss 词缀 AFFIX ----
     /** 第几艘 Boss 起带词缀（0 基：level 2 就是第三艘）。 */
@@ -1544,6 +1562,7 @@ public class GameWorld {
             if (!b.active) continue;
             if (b.homing) steerMissile(b, dt);
             bendPlayerBullet(b, dt);
+            pullBulletToCore(b, dt);
             b.update(dt);
             if (b.bounces > 0 && ricochet(b)) continue;
             if (b.y < -b.radius || b.y > HEIGHT + 60f
@@ -2209,9 +2228,11 @@ public class GameWorld {
     /**
      * v1.45 核心暴露节拍：预警 / 换段期间不计时也不开核；
      * 开核后到点自动合拢并把下一次排进 {@link #CORE_INTERVAL}。
+     * v1.73 起窗口秒数、判定圈大小、圈数与这几秒里的挣扎方式全部按形态取值。
      */
     private void updateBossCore(float dt, boolean armed) {
         if (bossCoreFlash > 0f) bossCoreFlash = Math.max(0f, bossCoreFlash - dt * 2.6f);
+        if (coreFinaleFlash > 0f) coreFinaleFlash = Math.max(0f, coreFinaleFlash - dt);
         if (!armed) {
             // 换段 / 入场期间把窗口收掉：玩家正在清增援，核心不该白送双倍伤害
             if (bossCoreTimer > 0f) {
@@ -2222,6 +2243,12 @@ public class GameWorld {
         }
         if (bossCoreTimer > 0f) {
             bossCoreTimer -= dt;
+            // v1.73 钉位型：这一帧它自己走出来的位移按回去。冲撞例外——
+            // 把正在撞过来的船钉住等于替玩家挡招，那是罚不是奖。
+            if (coreFinale().mode == Boss.CORE_ANCHOR && !boss.isRamming()) {
+                boss.x = coreAnchorX;
+                boss.y = coreAnchorY;
+            }
             if (bossCoreTimer <= 0f) {
                 bossCoreTimer = 0f;
                 bossCoreCooldown = coreInterval();
@@ -2229,12 +2256,102 @@ public class GameWorld {
             }
             return;
         }
+        // 窗口合拢期间一路跟着船走：开核那一帧要钉的就是"它此刻在哪儿"，
+        // 不管是走正常节拍开的、还是外部直接拨了个计时器（存档恢复、测试）
+        coreAnchorX = boss.x;
+        coreAnchorY = boss.y;
         bossCoreCooldown -= dt;
         if (bossCoreCooldown > 0f) return;
-        bossCoreTimer = CORE_WINDOW;
+        Boss.CoreFinale fin = coreFinale();
+        bossCoreTimer = fin.window;
+        coreAnchorX = boss.x;
+        coreAnchorY = boss.y;
+        coreFinaleFlash = CORE_FINALE_FLASH_TIME;
         bossCoreFlash = Math.max(bossCoreFlash, 0.6f);
         addShake(0.16f, 5f);
-        events.add(new GameEvent(EventType.BOSS_CORE_OPEN, boss.x, boss.y, (int) CORE_WINDOW));
+        events.add(new GameEvent(EventType.BOSS_CORE_OPEN, boss.x, boss.y,
+                Math.round(fin.window)));
+    }
+
+    /**
+     * v1.73：这一型旗舰的终章数据。窗口秒数、判定圈半径、圈数、挣扎方式全在这一张表里，
+     * 命中判定和渲染都从这里取值，两边不会各说各话。
+     */
+    public Boss.CoreFinale coreFinale() {
+        return Boss.coreFinaleFor(boss.form);
+    }
+
+    /** 双倍判定圈的个数：镜面系是两片，其余一型一片。 */
+    public int coreZoneCount() {
+        return coreFinale().zones;
+    }
+
+    /** 单个判定圈的半径。 */
+    public float coreZoneRadius() {
+        return coreFinale().radius;
+    }
+
+    /** 第 i 片判定圈的横坐标（两片就是左右各让 {@link Boss#CORE_ZONE_OFFSET}）。 */
+    public float coreZoneX(int i) {
+        if (coreZoneCount() < 2) return boss.x;
+        return boss.x + (i == 0 ? -Boss.CORE_ZONE_OFFSET : Boss.CORE_ZONE_OFFSET);
+    }
+
+    /** 判定圈的纵坐标：终章再怎么变也还在舰体正中那条航道上。 */
+    public float coreZoneY() {
+        return boss.y;
+    }
+
+    /** 这一点是不是打进核心了——命中与渲染共用这一个口径。 */
+    public boolean coreHitAt(float x, float y) {
+        float r = coreZoneRadius();
+        float dy = y - coreZoneY();
+        for (int i = 0; i < coreZoneCount(); i++) {
+            float dx = x - coreZoneX(i);
+            if (dx * dx + dy * dy <= r * r) return true;
+        }
+        return false;
+    }
+
+    /**
+     * v1.73 牵索：磁暴系旗舰把窗口内离核心不远的玩家弹头往判定圈拧。
+     * 只改方向不改速度，也不会把已经飞过头的弹硬拽回来——远于
+     * {@link #CORE_PULL_RANGE} 的弹一律不碰，一帧最多拧 {@link #CORE_PULL_TURN}×dt。
+     *
+     * <p>包可见是有原因的：牵索是一条只作用在单发弹头上的转向规则，走 {@code world.update}
+     * 整帧测它会被弹池复用、部件挡枪这些不相干的事搅浑。测试直接按帧调这一个方法，
+     * 弹的初速与方向就是它自己的——见 BossCoreFinaleV173Test。
+     */
+    void pullBulletToCore(Bullet b, float dt) {
+        if (bossCoreTimer <= 0f || !boss.active) return;
+        if (coreFinale().mode != Boss.CORE_PULL) return;
+        if (b.homing || b.ult) return;
+        int zone = 0;
+        float best = Float.MAX_VALUE;
+        for (int i = 0; i < coreZoneCount(); i++) {
+            float dx = b.x - coreZoneX(i), dy = b.y - coreZoneY();
+            float d2 = dx * dx + dy * dy;
+            if (d2 < best) {
+                best = d2;
+                zone = i;
+            }
+        }
+        if (best > CORE_PULL_RANGE * CORE_PULL_RANGE) return;
+        float speed = (float) Math.hypot(b.vx, b.vy);
+        if (speed < 1e-3f) return;
+        float now = (float) Math.atan2(b.vy, b.vx);
+        float want = (float) Math.atan2(coreZoneY() - b.y, coreZoneX(zone) - b.x);
+        float delta = want - now;
+        while (delta > (float) Math.PI) delta -= (float) (Math.PI * 2);
+        while (delta < -(float) Math.PI) delta += (float) (Math.PI * 2);
+        // 已经瞄在圈心线上就别动它：重算一次方向会引入一丁点横漂，白赚的准头不该被抹歪
+        if (Math.abs(delta) < 1e-4f) return;
+        float maxTurn = CORE_PULL_TURN * dt;
+        float turn = Math.max(-maxTurn, Math.min(maxTurn, delta));
+        if (Math.abs(delta) <= Math.abs(turn)) turn = delta;   // 差得不远就一次对齐，不多拧
+        float next = now + turn;
+        b.vx = (float) Math.cos(next) * speed;
+        b.vy = (float) Math.sin(next) * speed;
     }
 
     /** 新一场 Boss 战把核心节拍清成"入场后第一次开核"。 */
@@ -2242,6 +2359,10 @@ public class GameWorld {
         bossCoreTimer = 0f;
         bossCoreCooldown = CORE_FIRST_DELAY;
         bossCoreFlash = 0f;
+        // v1.73：终章的钉位坐标与提示行余辉都是窗口内的临时账，换船不带走
+        coreFinaleFlash = 0f;
+        coreAnchorX = 0f;
+        coreAnchorY = 0f;
     }
 
     /** 词缀专用掷点：每艘带词缀的 Boss 前进一格，不碰对局主随机源。 */
@@ -2302,6 +2423,10 @@ public class GameWorld {
     void bossAttack() {
         int tier = boss.tier;
         attackSeq++;
+        // v1.73 终章·静默：核心摊开那几秒，这一型的炮全体憋着——招牌、扩散环、弹幕网
+        // 一并没有，屏幕上真的多不出东西来。节拍计数照常往前推，窗口一合就接回原来的手感；
+        // 放在哑火判定之前，这一拍本来没排到出手，不该把玩家攒下的那记哑火花掉。
+        if (bossCoreTimer > 0f && coreFinale().mode == Boss.CORE_SILENT) return;
         boolean ring = tier >= 1 && boss.phase >= 2 && attackSeq % 3 == 0;
         boolean net = tier >= 1 && boss.phase >= 2 && attackSeq % 4 == 0;
         // v1.61：形态招牌招式插进常规节拍。扩散环与弹幕网是"旗舰级"的骨架招式，永远优先；
@@ -6397,10 +6522,10 @@ public class GameWorld {
                     if (b.cluster) burstFragments(b.x, b.y);
                     if (b.arc && b.arcJumps > 0) chainArc(b.x, b.y, b.arcJumps, null);
                     int dealt = damageOrCrit(b.damage);
-                    // v1.45：核心暴露期打在舰体正中的这一小块，伤害翻倍并额外计分
+                    // v1.45：核心暴露期打在判定圈里的这一发伤害翻倍并额外计分
+                    // v1.73：圈的大小、片数按形态走，口径统一在 coreHitAt 里
                     boolean crit = dealt != b.damage;
-                    boolean coreHit = bossCoreTimer > 0f
-                            && dx * dx + dy * dy <= CORE_RADIUS * CORE_RADIUS;
+                    boolean coreHit = bossCoreTimer > 0f && coreHitAt(b.x, b.y);
                     if (coreHit) {
                         dealt *= CORE_DAMAGE_MULT;
                         bossCoreFlash = 1f;
@@ -7721,6 +7846,8 @@ public class GameWorld {
         bossCoreTimer = 0f;
         bossCoreCooldown = 0f;
         bossCoreFlash = 0f;
+        // v1.73：终章提示行的余辉不该跨场
+        coreFinaleFlash = 0f;
         // v1.27：赏金状态归零
         if (bountyTarget != null) bountyTarget.bounty = false;
         bountyTarget = null;

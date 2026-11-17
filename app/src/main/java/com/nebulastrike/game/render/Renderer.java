@@ -2633,6 +2633,15 @@ public class Renderer {
                         pipY + 26f, 0xFF9FE7C8, false, 0f);
             }
         }
+        // v1.73 终章：核心摊开那几秒跟平时不一样在哪儿，写在攻坚那一行下面一格。
+        // 模拟战那块高度有自己的读数，练功房仍然只留画面不叠字。
+        if (w.bossCoreOpen() && !w.practice()) {
+            Boss.CoreFinale fin = w.coreFinale();
+            int tint = fin.mode == Boss.CORE_SILENT ? 0xFF9FE7C8
+                    : fin.mode == Boss.CORE_PULL ? 0xFF7FD8FF : 0xFFB9D4FF;
+            drawBreachLine(c, "终章 · " + fin.note, pipY + 48f, tint,
+                    w.coreFinaleFlash > 0.6f, w.coreFinaleFlash / GameWorld.CORE_FINALE_FLASH_TIME);
+        }
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setStyle(Paint.Style.FILL);
     }
@@ -3167,83 +3176,116 @@ public class Renderer {
 
     /**
      * v1.45 核心暴露：舰体正中开一块余烬色的核心。
-     * 预警 1.4 秒（收拢弧）→ 暴露 3.4 秒（三道旋转弧 + 白热核 + 窗口寿命环）→ 合拢。
+     * 预警 1.4 秒（收拢弧）→ 暴露（三道旋转弧 + 白热核 + 窗口寿命环）→ 合拢。
      * 核心圈内命中是双倍伤害，所以这一块必须比任何部件都显眼。
+     * v1.73 终章：圈半径、圈数（镜面系两片）、窗口秒数全部按形态走，
+     * 口径来自 {@link GameWorld#coreZoneX(int)} 那一组 accessor——画在哪就打在哪儿。
      */
     private void drawBossCore(Canvas c, GameWorld w) {
         if (!w.boss.active) return;
-        float x = w.boss.x, y = w.boss.y;
-        float r = GameWorld.CORE_RADIUS;
+        float y = w.coreZoneY();
+        float r = w.coreZoneRadius();
         boolean open = w.bossCoreTimer > 0f;
         boolean tell = !open && w.bossCoreCooldown > 0f
                 && w.bossCoreCooldown < 1.4f;
         if (!open && !tell && w.bossCoreFlash <= 0f) return;
         float pulse = 0.5f + 0.5f * (float) Math.sin(w.timeAlive * 9f);
+        int zones = w.coreZoneCount();
+        boolean pull = w.coreFinale().mode == Boss.CORE_PULL;
 
         if (tell) {
-            // 收拢弧：三道弧从外向内合拢，告诉玩家"窗口要开了，把火力对到正中"
+            // 收拢弧：三道弧从外向内合拢，告诉玩家"窗口要开了，把火力对准圈里"
             float k = 1f - Math.max(0f, w.bossCoreCooldown) / 1.4f;
             float rr = r + 52f * (1f - k);
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(2.5f);
-            for (int i = 0; i < 3; i++) {
-                float a0 = w.timeAlive * 90f + i * 120f;
-                paint.setColor(((int) (0x60 + 0x60 * k) << 24) | 0x00FF7A45);
-                c.drawArc(x - rr, y - rr, x + rr, y + rr, a0, 54f, false, paint);
+            for (int z = 0; z < zones; z++) {
+                float x = w.coreZoneX(z);
+                for (int i = 0; i < 3; i++) {
+                    float a0 = w.timeAlive * 90f + i * 120f + (zones > 1 ? 60f * z : 0f);
+                    paint.setColor(((int) (0x60 + 0x60 * k) << 24) | 0x00FF7A45);
+                    c.drawArc(x - rr, y - rr, x + rr, y + rr, a0, 54f, false, paint);
+                }
             }
         }
 
         if (open) {
-            float frac = Math.max(0f, Math.min(1f, w.bossCoreTimer / GameWorld.CORE_WINDOW));
-            // 外晕：呼吸的余烬光
-            glow.setColor(((int) (0x50 + 0x30 * pulse) << 24) | 0x00FF7A45);
-            c.drawCircle(x, y, r * (2.1f + 0.2f * pulse), glow);
-            // 三道反向旋转弧：一眼看出"这是可打的窗口"
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(3f);
-            for (int i = 0; i < 3; i++) {
-                float rr = r + 10f + i * 9f;
-                float a0 = w.timeAlive * (i % 2 == 0 ? 150f : -120f) + i * 120f;
-                paint.setColor((0xB0 - i * 0x28) << 24 | 0x00FF9A5C);
-                c.drawArc(x - rr, y - rr, x + rr, y + rr, a0, 82f, false, paint);
+            float frac = Math.max(0f, Math.min(1f,
+                    w.bossCoreTimer / Math.max(0.01f, w.coreFinale().window)));
+            for (int z = 0; z < zones; z++) drawCoreZone(c, w, w.coreZoneX(z), y, r, frac, pulse);
+            if (pull) {
+                // 牵索：四根向心的短箭说明"弹头会被往里带"，不用读数也能看懂
+                float x = w.coreZoneX(0);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2.2f);
+                paint.setColor(((int) (0x70 + 0x50 * pulse) << 24) | 0xFF7FD8FF);
+                for (int i = 0; i < 4; i++) {
+                    float a = (float) Math.toRadians(i * 90f + 45f + w.timeAlive * 40f);
+                    float ox = (float) Math.cos(a), oy = (float) Math.sin(a);
+                    float d0 = r + 30f, d1 = r + 12f;
+                    c.drawLine(x + ox * d0, y + oy * d0, x + ox * d1, y + oy * d1, paint);
+                }
             }
-            // 白热核：暗底 + 余烬环 + 脉动白芯
-            paint.setStyle(Paint.Style.FILL);
-            paint.setColor(0xE8120608);
-            c.drawCircle(x, y, r * 0.8f, paint);
-            paint.setColor(0xD0FF7A45);
-            c.drawCircle(x, y, r * 0.62f, paint);
-            paint.setColor(0xFFFFE8D0);
-            c.drawCircle(x, y, r * (0.26f + 0.08f * pulse), paint);
-            // 窗口寿命环：从 12 点顺时针缩短，剩下最后 1/4 转白提示"要合拢了"
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(4f);
-            paint.setColor(0x33FF7A45);
-            c.drawCircle(x, y, r + 4f, paint);
-            paint.setColor(frac < 0.25f ? 0xFFFFFFFF : 0xFFFFB03A);
-            c.drawArc(x - r - 4f, y - r - 4f, x + r + 4f, y + r + 4f,
-                    -90f, 360f * frac, false, paint);
             // 只写一次"×2"：窗口开启时玩家抬头就能看见倍率
+            paint.setStyle(Paint.Style.FILL);
             paint.setTextAlign(Paint.Align.CENTER);
             paint.setTextSize(22f);
             paint.setFakeBoldText(true);
             paint.setColor(((int) (0xD0 * Math.min(1f, frac * 4f)) << 24) | 0xFFFFC48A);
-            c.drawText("×2", x, y + r + 30f, paint);
+            for (int z = 0; z < zones; z++) {
+                c.drawText("×2", w.coreZoneX(z), y + r + 30f, paint);
+            }
             paint.setFakeBoldText(false);
             paint.setTextAlign(Paint.Align.LEFT);
         }
 
-        // 命中反馈：核心挨打时闪一圈白热
+        // 命中反馈：核心挨打时闪一圈白热（两片就各闪一圈）
         if (w.bossCoreFlash > 0f) {
             float k = w.bossCoreFlash;
-            glow.setColor(((int) (0x88 * k) << 24) | 0x00FFFFFF);
-            c.drawCircle(x, y, r * (0.9f + 0.7f * (1f - k)), glow);
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setStrokeWidth(2f + 4f * k);
-            paint.setColor(((int) (0xA0 * k) << 24) | 0x00FFFFFF);
-            c.drawCircle(x, y, r * (1.0f + 0.5f * (1f - k)), paint);
+            for (int z = 0; z < zones; z++) {
+                float x = w.coreZoneX(z);
+                glow.setColor(((int) (0x88 * k) << 24) | 0x00FFFFFF);
+                c.drawCircle(x, y, r * (0.9f + 0.7f * (1f - k)), glow);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2f + 4f * k);
+                paint.setColor(((int) (0xA0 * k) << 24) | 0x00FFFFFF);
+                c.drawCircle(x, y, r * (1.0f + 0.5f * (1f - k)), paint);
+            }
         }
         paint.setStyle(Paint.Style.FILL);
+    }
+
+    /** 一片核心判定圈：外晕、三道反向旋转弧、白热核、窗口寿命环。 */
+    private void drawCoreZone(Canvas c, GameWorld w, float x, float y, float r,
+                              float frac, float pulse) {
+        // 外晕：呼吸的余烬光
+        glow.setColor(((int) (0x50 + 0x30 * pulse) << 24) | 0x00FF7A45);
+        c.drawCircle(x, y, r * (2.1f + 0.2f * pulse), glow);
+        // 三道反向旋转弧：一眼看出"这是可打的窗口"
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3f);
+        for (int i = 0; i < 3; i++) {
+            float rr = r + 10f + i * 9f;
+            float a0 = w.timeAlive * (i % 2 == 0 ? 150f : -120f) + i * 120f;
+            paint.setColor((0xB0 - i * 0x28) << 24 | 0x00FF9A5C);
+            c.drawArc(x - rr, y - rr, x + rr, y + rr, a0, 82f, false, paint);
+        }
+        // 白热核：暗底 + 余烬环 + 脉动白芯
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(0xE8120608);
+        c.drawCircle(x, y, r * 0.8f, paint);
+        paint.setColor(0xD0FF7A45);
+        c.drawCircle(x, y, r * 0.62f, paint);
+        paint.setColor(0xFFFFE8D0);
+        c.drawCircle(x, y, r * (0.26f + 0.08f * pulse), paint);
+        // 窗口寿命环：从 12 点顺时针缩短，剩下最后 1/4 转白提示"要合拢了"
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(4f);
+        paint.setColor(0x33FF7A45);
+        c.drawCircle(x, y, r + 4f, paint);
+        paint.setColor(frac < 0.25f ? 0xFFFFFFFF : 0xFFFFB03A);
+        c.drawArc(x - r - 4f, y - r - 4f, x + r + 4f, y + r + 4f,
+                -90f, 360f * frac, false, paint);
     }
 
     private void drawBossLasers(Canvas c, GameWorld w) {
@@ -4740,6 +4782,7 @@ public class Renderer {
                 "八型旗舰八种舰装 · 部件挂在船体的哪几处每一型都不同，进场前看一眼预警横幅的「舰装」，拆法就顺着那条线走",
                 "顺着舰装的攻坚路线拆件有连段加分 · 血条上的金圈就是这一层该拆的，插队只断连段、不扣分，拆穿一整条线另有大奖",
                 "整条攻坚路线一件没插队地拆穿，它下一手招牌当场哑火 · 那一拍真的什么都没有，趁这口气打核心",
+                "核心摊开那几秒每型旗舰的挣扎都不一样 · 有的全体憋火、有的被钉在原地、有的把你的弹拽进圈、有的核心裂成两片，HUD 那行会写清楚",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
