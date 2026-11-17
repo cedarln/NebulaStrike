@@ -187,7 +187,13 @@ public class GameWorld {
         /** v1.71：整条路线拆穿，舰装被顺线清空（code = 这艘船的舰装件数） */
         BOSS_BREACH_PERFECT,
         /** v1.72：拆穿换来的一记哑火被吃掉，这一手招牌没打出来（code = {@link Boss.Form#ordinal()}） */
-        BOSS_BREACH_SILENCE
+        BOSS_BREACH_SILENCE,
+        /** v1.74：反击窗口里打进核心的第几记共鸣（code = 1..{@link #CORE_ECHO_HITS}） */
+        BOSS_CORE_ECHO_STEP,
+        /** v1.74：共鸣攒满一记，给这一型补上一次识破进度（code = {@link Boss.Form#ordinal()}） */
+        BOSS_CORE_ECHO,
+        /** v1.74：哑火把下一次开核提前（code = 提前之后还要等的整秒数） */
+        BOSS_CORE_LEAD
     }
     public static final class GameEvent {
         public final EventType type;
@@ -886,6 +892,33 @@ public class GameWorld {
     private float coreAnchorX, coreAnchorY;
     /** 终章提示行的余辉（开核瞬间提亮，之后自己收走）。 */
     public float coreFinaleFlash;
+
+    // ---- v1.74：终章共鸣 ECHO OF THE FINALE ----
+    /**
+     * 共鸣要攒几记：反击窗口里往摊开的核心里打进这么多发，就给这一型补上一次识破进度。
+     * 一个窗口最多补一记，所以它是"锦上添花"，不是把读招这本账改成刷核心就能翻篇。
+     */
+    public static final int CORE_ECHO_HITS = 4;
+    /** 补上那一记识破的打底分（另加 40×舰级，跟识破赏金一个量级但明显更薄）。 */
+    public static final int CORE_ECHO_SCORE_BASE = 160;
+    /** 兑现哑火之后，下一次开核最多还要等这么多秒（原本要 11.5 秒）。 */
+    public static final float CORE_SILENCE_LEAD = 1.4f;
+    /** 共鸣那行提示的余辉。 */
+    public static final float CORE_ECHO_FLASH_TIME = 1.6f;
+    /** 当前窗口里已经攒了几记共鸣（合拢清零）。 */
+    public int coreEchoHits;
+    /** 本局靠共鸣补上过几次识破进度（跨船累计，重开清零）。 */
+    public int finaleEchoes;
+    /** 共鸣补的是哪一型的进度，横幅要念得出船名。 */
+    public Boss.Form coreEchoForm = Boss.Form.SPECTER;
+    /** 共鸣提示行的余辉（攒到第几记都续一次）。 */
+    public float coreEchoFlash;
+    /** 「弱点提前」提示行的余辉。 */
+    public float coreLeadFlash;
+    /** 窗口开着时兑现的哑火：提前量先欠着，合拢那一帧再排队。 */
+    private boolean coreLeadPending;
+    /** 这一个窗口已经补过一记了没有——补过的不再叠加。 */
+    private boolean coreEchoPaid;
 
     // ---- v1.47：Boss 词缀 AFFIX ----
     /** 第几艘 Boss 起带词缀（0 基：level 2 就是第三艘）。 */
@@ -2251,7 +2284,17 @@ public class GameWorld {
             }
             if (bossCoreTimer <= 0f) {
                 bossCoreTimer = 0f;
-                bossCoreCooldown = coreInterval();
+                coreEchoHits = 0;      // v1.74：窗口一合，没攒满的共鸣不带走，也不补进下一窗
+                if (coreLeadPending) {
+                    // 哑火是在窗口里兑现的，那口气现在才兑——弱点提前摊开
+                    coreLeadPending = false;
+                    bossCoreCooldown = Math.min(coreInterval(), CORE_SILENCE_LEAD);
+                    coreLeadFlash = CORE_ECHO_FLASH_TIME;
+                    events.add(new GameEvent(EventType.BOSS_CORE_LEAD, boss.x, boss.y,
+                            Math.round(bossCoreCooldown)));
+                } else {
+                    bossCoreCooldown = coreInterval();
+                }
                 events.add(new GameEvent(EventType.BOSS_CORE_CLOSE, boss.x, boss.y));
             }
             return;
@@ -2264,6 +2307,8 @@ public class GameWorld {
         if (bossCoreCooldown > 0f) return;
         Boss.CoreFinale fin = coreFinale();
         bossCoreTimer = fin.window;
+        coreEchoHits = 0;              // v1.74：每个窗口一页新账
+        coreEchoPaid = false;
         coreAnchorX = boss.x;
         coreAnchorY = boss.y;
         coreFinaleFlash = CORE_FINALE_FLASH_TIME;
@@ -2354,6 +2399,66 @@ public class GameWorld {
         b.vy = (float) Math.sin(next) * speed;
     }
 
+    /**
+     * v1.74 共鸣：反击窗口里打进摊开的核心，攒 {@link #CORE_ECHO_HITS} 记就给这一型
+     * 补一次识破进度（{@link #formReads} 加一格，档位到了照样升）。
+     *
+     * <p>只补进度，不动连读：{@link #counterStreak} 那串赏金看的是"连着读懂几手"，
+     * 拿打核心去续它等于改了那本账的规则。一个窗口最多补一记，补完这窗口的弹照旧
+     * 只是双倍伤害加分，不再重复记账。包可见的原因同牵索：整帧测它会被弹池复用搅浑。
+     */
+    void registerCoreEcho(Boss.Form form) {
+        if (bossCoreTimer <= 0f || counterStrikeTimer <= 0f || coreEchoPaid) return;
+        coreEchoHits++;
+        coreEchoFlash = CORE_ECHO_FLASH_TIME;
+        coreEchoForm = form;
+        events.add(new GameEvent(EventType.BOSS_CORE_ECHO_STEP, ship.x, ship.y, coreEchoHits));
+        if (coreEchoHits < CORE_ECHO_HITS) return;
+        coreEchoHits = 0;
+        coreEchoPaid = true;
+        finaleEchoes++;
+        int tierBefore = masteryTier(form);
+        formReads[form.ordinal()]++;
+        int tier = masteryTier(form);
+        int gained = CORE_ECHO_SCORE_BASE + 40 * boss.level;
+        addScore(gained, SCORE_BOSS);
+        spawnFloatText(boss.x, boss.y + 60f, gained, FLOAT_COUNTER, true);
+        events.add(new GameEvent(EventType.BOSS_CORE_ECHO, boss.x, boss.y, form.ordinal()));
+        if (tier > tierBefore) {
+            // 升档走识破那本账同一套横幅与音效：共鸣补上的那一档和读懂一手补上的是同一格
+            counterMasteryForm = form;
+            counterMasteryTier = tier;
+            counterMasteryBanner = 2.6f;
+            events.add(new GameEvent(EventType.BOSS_COUNTER_MASTERY,
+                    boss.x, ship.y - 150f, form.ordinal() * 10 + tier));
+        }
+    }
+
+    /**
+     * v1.74：哑火兑现后把下一次开核提前到 {@link #CORE_SILENCE_LEAD} 秒内。
+     * 窗口正开着时不打断它（提前量欠着，合拢那一帧再排队），也不会把已经排得更近的
+     * 一次推远——只压不抬，所以灼热词缀那种更快的节拍不会被这条规则改慢。
+     */
+    private void leadCoreAfterSilence() {
+        if (!boss.active) return;
+        float lead = Math.min(CORE_SILENCE_LEAD, coreInterval());
+        if (bossCoreTimer > 0f) {
+            coreLeadPending = true;
+            return;
+        }
+        if (bossCoreCooldown > lead) {
+            bossCoreCooldown = lead;
+            coreLeadFlash = CORE_ECHO_FLASH_TIME;
+            events.add(new GameEvent(EventType.BOSS_CORE_LEAD, boss.x, boss.y,
+                    Math.round(bossCoreCooldown)));
+        }
+    }
+
+    /** 共鸣进度（0..{@link #CORE_ECHO_HITS}），HUD 与图鉴共用这一个读数。 */
+    public int coreEchoProgress() {
+        return coreEchoHits;
+    }
+
     /** 新一场 Boss 战把核心节拍清成"入场后第一次开核"。 */
     private void resetBossCore() {
         bossCoreTimer = 0f;
@@ -2363,6 +2468,11 @@ public class GameWorld {
         coreFinaleFlash = 0f;
         coreAnchorX = 0f;
         coreAnchorY = 0f;
+        coreEchoHits = 0;
+        coreEchoPaid = false;
+        coreLeadPending = false;
+        coreEchoFlash = 0f;
+        coreLeadFlash = 0f;
     }
 
     /** 词缀专用掷点：每艘带词缀的 Boss 前进一格，不碰对局主随机源。 */
@@ -2444,6 +2554,8 @@ public class GameWorld {
                 breachSilenceFlash = BREACH_SILENCE_TIME;
                 events.add(new GameEvent(EventType.BOSS_BREACH_SILENCE,
                         boss.x, boss.y, boss.form.ordinal()));
+                // v1.74：这一记哑火不只是"少了一片弹"，它把护着核心的那口气一起泄了
+                leadCoreAfterSilence();
                 // 炮口只剩火星：给一记很浅的震动，声音交给 SfxBank 那声闷响
                 spark(boss.x, boss.y + boss.radius * 0.45f, 8, 3);
                 addShake(0.16f, 5f);
@@ -6530,6 +6642,8 @@ public class GameWorld {
                         dealt *= CORE_DAMAGE_MULT;
                         bossCoreFlash = 1f;
                         addScore(CORE_HIT_SCORE, SCORE_OTHER);
+                        // v1.74：反击窗口（读懂那一手换来的）+ 摊开的核心 = 共鸣
+                        if (counterStrikeTimer > 0f) registerCoreEcho(boss.form);
                     }
                     // v1.64：识破之后的反击窗口里，子弹（含激光段）再多吃 50%，与露核、暴击叠乘
                     boolean strike = counterStrikeTimer > 0f;
