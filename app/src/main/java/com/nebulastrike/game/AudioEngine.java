@@ -378,6 +378,11 @@ public class AudioEngine {
                     play(SfxId.BREACH_PERFECT, 0.82f,
                             0.97f + 0.012f * Math.min(12, Math.max(0, e.code)), panFor(e.x));
                     break;
+                case BOSS_BREACH_SILENCE:
+                    // v1.72 招牌哑火：code = 形态序号，只让不同型的闷响有一点点音色差
+                    play(SfxId.BREACH_SILENCE, 0.78f,
+                            0.94f + 0.02f * Math.min(7, Math.max(0, e.code)), panFor(e.x));
+                    break;
                 case ULT_READY:
                     play(SfxId.ULT_READY, 0.75f, 1f, 0f);
                     break;

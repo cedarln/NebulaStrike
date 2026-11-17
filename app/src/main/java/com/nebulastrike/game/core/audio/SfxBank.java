@@ -90,6 +90,7 @@ public final class SfxBank {
         put(SfxId.COUNTER_VOLLEY, counterVolley(), 0.74f);
         put(SfxId.BREACH_STEP, breachStep(), 0.5f);
         put(SfxId.BREACH_PERFECT, breachPerfect(), 0.86f);
+        put(SfxId.BREACH_SILENCE, breachSilence(), 0.62f);
     }
 
     public static SfxBank create() {
@@ -1402,6 +1403,38 @@ public final class SfxBank {
             x[i] = (float) ((tone + body) * env(t, 0.62, 0.002, 1.1));
         }
         echo(x, 0.1, 0.2);
+        return x;
+    }
+
+    /**
+     * v1.72 招牌哑火：一声往下坠的闷响（170Hz → 46Hz 的失谐锯齿）配三记越来越弱的喷焰扑空，
+     * 底下只留一点点火星。它是全场唯一"事情没有发生"的音效，所以峰值刻意压低——
+     * 响亮就等于宣告，这一声要的是"咦，怎么没来"。
+     */
+    private static float[] breachSilence() {
+        int n = frames(0.42);
+        float[] x = new float[n];
+        Random r = new Random(1721);
+        double ph = 0, sub = 0;
+        double hiss = 0, puff = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double f = 170.0 * Math.exp(-t * 4.2) + 46.0;
+            ph += f / SAMPLE_RATE;
+            sub += f * 0.5 / SAMPLE_RATE;
+            double body = (0.34 * saw(ph) + 0.22 * square(ph, 0.22) + 0.3 * sine(sub))
+                    * Math.exp(-t * 7.5);
+            // 三记扑空：0 / 0.075 / 0.15 秒，幅度逐记递减，每记只活几十毫秒
+            hiss += 0.55 * (noise(r) - hiss);
+            double sputter = 0;
+            for (int k = 0; k < 3; k++) {
+                double start = k * 0.075;
+                if (t < start) continue;
+                sputter += hiss * Math.exp(-(t - start) * 60.0) / (1.0 + k * 1.6);
+            }
+            puff += 0.05 * (sputter - puff);
+            x[i] = (float) ((body + sputter * 0.5 + puff) * env(t, 0.42, 0.0018, 0.95));
+        }
         return x;
     }
 

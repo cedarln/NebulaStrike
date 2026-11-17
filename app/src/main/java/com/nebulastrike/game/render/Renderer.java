@@ -2623,6 +2623,14 @@ public class Renderer {
                                 + " 层 · 连拆 " + w.breachStreak + (mult > 1 ? " ×" + mult : ""),
                         pipY + 26f, w.breachLastWasStep ? 0xFFFFD166 : 0xFF9FB4D8,
                         false, Math.min(1f, w.breachFlash / (GameWorld.BREACH_BANNER_TIME * 0.5f)));
+            } else if (w.breachSilenceFlash > 0f) {
+                // v1.72 哑火那一拍：字要留在屏幕上比那一声久一点，玩家得反应过来"这手真的没来"
+                drawBreachLine(c, "哑火 · " + w.breachSilencedForm.label + "的那一手招牌扑了空",
+                        pipY + 26f, 0xFFFFD166, true,
+                        Math.min(1f, w.breachSilenceFlash / 0.9f));
+            } else if (w.breachSilenceArmed) {
+                drawBreachLine(c, "破口已成 · 它的下一手招牌打不出来",
+                        pipY + 26f, 0xFF9FE7C8, false, 0f);
             }
         }
         paint.setTextAlign(Paint.Align.LEFT);
@@ -4731,6 +4739,7 @@ public class Renderer {
                 "同一型读到「熟悉」以上，它刚丢的那一手会被原样回敬打回去 · 金色弹道不算你的命中率，读透了回得更密",
                 "八型旗舰八种舰装 · 部件挂在船体的哪几处每一型都不同，进场前看一眼预警横幅的「舰装」，拆法就顺着那条线走",
                 "顺着舰装的攻坚路线拆件有连段加分 · 血条上的金圈就是这一层该拆的，插队只断连段、不扣分，拆穿一整条线另有大奖",
+                "整条攻坚路线一件没插队地拆穿，它下一手招牌当场哑火 · 那一拍真的什么都没有，趁这口气打核心",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);

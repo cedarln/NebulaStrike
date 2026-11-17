@@ -399,6 +399,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     // v1.71：顺线拆件的那一下已经有部件掉落的轻点 + 专属剪断音，不再叠第二次；
                     // 整条路线拆穿时部件轻点与解除武装的impact都在同一帧，这里补一记最重的收口
                     case BOSS_BREACH_PERFECT: haptics.bomb(); break;
+                    // v1.72：哑火是"该来的一掌没来"，给一记中等震动——比部件掉落重，比拆穿收口轻
+                    case BOSS_BREACH_SILENCE: haptics.impact(); break;
                     // 回声周目开场给一记中震；碎片到手轻点一下
                     case ECHO_START: haptics.impact(); break;
                     case ECHO_SHARD: haptics.tick(); break;

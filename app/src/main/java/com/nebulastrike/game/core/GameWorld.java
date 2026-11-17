@@ -185,7 +185,9 @@ public class GameWorld {
         /** v1.71：插队拆件，这条线断了（code = 那件所在的层号） */
         BOSS_BREACH_BROKEN,
         /** v1.71：整条路线拆穿，舰装被顺线清空（code = 这艘船的舰装件数） */
-        BOSS_BREACH_PERFECT
+        BOSS_BREACH_PERFECT,
+        /** v1.72：拆穿换来的一记哑火被吃掉，这一手招牌没打出来（code = {@link Boss.Form#ordinal()}） */
+        BOSS_BREACH_SILENCE
     }
     public static final class GameEvent {
         public final EventType type;
@@ -1216,6 +1218,22 @@ public class GameWorld {
     /** 路线横幅余辉时长：比回敬短一点，它出现得更频繁。 */
     public static final float BREACH_BANNER_TIME = 1.4f;
 
+    // v1.72 拆穿即哑火：把上一版那笔"只加分"的大奖变成战场上的东西。
+    // 整条攻坚路线一件没插队地拆穿 = 这艘船的舰体结构被顺着它的软肋拆开了，
+    // 它下一手招牌攒不出力——那一拍真的什么都没有。哑火只吃一次，也只在招牌那一拍兑现，
+    // 常规扩散环、弹幕网、增援与冲撞一律照常，它不会把一场 Boss 战按暂停。
+
+    /** 攒着的那一记哑火：拆穿整条路线时点亮，下一手招牌被它吃掉。 */
+    public boolean breachSilenceArmed;
+    /** 本局哑火了几个招牌（跨船累计，换船不清）。 */
+    public int breachSilences;
+    /** 哑火发生时的形态，横幅要念得出是"哪一手"没打出来。 */
+    public Boss.Form breachSilencedForm = Boss.Form.SPECTER;
+    /** 哑火那一拍的余辉（秒）。 */
+    public float breachSilenceFlash;
+    /** 哑火横幅比路线横幅多挂一会儿：一艘船最多只响一次。 */
+    public static final float BREACH_SILENCE_TIME = 1.8f;
+
     /** 连段倍率：连着顺线拆 3 件起 ×2、6 件起 ×3、9 件起 ×4，封顶 4。 */
     public static int breachMultFor(int streak) {
         return streak >= 9 ? 4 : streak >= 6 ? 3 : streak >= 3 ? 2 : 1;
@@ -1254,6 +1272,9 @@ public class GameWorld {
         breachGrandScore = 0;
         breachLastWasStep = false;
         breachFlash = 0f;
+        // v1.72：哑火是那艘被拆明白的船欠下的，换一条船不替它还
+        breachSilenceArmed = false;
+        breachSilenceFlash = 0f;
     }
 
     /** 还活着的舰装里最靠前的那一层；拆空了返回 {@link #breachLevels}（再没有能顺线的件）。 */
@@ -2273,7 +2294,12 @@ public class GameWorld {
 
     private int attackSeq;
 
-    private void bossAttack() {
+    /**
+     * 旗舰的一拍攻击。包可见是有原因的：v1.72 的哑火发生在<b>调度层</b>——它吃掉的是
+     * "这一拍该出招牌"这件事，不是 {@link #fireSignature} 里的某一段弹幕，
+     * 测试要量的就是调度层这一刀（见 BossBreachSilenceV172Test）。
+     */
+    void bossAttack() {
         int tier = boss.tier;
         attackSeq++;
         boolean ring = tier >= 1 && boss.phase >= 2 && attackSeq % 3 == 0;
@@ -2283,6 +2309,21 @@ public class GameWorld {
         boolean signature = !ring && !net
                 && attackSeq % (boss.phase >= 2 && tier >= 1 ? 5 : 4) == 0;
         if (signature) {
+            // v1.72 拆穿即哑火：整条攻坚路线一件没插队地拆穿，攒下这一记。
+            // 招牌在这一拍被吃掉——不是"打偏了"也不是"少了几个弹"，是真的什么都没出来：
+            // 舰装被顺着软肋拆开之后，这一手凑不齐了。常规环、弹幕网、增援、冲撞一概不受影响。
+            if (breachSilenceArmed) {
+                breachSilenceArmed = false;
+                breachSilences++;
+                breachSilencedForm = boss.form;
+                breachSilenceFlash = BREACH_SILENCE_TIME;
+                events.add(new GameEvent(EventType.BOSS_BREACH_SILENCE,
+                        boss.x, boss.y, boss.form.ordinal()));
+                // 炮口只剩火星：给一记很浅的震动，声音交给 SfxBank 那声闷响
+                spark(boss.x, boss.y + boss.radius * 0.45f, 8, 3);
+                addShake(0.16f, 5f);
+                return;
+            }
             // v1.68 终式：三阶段之后那句狠话是要兑现的——招牌与终式交替出，读法各是一套
             fireSignature(boss.form, tier, boss.phase >= 3 && (signatureSeq & 1) == 1);
             return;
@@ -3163,6 +3204,8 @@ public class GameWorld {
                 addScore(breachGrandScore, SCORE_PART);
                 breachFlash = BREACH_BANNER_TIME * 2f;
                 breachLastWasStep = true;
+                // v1.72：这一下不再只是分数——拆明白了一整条线，它下一手招牌就攒不出力
+                breachSilenceArmed = true;
                 addShake(0.3f, 10f);
                 events.add(new GameEvent(EventType.BOSS_BREACH_PERFECT,
                         boss.x, boss.y, breachRigParts));
@@ -3986,6 +4029,8 @@ public class GameWorld {
         if (counterVolleyFlash > 0f) counterVolleyFlash = Math.max(0f, counterVolleyFlash - dt);
         // v1.71：攻坚路线的提示自己收走，路线本身只看还剩几件没拆
         if (breachFlash > 0f) breachFlash = Math.max(0f, breachFlash - dt);
+        // v1.72：哑火那一行的余辉自己收走；攒着的那一记不看时间，只看它有没有被兑现
+        if (breachSilenceFlash > 0f) breachSilenceFlash = Math.max(0f, breachSilenceFlash - dt);
         if (counterChainBreak > 0f) counterChainBreak = Math.max(0f, counterChainBreak - dt);
         if (pendingCounterSerial != 0) {
             counterWindow = Math.max(0f, counterWindow - dt);
@@ -7776,6 +7821,10 @@ public class GameWorld {
         breachLastScore = 0;
         breachGrandScore = 0;
         breachFlash = 0f;
+        breachSilenceArmed = false;
+        breachSilences = 0;
+        breachSilenceFlash = 0f;
+        breachSilencedForm = Boss.Form.SPECTER;
         breachLastWasStep = false;
         // v1.66：连读同样是"这一局的手感"，重开从第 1 招重新数
         counterStreak = 0;
