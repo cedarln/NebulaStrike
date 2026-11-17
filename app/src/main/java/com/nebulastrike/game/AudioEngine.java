@@ -332,6 +332,10 @@ public class AudioEngine {
                     play(SfxId.BOSS_NET, 0.5f, 0.82f + 0.04f * Math.max(0, e.code),
                             panFor(e.x));
                     break;
+                case BOSS_FINALE:
+                    // v1.68 终式：三阶段之后压箱底的那一手，音高按形态错开，八型各有各的低吼
+                    play(SfxId.FINALE, 0.78f, 0.9f + 0.035f * Math.max(0, e.code), panFor(e.x));
+                    break;
                 case BOSS_COUNTER:
                     // v1.63 识破：借用弹反那声金属上扬，音更高一点——"这手我读明白了"
                     play(SfxId.PARRY, 0.55f, 1.18f + 0.03f * Math.max(0, e.code),

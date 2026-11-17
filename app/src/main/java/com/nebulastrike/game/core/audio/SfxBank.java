@@ -86,6 +86,7 @@ public final class SfxBank {
         put(SfxId.COUNTER_MASTERY, counterMastery(), 0.8f);
         put(SfxId.COUNTER_CHAIN, counterChain(), 0.78f);
         put(SfxId.SUPPLY_DOUBLE, supplyDouble(), 0.68f);
+        put(SfxId.FINALE, finaleSting(), 0.9f);
     }
 
     public static SfxBank create() {
@@ -1269,6 +1270,43 @@ public final class SfxBank {
             x[i] = (float) ((tone + tap + clink) * env(t, 0.46, 0.0014, 1.15));
         }
         echo(x, 0.1, 0.2);
+        return x;
+    }
+
+    /**
+     * v1.68 终式出手：G2 → D2 两记往下走的重锤，中间一层往下压的低吼，
+     * 末尾挂一道从高音滑下来的扫频——"它把压箱底的那手拿出来了"，比招牌那声明显更沉。
+     */
+    private static float[] finaleSting() {
+        int n = frames(0.78);
+        float[] x = new float[n];
+        Random r = new Random(1688);
+        double[] hitAt = {0.0, 0.19};
+        double[] hitF = {98.0, 73.42};
+        double[] ph = new double[hitAt.length];
+        double growl = 0, fall = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double tone = 0;
+            for (int k = 0; k < hitAt.length; k++) {
+                if (t < hitAt[k]) continue;
+                double local = t - hitAt[k];
+                ph[k] += hitF[k] / SAMPLE_RATE;
+                tone += (0.21 * sine(ph[k]) + 0.13 * tri(ph[k] * 2.0) + 0.07 * sine(ph[k] * 3.7))
+                        * Math.exp(-local * (6.0 - k * 1.7)) * (k == 1 ? 1.18 : 1.0);
+            }
+            // 低吼：一路往下压的带通噪声，把两锤之间的空撑住
+            growl += 0.11 * (noise(r) - growl);
+            double snarl = growl * Math.exp(-t * 3.0) * 0.5;
+            // 收尾那记下坠：0.34 秒之后频率一路滑下去
+            double sweep = 0;
+            if (t > 0.34) {
+                fall += Math.max(0.05, 1.0 - (t - 0.34) / 0.42) * 820.0 / SAMPLE_RATE;
+                sweep = sine(fall) * Math.exp(-(t - 0.34) * 5.5) * 0.18;
+            }
+            x[i] = (float) ((tone + snarl + sweep) * env(t, 0.78, 0.002, 1.2));
+        }
+        echo(x, 0.11, 0.22);
         return x;
     }
 

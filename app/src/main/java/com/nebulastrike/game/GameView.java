@@ -381,6 +381,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     // v1.61：形态揭晓轻点一下，招牌招式出手给一记中震（躲之前先感觉到）
                     case BOSS_FORM: haptics.tick(); break;
                     case BOSS_SIGNATURE: haptics.impact(); break;
+                    // v1.68：终式是"它认真了"的那一手，给一记重震，比招牌那下明显更沉
+                    case BOSS_FINALE: haptics.bomb(); break;
                     // v1.63：识破整轮招牌给一记轻点，读对了要听得见也要摸得到
                     case BOSS_COUNTER: haptics.tick(); break;
                     // v1.64：反击窗口开膛，比识破那一下更重一点

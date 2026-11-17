@@ -164,6 +164,8 @@ public class GameWorld {
         BOSS_FORM,
         /** v1.61：旗舰打出形态招牌招式（code = {@link Boss.Form#ordinal()}） */
         BOSS_SIGNATURE,
+        /** v1.68：三阶段之后旗舰打出形态终式（code = {@link Boss.Form#ordinal()}） */
+        BOSS_FINALE,
         /** v1.63：一轮招牌弹幕散尽且没打中玩家 = 识破（code = {@link Boss.Form#ordinal()}） */
         BOSS_COUNTER,
         /** v1.64：识破开启反击窗口（code = {@link Boss.Form#ordinal()}） */
@@ -1082,11 +1084,20 @@ public class GameWorld {
     public float signatureFlash;
     /** 刚才打出来的那招属于哪个形态。 */
     public Boss.Form signatureForm = Boss.Form.SPECTER;
+    /** v1.68：刚才那一手是招牌还是终式（终式只在三阶段之后出，读法与招式名都不一样）。 */
+    public boolean signatureFinale;
+    /** v1.68：本局终式出手次数 / 其中读懂了几次（读招账本仍按形态记，终式照旧记同一格）。 */
+    public int finaleFired;
+    public int finaleReads;
+    /** 本局招牌已出手的次数：三阶段起用它让招牌与终式交替出。 */
+    private int signatureSeq;
     /**
      * v1.63 破招：本局识破次数。一轮招牌弹幕的弹全部散尽、且这一轮里玩家没掉血，
      * 就算读懂了这一手——只加分，不动任何既有节拍与掉落。
      */
     public int countersRead;
+    /** v1.68：最近这一次识破读的是终式（渲染层在"识破"那行后面补一句"· 终式"）。 */
+    public boolean counterFromFinale;
     /** 识破提示的余辉、读的是哪一型、加了多少分（渲染层用）。 */
     public float counterFlash;
     public Boss.Form counterForm = Boss.Form.SPECTER;
@@ -2131,7 +2142,8 @@ public class GameWorld {
         boolean signature = !ring && !net
                 && attackSeq % (boss.phase >= 2 && tier >= 1 ? 5 : 4) == 0;
         if (signature) {
-            fireSignature(boss.form, tier);
+            // v1.68 终式：三阶段之后那句狠话是要兑现的——招牌与终式交替出，读法各是一套
+            fireSignature(boss.form, tier, boss.phase >= 3 && (signatureSeq & 1) == 1);
             return;
         }
         switch (boss.phase) {
@@ -2250,13 +2262,34 @@ public class GameWorld {
     /**
      * v1.61 形态招牌招式：八种形态各有一招自己的看家弹幕，打出去时广播一次
      * {@link EventType#BOSS_SIGNATURE}，渲染层用它弹出招式名。返回本次敌弹数。
+     * v1.68 起它等价于"出招牌"，终式走 {@link #fireSignature(Boss.Form, int, boolean)}。
      */
     int fireSignature(Boss.Form form, int tier) {
+        return fireSignature(form, tier, false);
+    }
+
+    /**
+     * v1.68 终式 FORM FINALE：旗舰进入三阶段（那句狠话说完）之后，招牌与终式交替出手。
+     * 终式是这一型独有的第二手，读法与招牌不同，但读懂了照旧记进同一型的识破账上。
+     */
+    int fireSignature(Boss.Form form, int tier, boolean finale) {
         int made;
         // v1.63：这一批敌弹打上同一个轮次号，散尽时才算"读懂了这一手"
         signatureTag = ++signatureSerial;
+        signatureSeq++;
         try {
-            switch (form) {
+            if (finale) {
+                switch (form) {
+                    case SPECTER:  made = fireNeedleCurtain(tier); break;
+                    case CINDER:   made = fireAshCollapse(tier); break;
+                    case DOCKYARD: made = fireFullDeckAssault(tier); break;
+                    case HIVE:     made = fireMineGate(tier); break;
+                    case RIFT:     made = fireTriSplitBeam(tier); break;
+                    case MAGNET:   made = firePoleVortex(tier); break;
+                    case MIRROR:   made = fireThousandMirror(tier); break;
+                    default:       made = fireCoreCollapse(tier); break;
+                }
+            } else switch (form) {
                 case SPECTER:  made = fireNeedleRain(6 + tier); break;
                 case CINDER:   made = fireAshRain(11 + tier * 2); break;
                 case DOCKYARD: made = fireEscortWave(tier); break;
@@ -2269,8 +2302,11 @@ public class GameWorld {
         } finally {
             signatureTag = 0;
         }
-        events.add(new GameEvent(EventType.BOSS_SIGNATURE, boss.x, boss.y, form.ordinal()));
+        events.add(new GameEvent(finale ? EventType.BOSS_FINALE : EventType.BOSS_SIGNATURE,
+                boss.x, boss.y, form.ordinal()));
         signatureForm = form;
+        signatureFinale = finale;
+        if (finale) finaleFired++;
         signatureFlash = 1.5f;
         if (made > 0) {
             // v1.65 破招精通：读熟的那一型，招牌起手就慢一档（熟悉 -10%、读透 -20%）。
@@ -2305,6 +2341,9 @@ public class GameWorld {
         counterWindow = 0f;
         countersRead++;
         counterForm = signatureForm;
+        // v1.68：终式读懂了也记在同一型的账上，这里只额外统计"其中几手是终式"给结算与横幅用
+        counterFromFinale = signatureFinale;
+        if (signatureFinale) finaleReads++;
         // v1.65 破招精通：先记下升档没有，再决定这一轮的反击窗口给多长、抬多少。
         int tierBefore = masteryTier(signatureForm);
         formReads[signatureForm.ordinal()]++;
@@ -2571,6 +2610,201 @@ public class GameWorld {
         }
         made += fireNeedleRain(3 + tier);
         addShake(0.3f, 8f);
+        return made;
+    }
+
+    // ===== v1.68 终式 FORM FINALE：三阶段之后，每一型多出来的一手 =====
+    // 终式仍然走招牌那套轮次号与读招账本，只是这一手的弹道更贪，读法也得换一句。
+
+    /** 静默·终式「三重针幕」：三层针各自锁玩家左、中、右一个落点，一层比一层快。 */
+    int fireNeedleCurtain(int tier) {
+        int per = 4 + Math.min(3, tier);
+        int made = 0;
+        float y0 = boss.y + boss.hitRadius * 0.5f;
+        for (int wave = 0; wave < 3; wave++) {
+            float off = (wave - 1) * boss.radius * 0.7f;
+            float lean = (wave - 1) * 0.17f;
+            float speed = 430f + wave * 55f;
+            for (int i = 0; i < per; i++) {
+                EnemyBullet b = freeEnemyBullet();
+                if (b == null) return made;
+                float px = boss.x + off + (i - (per - 1) / 2f) * 26f;
+                float ang = (float) Math.atan2(ship.y - y0, ship.x - px) + lean
+                        + (RNG.get().nextFloat() - 0.5f) * 0.05f;
+                b.initRadius(px, y0, (float) Math.cos(ang) * speed,
+                        (float) Math.sin(ang) * speed, 7f);
+                made++;
+            }
+        }
+        addShake(0.26f, 8f);
+        return made;
+    }
+
+    /** 灰烬·终式「灰烬塌陷」：慢灰盖住落点，紧跟着同一列压下一层快灰，中间只有半拍。 */
+    int fireAshCollapse(int tier) {
+        int columns = 8 + Math.min(3, tier);
+        int made = 0;
+        float margin = 44f;
+        float step = (WIDTH - margin * 2f) / (columns - 1);
+        float y0 = Math.max(40f, boss.y + boss.hitRadius * 0.3f);
+        for (int i = 0; i < columns; i++) {
+            EnemyBullet slow = freeEnemyBullet();
+            if (slow != null) {
+                slow.initRadius(margin + step * i, y0,
+                        (RNG.get().nextFloat() - 0.5f) * 24f, 112f, 9f);
+                made++;
+            }
+            EnemyBullet fast = freeEnemyBullet();
+            if (fast != null) {
+                fast.initRadius(Math.min(WIDTH - 24f, margin + step * (i + 0.5f)), y0 - 30f,
+                        (RNG.get().nextFloat() - 0.5f) * 24f, 262f, 8f);
+                made++;
+            }
+        }
+        addShake(0.22f, 7f);
+        return made;
+    }
+
+    /** 船坞·终式「全甲板出击」：慢宽扇面开路，快窄扇面从同一挂点追出来，僚机同时压上。 */
+    int fireFullDeckAssault(int tier) {
+        int t = Math.min(3, tier);
+        int made = 0;
+        float y0 = boss.y + boss.hitRadius * 0.7f;
+        int wide = 8 + t * 2;
+        for (int i = 0; i < wide; i++) {
+            EnemyBullet b = freeEnemyBullet();
+            if (b == null) break;
+            float ang = (float) (Math.PI / 2 + (i - (wide - 1) / 2f) * 0.24f);
+            b.initRadius(boss.x, y0, (float) Math.cos(ang) * 188f,
+                    (float) Math.sin(ang) * 188f, 14f);
+            made++;
+        }
+        int narrow = 5 + t;
+        for (int i = 0; i < narrow; i++) {
+            EnemyBullet b = freeEnemyBullet();
+            if (b == null) break;
+            float ang = (float) (Math.PI / 2 + (i - (narrow - 1) / 2f) * 0.1f);
+            b.initRadius(boss.x, y0, (float) Math.cos(ang) * 372f,
+                    (float) Math.sin(ang) * 372f, 10f);
+            made++;
+        }
+        summonMinions();
+        addShake(0.3f, 9f);
+        return made;
+    }
+
+    /** 蜂巢·终式「巢门合拢」：两道水雷带朝相反方向合口，第一道让开的缝第二道会补上。 */
+    int fireMineGate(int tier) {
+        int per = 5 + Math.min(3, tier);
+        int made = 0;
+        for (int row = 0; row < 2; row++) {
+            float left = boss.x - boss.radius * (1.2f + row * 0.5f);
+            float span = boss.radius * (2.4f + row);
+            float py = boss.y + boss.hitRadius * (0.8f + row * 0.5f);
+            float drift = (56f + 14f * boss.tier) * (row == 0 ? 1f : 1.7f);
+            for (int i = 0; i < per; i++) {
+                EnemyBullet b = freeEnemyBullet();
+                if (b == null) return made;
+                float px = per <= 1 ? boss.x : left + span * i / (per - 1);
+                float dir = (row == 0 ? (i % 2 == 0 ? -1f : 1f) : (i % 2 == 0 ? 1f : -1f));
+                b.initDriftingMine(px, py, dir * drift, 96f);
+                made++;
+            }
+        }
+        addShake(0.26f, 8f);
+        return made;
+    }
+
+    /** 裂谷·终式「三面裂束」：两侧交叉束之外再压一道中线慢束，"守中线最稳"这一句不再成立。 */
+    int fireTriSplitBeam(int tier) {
+        int t = Math.min(3, tier);
+        int made = 0;
+        float y0 = Math.max(70f, boss.y + boss.hitRadius);
+        for (int i = 0; i < 4 + t; i++) {
+            float y = y0 + i * 108f;
+            EnemyBullet l = freeEnemyBullet();
+            if (l != null) {
+                l.initRadius(-12f, y, 505f, 88f + i * 12f, 10f);
+                made++;
+            }
+            EnemyBullet r = freeEnemyBullet();
+            if (r != null) {
+                r.initRadius(WIDTH + 12f, y, -505f, 88f + i * 12f, 10f);
+                made++;
+            }
+        }
+        int mid = 3 + t;
+        for (int i = 0; i < mid; i++) {
+            EnemyBullet c = freeEnemyBullet();
+            if (c == null) break;
+            c.initRadius(WIDTH / 2f + (i - (mid - 1) / 2f) * 46f, y0, 0f, 205f, 12f);
+            made++;
+        }
+        addShake(0.3f, 9f);
+        return made;
+    }
+
+    /** 磁暴·终式「磁极旋涡」：磁球沿切线甩开再收口，起手是散的，绕半圈才一起追人。 */
+    int firePoleVortex(int tier) {
+        int count = 4 + Math.min(2, tier / 2);
+        int made = 0;
+        float spin = boss.age * 1.6f;
+        for (int i = 0; i < count; i++) {
+            EnemyBullet b = freeEnemyBullet();
+            if (b == null) break;
+            float ang = spin + i * ((float) (Math.PI * 2) / count);
+            float px = boss.x + (float) Math.cos(ang) * boss.radius * 0.9f;
+            float py = boss.y + (float) Math.sin(ang) * boss.radius * 0.5f;
+            b.initHoming(px, py, (float) Math.cos(ang + 1.57f) * 190f,
+                    (float) Math.sin(ang + 1.57f) * 190f, 0.42f, 6.4f);
+            made++;
+        }
+        addShake(0.24f, 8f);
+        return made;
+    }
+
+    /** 镜面·终式「千镜叠影」：镜像双环再叠一层速度，四层同相张开，穿一次比补躲四次省事。 */
+    int fireThousandMirror(int tier) {
+        int count = 4 + Math.min(3, tier);
+        int made = 0;
+        float spin = boss.age * 1.4f;
+        float dx = boss.radius * 0.8f;
+        for (int layer = 0; layer < 2; layer++) {
+            float speed = layer == 0 ? 168f : 268f;
+            for (int side = 0; side < 2; side++) {
+                float cx = boss.x + (side == 0 ? -dx : dx);
+                for (int i = 0; i < count; i++) {
+                    EnemyBullet b = freeEnemyBullet();
+                    if (b == null) return made;
+                    float ang = (side == 0 ? spin : -spin) + i * ((float) (Math.PI * 2) / count);
+                    b.initRadius(cx, boss.y, (float) Math.cos(ang) * speed,
+                            (float) Math.sin(ang) * speed, 11f);
+                    made++;
+                }
+            }
+        }
+        addShake(0.28f, 8f);
+        return made;
+    }
+
+    /** 星核·终式「星核崩塌」：三层同心冲击波一圈套一圈往外压，后退等于一直站在波峰上。 */
+    int fireCoreCollapse(int tier) {
+        int t = Math.min(3, tier);
+        int made = 0;
+        float spin = boss.age * 1.9f;
+        float[] speeds = {340f, 246f, 158f};
+        for (int layer = 0; layer < speeds.length; layer++) {
+            int count = 5 + t + layer;
+            for (int i = 0; i < count; i++) {
+                EnemyBullet b = freeEnemyBullet();
+                if (b == null) return made;
+                float ang = spin + layer * 0.19f + i * ((float) (Math.PI * 2) / count);
+                b.initRadius(boss.x, boss.y, (float) Math.cos(ang) * speeds[layer],
+                        (float) Math.sin(ang) * speeds[layer], layer == 2 ? 13f : 9f);
+                made++;
+            }
+        }
+        addShake(0.34f, 10f);
         return made;
     }
 
@@ -7195,6 +7429,12 @@ public class GameWorld {
         echoDefeats = 0;
         echoFlash = 0f;
         signatureFlash = 0f;
+        // v1.68：终式的读数与"下一次是不是终式"的奇偶也一起归零
+        signatureFinale = false;
+        counterFromFinale = false;
+        finaleFired = 0;
+        finaleReads = 0;
+        signatureSeq = 0;
         // v1.63：破招读数与待判定的招牌轮次一起清零
         countersRead = 0;
         counterFlash = 0f;

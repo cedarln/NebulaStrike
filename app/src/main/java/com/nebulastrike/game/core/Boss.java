@@ -75,35 +75,43 @@ public class Boss {
         /** 静默：慢滑 + 大起伏，二阶段起会闪现换位，招牌是高速针雨。 */
         SPECTER("静默", "闪现换位 · 高速针雨", MOVE_GLIDE, 0.2f, -6f,
                 "你连我在哪儿都没记住。", "我在这儿。不在这儿。在这儿。",
-                PowerUp.Kind.REFLECT, "针出厂就锁死了位置 · 出手那刻横向一让"),
+                PowerUp.Kind.REFLECT, "针出厂就锁死了位置 · 出手那刻横向一让",
+                "三重针幕", "三层针错开落点 · 躲过第一层还得往里收半步"),
         /** 灰烬：压得最低的巡逻舰，招牌是把全场盖住的落灰。 */
         CINDER("灰烬", "贴顶巡逻 · 落灰覆盖", MOVE_PATROL, 0.3f, -14f,
                 "灰烬会落满你所有的空隙。", "灰烬底下还是火。",
-                PowerUp.Kind.NOVA, "落灰之间留着空巷 · 挑最宽那道走"),
+                PowerUp.Kind.NOVA, "落灰之间留着空巷 · 挑最宽那道走",
+                "灰烬塌陷", "灰烬塌两层 · 第一层底下压着更快的第二层"),
         /** 船坞：几乎停在原地，靠一波波僚机和护航弹压人。 */
         DOCKYARD("船坞", "定点放机 · 护航弹幕", MOVE_HOLD, 0.15f, 26f,
                 "我不需要亲自动手。", "全部出击。",
-                PowerUp.Kind.ARC, "扇面慢得来得及绕 · 先清僚机再说"),
+                PowerUp.Kind.ARC, "扇面慢得来得及绕 · 先清僚机再说",
+                "全甲板出击", "快扇从慢扇背后穿出 · 让开慢的未必让得开快的"),
         /** 蜂巢：8 字环绕 + 自旋，招牌是切通道的水雷带。 */
         HIVE("蜂巢", "八字自旋 · 漂流水雷", MOVE_FIGURE8, 1.1f, 10f,
                 "通道正在合上。", "巢破了，蜂还在。",
-                PowerUp.Kind.BOOMERANG, "水雷往中间合 · 顺它让开的那条缝走"),
+                PowerUp.Kind.BOOMERANG, "水雷往中间合 · 顺它让开的那条缝走",
+                "巢门合拢", "两道水雷一先一后 · 等第一道让开再走同一条缝"),
         /** 裂谷：短距高速横跳，招牌是贯穿全屏的交叉束。 */
         RIFT("裂谷", "高速横跳 · 交叉光束", MOVE_DASH, 0.4f, 0f,
                 "别眨眼，我在你身后。", "追得上我吗？",
-                PowerUp.Kind.TIME, "交叉束只从两侧射 · 守中线最稳"),
+                PowerUp.Kind.TIME, "交叉束只从两侧射 · 守中线最稳",
+                "三面裂束", "三束里中线那束最慢 · 交叉过了再回中线"),
         /** 磁暴：上下浮动的极板舰，招牌是慢速追踪磁球。 */
         MAGNET("磁暴", "纵向浮动 · 追踪磁球", MOVE_BOB, 0.5f, 72f,
                 "你会自己把弹送过来。", "你的弹现在听我的。",
-                PowerUp.Kind.MAGNET, "磁球追得慢 · 绕大圈把它拖出屏幕"),
+                PowerUp.Kind.MAGNET, "磁球追得慢 · 绕大圈把它拖出屏幕",
+                "磁极旋涡", "漩涡球绕大圈才收口 · 往边角拖，别在中央转身"),
         /** 镜面：中心悬停自旋，招牌是左右完全对称的镜像环。 */
         MIRROR("镜面", "悬停自旋 · 镜像双环", MOVE_SPIN, 0.75f, 18f,
                 "你打的每一个我，都是真的。", "碎一片，照出两片。",
-                PowerUp.Kind.BOUNCE, "镜像环左右同相 · 沿中线直穿就行"),
+                PowerUp.Kind.BOUNCE, "镜像环左右同相 · 沿中线直穿就行",
+                "千镜叠影", "四层环仍是同相 · 中线一次穿过去，别回头补躲"),
         /** 星核：最终旗舰，棱镜 + 星核爆裂，招式最杂。 */
         SENTINEL("星核", "棱镜护环 · 星核爆裂", MOVE_PATROL, 0.35f, -8f,
                 "回溯到此为止，星火号。", "我是最后一道回声。",
-                PowerUp.Kind.LIFE, "星核散得匀 · 侧移半个弹距就漏过去");
+                PowerUp.Kind.LIFE, "星核散得匀 · 侧移半个弹距就漏过去",
+                "星核崩塌", "崩塌一圈套一圈 · 贴着舰影横移比后退快");
 
         public final String label;
         /** 图鉴与横幅用的一句话：它怎么动 + 它的招牌招式。 */
@@ -126,9 +134,17 @@ public class Boss {
          * 整轮弹幕散尽而没打中玩家就算"识破"，额外给一笔赏金（{@link GameWorld#countersRead}）。
          */
         public final String counter;
+        /**
+         * v1.68 终式招式名：三阶段（也就是说完那句狠话）之后，这一型在招牌之外多出来的一手。
+         * 招牌与终式交替出手，读招账本仍然按形态算——终式读懂了一样往同一格里记。
+         */
+        public final String finale;
+        /** v1.68 终式的破招提示，与 {@link #counter} 同一套口径，只是这一手更狠、读法也不一样。 */
+        public final String finaleCounter;
 
         Form(String label, String signature, int moveMode, float spinRate, float lane,
-             String taunt, String rage, PowerUp.Kind supply, String counter) {
+             String taunt, String rage, PowerUp.Kind supply, String counter,
+             String finale, String finaleCounter) {
             this.label = label;
             this.signature = signature;
             this.moveMode = moveMode;
@@ -138,6 +154,8 @@ public class Boss {
             this.rage = rage;
             this.supply = supply;
             this.counter = counter;
+            this.finale = finale;
+            this.finaleCounter = finaleCounter;
         }
     }
 

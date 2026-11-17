@@ -844,7 +844,9 @@ public class Renderer {
     private void drawCounterRead(Canvas c, GameWorld w) {
         if (w.counterFlash <= 0f) return;
         float k = Math.min(1f, w.counterFlash / 0.5f);
+        // v1.68：读懂的是终式就在后面标一句，玩家才知道自己刚啃下的是压箱底那一手
         String line = "识破 · " + w.counterForm.label
+                + (w.counterFromFinale ? "（终式）" : "")
                 + (w.counterScoreMult >= 2 ? "  ×" + w.counterScoreMult : "");
         paint.setStyle(Paint.Style.FILL);
         paint.setShader(null);
@@ -2445,22 +2447,25 @@ public class Renderer {
         drawBossParts(c, w, b);
 
         // v1.61 招牌招式：招式名在舰体下方一闪，提醒玩家下一轮往哪边找缝
+        // v1.68 终式：三阶段之后招牌与终式交替出，终式换一行名字、换一句读法、换一个颜色
         if (w.signatureFlash > 0f) {
-            String sig = b.form.signature;
+            boolean finale = w.signatureFinale;
+            String sig = finale ? b.form.finale : b.form.signature;
             int cut = sig.indexOf(" · ");
             if (cut >= 0) sig = sig.substring(cut + 3);
             float k = Math.min(1f, w.signatureFlash / 0.45f);
             paint.setStyle(Paint.Style.FILL);
             paint.setTextAlign(Paint.Align.CENTER);
-            paint.setTextSize(26f);
-            paint.setColor(((int) (0xD8 * k) << 24) | (formAccent(b.form) & 0x00FFFFFF));
-            c.drawText("招牌 · " + sig, b.x, b.y + r * 1.8f, paint);
+            paint.setTextSize(finale ? 28f : 26f);
+            paint.setColor(((int) (0xD8 * k) << 24)
+                    | (finale ? 0x00FFC06A : formAccent(b.form) & 0x00FFFFFF));
+            c.drawText((finale ? "终式 · " : "招牌 · ") + sig, b.x, b.y + r * 1.8f, paint);
             // v1.63 破招提示：招式名底下紧跟一句"这一手该怎么读"，看懂了才吃得下识破赏金
             paint.setTextSize(19f);
-            paint.setColor(((int) (0xA8 * k) << 24) | 0x00D8ECFF);
+            paint.setColor(((int) (0xA8 * k) << 24) | (finale ? 0x00FFE2B0 : 0x00D8ECFF));
             // v1.65：同一型读到 2/4 次就升档，所以这里顺手报出"这型已经读了几次"
             int reads = w.formReads[b.form.ordinal()];
-            String tip = "破招 · " + b.form.counter;
+            String tip = "破招 · " + (finale ? b.form.finaleCounter : b.form.counter);
             if (reads > 0) {
                 tip = tip + "  ×" + reads
                         + (GameWorld.masteryTier(reads) >= 1 ? "（" + GameWorld.masteryLabel(
@@ -3731,6 +3736,11 @@ public class Renderer {
                 paint.setTextSize(26f);
                 paint.setColor(((int) (0xE0 * k) << 24) | (formAccent(w.boss.form) & 0x00FFFFFF));
                 c.drawText("「" + w.boss.form.rage + "」", VW / 2f, y + 70f, paint);
+                // v1.68：这句狠话兑现的东西——从下一次起，招牌与终式交替出手
+                paint.setTextSize(22f);
+                paint.setColor(((int) (0xD0 * k) << 24) | 0xFFFFC06A);
+                c.drawText("终式解锁 · " + w.boss.form.finale + " · 与招牌交替出",
+                        VW / 2f, y + 104f, paint);
             }
             paint.setTextAlign(Paint.Align.LEFT);
         }
@@ -4261,7 +4271,8 @@ public class Renderer {
             paint.setColor(((int) (0xD8 * k) << 24) | 0xFFC8D6F0);
             c.drawText(w.practice() ? "已解锁舰体 · 不掉命 · 同一艘船可反复打"
                             : w.echoBossFight ? "无伤击沉的旗舰留下的影子 · 更脆、更快"
-                            : w.boss.form.label + "形态 · " + w.boss.form.signature,
+                            : w.boss.form.label + "形态 · " + w.boss.form.signature
+                                    + " · 终式「" + w.boss.form.finale + "」",
                     VW / 2f, 634f, paint);
             float barW = 360f;
             float frac = Math.max(0f, Math.min(1f,
@@ -4625,6 +4636,7 @@ public class Renderer {
                 "同一型旗舰读到 2 次算熟悉、4 次算读透 · 那一型的招牌慢一档，反击窗口长到 6.5/8 秒、加成抬到 +65%/+80%",
                 "识破连着数就是连读 · 3 招赏金 ×2、6 招 ×3、9 招起 ×4，只有真正掉血才会断（护盾挡下不算）",
                 "把同一型旗舰读到「读透」（4 次）再击沉，它会交双份专属解药 · 双份照样叠加，不会把你换掉",
+                "旗舰说到三阶段那句狠话就会出「终式」· 招牌与终式交替出手，读法不一样，但读懂了记在同一型的账上",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
@@ -6546,7 +6558,9 @@ public class Renderer {
                 String.valueOf(w.broodSpawned),
                 String.valueOf(w.achievesThisRun),
                 String.valueOf(w.fusions),
-                String.valueOf(w.countersRead),
+                // v1.68：识破那格里顺手报一句"其中几手是终式"，格子数不变（6×5 已满）
+                w.finaleReads > 0 ? w.countersRead + "（终" + w.finaleReads + "）"
+                        : String.valueOf(w.countersRead),
                 String.valueOf(w.counterStrikeDamage),
                 String.valueOf(w.formsMastered()),
                 "x" + GameWorld.chainMultFor(w.counterStreakBest)
