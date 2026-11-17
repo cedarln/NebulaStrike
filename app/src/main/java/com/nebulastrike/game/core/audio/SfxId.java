@@ -109,5 +109,7 @@ public enum SfxId {
     /** v1.65：某一型旗舰的识破升到新档位——三记递进的上行音，像把这本谱子翻到下一页 */
     COUNTER_MASTERY,
     /** v1.66：破招连读抬档——四记递进铃音一路抬高，末尾一记亮片"这一串没断" */
-    COUNTER_CHAIN
+    COUNTER_CHAIN,
+    /** v1.67：读透的那一型多交一件解药——两记清脆的玻璃碰音，第二记更高、更亮 */
+    SUPPLY_DOUBLE
 }

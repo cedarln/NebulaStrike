@@ -173,7 +173,9 @@ public class GameWorld {
         /** v1.66：连读抬档（code = 抬到的赏金倍数，2 起） */
         BOSS_COUNTER_CHAIN,
         /** v1.66：连读被真正的掉血打断（code = 断在第几招） */
-        BOSS_COUNTER_BREAK
+        BOSS_COUNTER_BREAK,
+        /** v1.67：读透的那一型多交一件专属解药（code = {@link Boss.Form#ordinal()}） */
+        BOSS_SUPPLY_DOUBLE
     }
     public static final class GameEvent {
         public final EventType type;
@@ -1145,6 +1147,8 @@ public class GameWorld {
     public float counterMasteryBanner;
     public Boss.Form counterMasteryForm = Boss.Form.SPECTER;
     public int counterMasteryTier;
+    /** v1.67：本局靠"读透"多交出去几件解药（结算卡 ELIXIR 一格）。 */
+    public int supplyDoubles;
 
     /**
      * v1.66 破招连读 READ CHAIN：本局一口气连着读懂了几招。连读只会被真正的掉血打断
@@ -1708,6 +1712,15 @@ public class GameWorld {
                 // v1.62 形态补给：这艘船怎么治你，它就交什么解药（额外一件，原有掉落照旧）
                 spawnPowerUp(boss.form.supply,
                         clamp(boss.x - 150f, 60f, WIDTH - 60f), boss.y + 96f);
+                // v1.67 读透的旗舰交双份解药：同一件再掉一次，走的还是叠加那套规则，
+                // 原有四件掉落与后期新机制道具一概不动（磁暴读透了，星核的补给照旧只是一件）
+                if (masteryTier(boss.form) >= 2) {
+                    spawnPowerUp(boss.form.supply,
+                            clamp(boss.x - 150f - 52f, 60f, WIDTH - 60f), boss.y + 96f + 44f);
+                    supplyDoubles++;
+                    events.add(new GameEvent(EventType.BOSS_SUPPLY_DOUBLE,
+                            boss.x, boss.y + 60f, boss.form.ordinal()));
+                }
                 // 后期 Boss 额外掉落新机制道具，鼓励玩家尝试轨道球/连锁闪电
                 if (boss.tier >= 1) {
                     spawnPowerUp(RNG.get().nextBoolean()
@@ -7196,6 +7209,7 @@ public class GameWorld {
         counterStrikeWindowTotal = COUNTER_STRIKE_WINDOW;
         counterMasteryBanner = 0f;
         counterMasteryTier = 0;
+        supplyDoubles = 0;
         // v1.66：连读同样是"这一局的手感"，重开从第 1 招重新数
         counterStreak = 0;
         counterStreakBest = 0;

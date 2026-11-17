@@ -85,6 +85,7 @@ public final class SfxBank {
         put(SfxId.COUNTER_STRIKE, counterStrike(), 0.82f);
         put(SfxId.COUNTER_MASTERY, counterMastery(), 0.8f);
         put(SfxId.COUNTER_CHAIN, counterChain(), 0.78f);
+        put(SfxId.SUPPLY_DOUBLE, supplyDouble(), 0.68f);
     }
 
     public static SfxBank create() {
@@ -1235,6 +1236,39 @@ public final class SfxBank {
             x[i] = (float) ((tone + spark + swell) * env(t, 0.66, 0.0018, 1.25));
         }
         echo(x, 0.13, 0.26);
+        return x;
+    }
+
+    /**
+     * v1.67 双份解药：G6 → C7 两记玻璃碰音，第二记更亮更长，底下垫一记很轻的瓶底顿音——
+     * "同一件药，多给了一支"。
+     */
+    private static float[] supplyDouble() {
+        int n = frames(0.46);
+        float[] x = new float[n];
+        Random r = new Random(1677);
+        double[] f = {1567.98, 2093.0};
+        double[] ph = new double[f.length];
+        double lp = 0, sub = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double tone = 0;
+            for (int k = 0; k < f.length; k++) {
+                double start = k * 0.115;
+                if (t < start) continue;
+                double local = t - start;
+                ph[k] += f[k] / SAMPLE_RATE;
+                tone += (0.17 * sine(ph[k]) + 0.12 * sine(ph[k] * 2.98) + 0.06 * sine(ph[k] * 5.02))
+                        * Math.exp(-local * (7.5 - k * 2.0)) / (1.0 + k * 0.08);
+            }
+            // 顿在甲板上的那一下：极短的带通噪声，只在开头 0.05 秒出现
+            lp += 0.35 * (noise(r) - lp);
+            double tap = lp * Math.exp(-t * 60.0) * 0.5;
+            sub += 180.0 / SAMPLE_RATE;
+            double clink = sine(sub) * Math.exp(-t * 22.0) * 0.22;
+            x[i] = (float) ((tone + tap + clink) * env(t, 0.46, 0.0014, 1.15));
+        }
+        echo(x, 0.1, 0.2);
         return x;
     }
 

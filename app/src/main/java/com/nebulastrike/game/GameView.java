@@ -390,6 +390,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     // v1.66：连读抬档给一串连续确认震（这一下值得庆祝），断读只轻点一下提示掉了
                     case BOSS_COUNTER_CHAIN: haptics.impact(); haptics.bomb(); break;
                     case BOSS_COUNTER_BREAK: haptics.tick(); break;
+                    // v1.67：双份解药到手那一下给两记轻点，听得见也摸得到"多了一支"
+                    case BOSS_SUPPLY_DOUBLE: haptics.tick(); haptics.tick(); break;
                     // 回声周目开场给一记中震；碎片到手轻点一下
                     case ECHO_START: haptics.impact(); break;
                     case ECHO_SHARD: haptics.tick(); break;

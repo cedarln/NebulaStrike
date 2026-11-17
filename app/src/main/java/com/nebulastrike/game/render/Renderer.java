@@ -4282,10 +4282,15 @@ public class Renderer {
             if (!w.practice()) {
                 paint.setTextSize(21f);
                 int supplyColor = powerColor(w.boss.form.supply);
+                // v1.67：这一型读到"读透"了，它交双份解药——横幅当场写明，玩家才知道值得多打两轮
+                boolean doubled = w.masteryTier(w.boss.form) >= 2;
+                String supplyLine = "击破可得 · " + powerBadge(w.boss.form.supply)
+                        + (doubled ? " ×2（读透）" : "");
+                float half = doubled ? 172f : 118f;
                 paint.setColor(((int) (0x2E * k) << 24) | (supplyColor & 0x00FFFFFF));
-                c.drawRoundRect(VW / 2f - 118f, 723f, VW / 2f + 118f, 751f, 8f, 8f, paint);
+                c.drawRoundRect(VW / 2f - half, 723f, VW / 2f + half, 751f, 8f, 8f, paint);
                 paint.setColor(((int) (0xE6 * k) << 24) | (supplyColor & 0x00FFFFFF));
-                c.drawText("击破可得 · " + powerBadge(w.boss.form.supply), VW / 2f, 743f, paint);
+                c.drawText(supplyLine, VW / 2f, 743f, paint);
             }
             paint.setTextAlign(Paint.Align.LEFT);
         }
@@ -4619,6 +4624,7 @@ public class Renderer {
                 "识破之后开启 5 秒反击窗口 · 飞船外圈那道青弧走完之前，打旗舰的伤害 +50%",
                 "同一型旗舰读到 2 次算熟悉、4 次算读透 · 那一型的招牌慢一档，反击窗口长到 6.5/8 秒、加成抬到 +65%/+80%",
                 "识破连着数就是连读 · 3 招赏金 ×2、6 招 ×3、9 招起 ×4，只有真正掉血才会断（护盾挡下不算）",
+                "把同一型旗舰读到「读透」（4 次）再击沉，它会交双份专属解药 · 双份照样叠加，不会把你换掉",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
@@ -6513,7 +6519,7 @@ public class Renderer {
                 "EATEN", "BURST", "WELLS", "ULT", "REFLECT",
                 "BOSS", "RELICS", "MUTANTS", "HITS", "TIME",
                 "SPOTTED", "BENT", "BROOD", "ACHV", "FUSION",
-                "READS", "STRIKE", "MASTERY", "CHAIN"};
+                "READS", "STRIKE", "MASTERY", "CHAIN", "ELIXIR"};
         String[] values = {
                 w.accuracyPct() + "%",
                 "x" + w.maxCombo,
@@ -6544,12 +6550,14 @@ public class Renderer {
                 String.valueOf(w.counterStrikeDamage),
                 String.valueOf(w.formsMastered()),
                 "x" + GameWorld.chainMultFor(w.counterStreakBest)
-                        + " (" + w.counterStreakBest + ")"
+                        + " (" + w.counterStreakBest + ")",
+                String.valueOf(w.supplyDoubles)
         };
         // v1.18 数据涨满 25 项：5×5 网格刚好铺满，行距压到 33 才不挤到下面的排行榜
         // v1.64 再加识破两项（27 项）：行距收到 29，卡片底边推到 734，仍留 6 像素给排行榜
         // v1.65 破招精通补第 28 项，仍落在最后一行的第三列，卡片尺寸不用动
         // v1.66 破招连读补第 29 项（最长连读 + 它的档位），落在最后一行的第四列，卡片照样不动
+        // v1.67 双份解药补第 30 项（本局读透交出的额外解药件数），最后一格正好填满 6×5
         float[] cx = {186f, 318f, 450f, 582f, 714f};
         float[] rowY = {564f, 593f, 622f, 651f, 680f, 709f};
         for (int i = 0; i < labels.length; i++) {
@@ -6567,7 +6575,8 @@ public class Renderer {
                     : i == 21 ? 0xFF4DA6FF : i == 22 ? 0xFFFFAE3A
                     : i == 23 ? 0xFFFFD166 : i == 24 ? 0xFF7DF9FF
                     : i == 25 ? 0xFF8FFFD0 : i == 26 ? 0xFF5FE0B8
-                    : i == 27 ? 0xFF6BFFC9 : i == 28 ? 0xFFFFE08A : 0xFFE8F1FF);
+                    : i == 27 ? 0xFF6BFFC9 : i == 28 ? 0xFFFFE08A
+                    : i == 29 ? 0xFF9FFFCB : 0xFFE8F1FF);
             c.drawText(values[i], x, y + 19f, paint);
         }
         paint.setTextAlign(Paint.Align.LEFT);

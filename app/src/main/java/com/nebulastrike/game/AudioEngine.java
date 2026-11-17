@@ -352,6 +352,11 @@ public class AudioEngine {
                     play(SfxId.COUNTER_CHAIN, 0.72f, 0.94f + 0.08f * Math.max(0, e.code - 1),
                             panFor(e.x));
                     break;
+                case BOSS_SUPPLY_DOUBLE:
+                    // v1.67 读透多交一件解药：code = 形态序号，按形态稍微改变音高
+                    play(SfxId.SUPPLY_DOUBLE, 0.46f, 0.97f + 0.02f * Math.max(0, e.code),
+                            panFor(e.x));
+                    break;
                 case ULT_READY:
                     play(SfxId.ULT_READY, 0.75f, 1f, 0f);
                     break;
