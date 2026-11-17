@@ -517,6 +517,71 @@ public class Renderer {
     }
 
     /**
+     * 道具字母标（唯一来源）：战场上的胶囊、横幅上的"击破可得"、以后的结算页都用它，
+     * 玩家在一处认得字母，到处都认得。
+     */
+    private static String powerBadge(PowerUp.Kind kind) {
+        switch (kind) {
+            case SPREAD: return "W";
+            case MISSILE: return "M";
+            case LASER:  return "L";
+            case POWER:  return "P";
+            case SHIELD: return "S";
+            case RAPID:  return "R";
+            case X2:     return "×2";
+            case LIFE:   return "+";
+            case WINGMAN: return "D";
+            case TIME:   return "T";
+            case ORBIT:  return "O";
+            case CHAIN:  return "Z";
+            case BONUS:  return "G";
+            case BOUNCE: return "BN";
+            case NOVA:   return "NV";
+            case NANITE: return "NA";
+            case TURRET: return "TR";
+            case GRAVITY: return "GV";
+            case REFLECT: return "RF";
+            case ARC: return "AC";
+            case BOOMERANG: return "BM";
+            case DECOY: return "DC";
+            case LOCKON: return "LK";
+            case MAGNET: return "MG";
+            default: return "B";
+        }
+    }
+
+    /** 道具主色（唯一来源）：与 {@link #powerBadge} 一一对应。 */
+    private static int powerColor(PowerUp.Kind kind) {
+        switch (kind) {
+            case SPREAD: return 0xFF7DF9FF;
+            case MISSILE: return 0xFFFFD166;
+            case LASER:  return 0xFF66E0FF;
+            case POWER:  return 0xFFFFB03A;
+            case SHIELD: return 0xFF7CFF6B;
+            case RAPID:  return 0xFFFF9D5C;
+            case X2:     return 0xFFB08FFF;
+            case LIFE:   return 0xFFFF7089;
+            case WINGMAN: return 0xFFFF8FD1;
+            case TIME:   return 0xFF8FE3FF;
+            case ORBIT:  return 0xFFE8F1FF;
+            case CHAIN:  return 0xFFFFF06B;
+            case BONUS:  return 0xFFB04DFF;
+            case BOUNCE: return 0xFF6BFFC8;
+            case NOVA:   return 0xFFDFF6FF;
+            case NANITE: return 0xFF5CFFB8;
+            case TURRET: return 0xFFC0CCE8;
+            case GRAVITY: return 0xFFC9A0FF;
+            case REFLECT: return 0xFFB48FFF;
+            case ARC: return 0xFF9BE8FF;
+            case BOOMERANG: return 0xFFFFB36B;
+            case DECOY: return 0xFF57E8FF;
+            case LOCKON: return 0xFFE0FF6B;
+            case MAGNET: return 0xFF6BE8FF;
+            default: return 0xFFFF5C7A;
+        }
+    }
+
+    /**
      * 道具呈现（与敌机强区分）：旋转六边形胶囊 + 双层脉冲光环 + 闪烁描边。
      * 磁吸中（可收集）时：闪烁频率加倍、光环变亮、外圈出现第三道捕获环。
      * 敌机是恒定描边的几何体，不发光不闪烁——动效即"可拾取"信号。
@@ -524,35 +589,8 @@ public class Renderer {
     private void drawPowerUps(Canvas c, GameWorld w) {
         for (PowerUp p : w.powerups) {
             if (!p.active) continue;
-            int color;
-            String label;
-            switch (p.kind) {
-                case SPREAD: color = 0xFF7DF9FF; label = "W"; break;
-                case MISSILE: color = 0xFFFFD166; label = "M"; break;
-                case LASER:  color = 0xFF66E0FF; label = "L"; break;
-                case POWER:  color = 0xFFFFB03A; label = "P"; break;
-                case SHIELD: color = 0xFF7CFF6B; label = "S"; break;
-                case RAPID:  color = 0xFFFF9D5C; label = "R"; break;
-                case X2:     color = 0xFFB08FFF; label = "×2"; break;
-                case LIFE:   color = 0xFFFF7089; label = "+"; break;
-                case WINGMAN: color = 0xFFFF8FD1; label = "D"; break;
-                case TIME:   color = 0xFF8FE3FF; label = "T"; break;
-                case ORBIT:  color = 0xFFE8F1FF; label = "O"; break;
-                case CHAIN:  color = 0xFFFFF06B; label = "Z"; break;
-                case BONUS:  color = 0xFFB04DFF; label = "G"; break;
-                case BOUNCE: color = 0xFF6BFFC8; label = "BN"; break;
-                case NOVA:   color = 0xFFDFF6FF; label = "NV"; break;
-                case NANITE: color = 0xFF5CFFB8; label = "NA"; break;
-                case TURRET: color = 0xFFC0CCE8; label = "TR"; break;
-                case GRAVITY: color = 0xFFC9A0FF; label = "GV"; break;
-                case REFLECT: color = 0xFFB48FFF; label = "RF"; break;
-                case ARC: color = 0xFF9BE8FF; label = "AC"; break;
-                case BOOMERANG: color = 0xFFFFB36B; label = "BM"; break;
-                case DECOY: color = 0xFF57E8FF; label = "DC"; break;
-                case LOCKON: color = 0xFFE0FF6B; label = "LK"; break;
-                case MAGNET: color = 0xFF6BE8FF; label = "MG"; break;
-                default: color = 0xFFFF5C7A; label = "B"; break;
-            }
+            int color = powerColor(p.kind);
+            String label = powerBadge(p.kind);
             boolean hot = p.attracted;
             // 呼吸缩放 + 闪烁频率（磁吸时翻倍）
             float freq = hot ? 12f : 6f;
@@ -3564,6 +3602,12 @@ public class Renderer {
             paint.setTextSize(24f);
             paint.setColor(((int) (0xD8 * k) << 24) | 0xFFE8F1FF);
             c.drawText("换段 · 增援入场", VW / 2f, y + 34f, paint);
+            // v1.62：只有真到了三阶段才换这句话——它认真起来时每型形态说的都不一样
+            if (w.bossPhaseBreakPhase >= 3) {
+                paint.setTextSize(26f);
+                paint.setColor(((int) (0xE0 * k) << 24) | (formAccent(w.boss.form) & 0x00FFFFFF));
+                c.drawText("「" + w.boss.form.rage + "」", VW / 2f, y + 70f, paint);
+            }
             paint.setTextAlign(Paint.Align.LEFT);
         }
 
@@ -4106,6 +4150,19 @@ public class Renderer {
                     | (w.echoBossFight ? 0x00E86BFF : 0x00FF5C6E));
             c.drawRoundRect(VW / 2f - barW / 2f, 652f,
                     VW / 2f - barW / 2f + barW * (1f - frac), 660f, 4f, 4f, paint);
+            // v1.62：旗舰开口。预警横幅压进度条之下，念的是这一型形态自己的台词，
+            // 再下面一行预告"击沉它多掉的那件补给"——它怎么治你，它就交什么解药。
+            paint.setTextSize(26f);
+            paint.setColor(((int) (0xD8 * k) << 24) | (formAccent(w.boss.form) & 0x00FFFFFF));
+            c.drawText("「" + w.boss.form.taunt + "」", VW / 2f, 706f, paint);
+            if (!w.practice()) {
+                paint.setTextSize(21f);
+                int supplyColor = powerColor(w.boss.form.supply);
+                paint.setColor(((int) (0x2E * k) << 24) | (supplyColor & 0x00FFFFFF));
+                c.drawRoundRect(VW / 2f - 118f, 723f, VW / 2f + 118f, 751f, 8f, 8f, paint);
+                paint.setColor(((int) (0xE6 * k) << 24) | (supplyColor & 0x00FFFFFF));
+                c.drawText("击破可得 · " + powerBadge(w.boss.form.supply), VW / 2f, 743f, paint);
+            }
             paint.setTextAlign(Paint.Align.LEFT);
         }
         if (w.stageClearTimer > 0f && !w.bossActive) {
@@ -4433,6 +4490,7 @@ public class Renderer {
                 "图鉴 BOSS 页点已解锁的旗舰就能开练 · 不掉命、不进榜，同一艘船可反复打",
                 "八段航程八种旗舰形态：静默会闪现、裂谷在横跳、磁暴丢追踪磁球 · 剪影、走位、招牌全都不一样",
                 "旗舰战全程不掉血，两段航程后它会以残响姿态回来 · 更脆更快，赏金照给",
+                "每型旗舰预警时开口说的是自己的话 · 击沉它还多掉一件正好治它那一手的补给",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);

@@ -67,24 +67,43 @@ public class Boss {
      * v1.61 旗舰形态 FORM：八段航程的旗舰各有各的剪影、走位和招牌招式。
      * 舰级（tier）只负责"多大、多硬"，形态负责"长什么样、怎么动、丢什么弹幕"。
      * lane 是它占的航道高度：负数贴顶、正数压低，配合起伏幅度决定吊舱能不能被够着。
+     *
+     * <p>v1.62 形态再开口、再交货：taunt / rage 是它在预警横幅与三阶段换段时说的两句话，
+     * supply 是它被击沉时必定多掉的那件补给——主题上正好是"用它的办法还治它自己"。
      */
     public enum Form {
         /** 静默：慢滑 + 大起伏，二阶段起会闪现换位，招牌是高速针雨。 */
-        SPECTER("静默", "闪现换位 · 高速针雨", MOVE_GLIDE, 0.2f, -6f),
+        SPECTER("静默", "闪现换位 · 高速针雨", MOVE_GLIDE, 0.2f, -6f,
+                "你连我在哪儿都没记住。", "我在这儿。不在这儿。在这儿。",
+                PowerUp.Kind.REFLECT),
         /** 灰烬：压得最低的巡逻舰，招牌是把全场盖住的落灰。 */
-        CINDER("灰烬", "贴顶巡逻 · 落灰覆盖", MOVE_PATROL, 0.3f, -14f),
+        CINDER("灰烬", "贴顶巡逻 · 落灰覆盖", MOVE_PATROL, 0.3f, -14f,
+                "灰烬会落满你所有的空隙。", "灰烬底下还是火。",
+                PowerUp.Kind.NOVA),
         /** 船坞：几乎停在原地，靠一波波僚机和护航弹压人。 */
-        DOCKYARD("船坞", "定点放机 · 护航弹幕", MOVE_HOLD, 0.15f, 26f),
+        DOCKYARD("船坞", "定点放机 · 护航弹幕", MOVE_HOLD, 0.15f, 26f,
+                "我不需要亲自动手。", "全部出击。",
+                PowerUp.Kind.ARC),
         /** 蜂巢：8 字环绕 + 自旋，招牌是切通道的水雷带。 */
-        HIVE("蜂巢", "八字自旋 · 漂流水雷", MOVE_FIGURE8, 1.1f, 10f),
+        HIVE("蜂巢", "八字自旋 · 漂流水雷", MOVE_FIGURE8, 1.1f, 10f,
+                "通道正在合上。", "巢破了，蜂还在。",
+                PowerUp.Kind.BOOMERANG),
         /** 裂谷：短距高速横跳，招牌是贯穿全屏的交叉束。 */
-        RIFT("裂谷", "高速横跳 · 交叉光束", MOVE_DASH, 0.4f, 0f),
+        RIFT("裂谷", "高速横跳 · 交叉光束", MOVE_DASH, 0.4f, 0f,
+                "别眨眼，我在你身后。", "追得上我吗？",
+                PowerUp.Kind.TIME),
         /** 磁暴：上下浮动的极板舰，招牌是慢速追踪磁球。 */
-        MAGNET("磁暴", "纵向浮动 · 追踪磁球", MOVE_BOB, 0.5f, 72f),
+        MAGNET("磁暴", "纵向浮动 · 追踪磁球", MOVE_BOB, 0.5f, 72f,
+                "你会自己把弹送过来。", "你的弹现在听我的。",
+                PowerUp.Kind.MAGNET),
         /** 镜面：中心悬停自旋，招牌是左右完全对称的镜像环。 */
-        MIRROR("镜面", "悬停自旋 · 镜像双环", MOVE_SPIN, 0.75f, 18f),
+        MIRROR("镜面", "悬停自旋 · 镜像双环", MOVE_SPIN, 0.75f, 18f,
+                "你打的每一个我，都是真的。", "碎一片，照出两片。",
+                PowerUp.Kind.BOUNCE),
         /** 星核：最终旗舰，棱镜 + 星核爆裂，招式最杂。 */
-        SENTINEL("星核", "棱镜护环 · 星核爆裂", MOVE_PATROL, 0.35f, -8f);
+        SENTINEL("星核", "棱镜护环 · 星核爆裂", MOVE_PATROL, 0.35f, -8f,
+                "回溯到此为止，星火号。", "我是最后一道回声。",
+                PowerUp.Kind.LIFE);
 
         public final String label;
         /** 图鉴与横幅用的一句话：它怎么动 + 它的招牌招式。 */
@@ -93,13 +112,26 @@ public class Boss {
         public final float spinRate;
         /** 航道偏移（虚拟单位）：贴顶的把舰艏压到屏幕上沿，压低的给自己留出起伏空间。 */
         public final float lane;
+        /** 入场台词：预警横幅上它开口的那一句。 */
+        public final String taunt;
+        /** 三阶段台词：换段横幅上它认真起来的那一句。 */
+        public final String rage;
+        /**
+         * 形态补给：击沉这艘旗舰额外必掉的一件道具。只加不减——
+         * 原有的护盾 / 炸弹 / 火力 / 武器与后期机制道具照常掉落，道具一律叠加。
+         */
+        public final PowerUp.Kind supply;
 
-        Form(String label, String signature, int moveMode, float spinRate, float lane) {
+        Form(String label, String signature, int moveMode, float spinRate, float lane,
+             String taunt, String rage, PowerUp.Kind supply) {
             this.label = label;
             this.signature = signature;
             this.moveMode = moveMode;
             this.spinRate = spinRate;
             this.lane = lane;
+            this.taunt = taunt;
+            this.rage = rage;
+            this.supply = supply;
         }
     }
 

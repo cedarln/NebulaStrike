@@ -1609,6 +1609,9 @@ public class GameWorld {
                 spawnPowerUp(PowerUp.Kind.BOMB, boss.x + 80f, boss.y);
                 spawnPowerUp(PowerUp.Kind.POWER, boss.x, boss.y + 40f);
                 spawnPowerUp(dropWeaponKind(), boss.x, boss.y - 10f);
+                // v1.62 形态补给：这艘船怎么治你，它就交什么解药（额外一件，原有掉落照旧）
+                spawnPowerUp(boss.form.supply,
+                        clamp(boss.x - 150f, 60f, WIDTH - 60f), boss.y + 96f);
                 // 后期 Boss 额外掉落新机制道具，鼓励玩家尝试轨道球/连锁闪电
                 if (boss.tier >= 1) {
                     spawnPowerUp(RNG.get().nextBoolean()
