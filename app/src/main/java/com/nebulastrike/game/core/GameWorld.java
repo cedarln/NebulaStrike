@@ -169,7 +169,11 @@ public class GameWorld {
         /** v1.64：识破开启反击窗口（code = {@link Boss.Form#ordinal()}） */
         BOSS_COUNTER_STRIKE,
         /** v1.65：某一型的识破升到新档位（code = 形态序号 × 10 + 精通档位） */
-        BOSS_COUNTER_MASTERY
+        BOSS_COUNTER_MASTERY,
+        /** v1.66：连读抬档（code = 抬到的赏金倍数，2 起） */
+        BOSS_COUNTER_CHAIN,
+        /** v1.66：连读被真正的掉血打断（code = 断在第几招） */
+        BOSS_COUNTER_BREAK
     }
     public static final class GameEvent {
         public final EventType type;
@@ -1141,6 +1145,29 @@ public class GameWorld {
     public float counterMasteryBanner;
     public Boss.Form counterMasteryForm = Boss.Form.SPECTER;
     public int counterMasteryTier;
+
+    /**
+     * v1.66 破招连读 READ CHAIN：本局一口气连着读懂了几招。连读只会被真正的掉血打断
+     * （护盾挡下的那一下不算），换船、开新局旗舰、判定超时都不清零——它奖励的是"一直在读"。
+     * 每 {@link #CHAIN_STEP_READS} 招抬一档，识破赏金 ×2 / ×3 / ×4。
+     */
+    public int counterStreak;
+    /** 本局最长连读（结算卡 CHAIN 一格）。 */
+    public int counterStreakBest;
+    /** 上一次识破实际吃的赏金倍数（1 起，HUD 与飘字共用）。 */
+    public int counterScoreMult = 1;
+    /** 抬档横幅：余量 + 抬到第几倍。 */
+    public float counterChainBanner;
+    public int counterChainMult = 1;
+    /** 连读断了的那一下：余量 + 断在第几招（HUD 要把规则说清楚，不然只看见数字掉回 1）。 */
+    public float counterChainBreak;
+    public int counterChainBreakAt;
+    /** 每 3 招抬一档，最多 ×4（3 招 ×2、6 招 ×3、9 招起 ×4）。 */
+    public static final int CHAIN_STEP_READS = 3;
+    public static final int CHAIN_MAX_MULT = 4;
+    /** 抬档横幅与中断提示的停留时间。 */
+    public static final float CHAIN_BANNER_TIME = 2.0f;
+    public static final float CHAIN_BREAK_TIME = 1.8f;
 
 
     // ---- 得分构成（结算图用） ----
@@ -2269,13 +2296,25 @@ public class GameWorld {
         int tierBefore = masteryTier(signatureForm);
         formReads[signatureForm.ordinal()]++;
         int tier = masteryTier(signatureForm);
-        counterScore = COUNTER_SCORE_BASE + 20 * boss.level;
+        // v1.66 破招连读：这一招接上上一招，赏金按连读的档位翻倍（挨一下才断）。
+        int multBefore = chainMultFor(counterStreak);
+        counterStreak++;
+        counterScoreMult = chainMultFor(counterStreak);
+        if (counterStreak > counterStreakBest) counterStreakBest = counterStreak;
+        counterScore = (COUNTER_SCORE_BASE + 20 * boss.level) * counterScoreMult;
         counterFlash = 2.2f;
         addScore(counterScore, SCORE_BOSS);
         spawnFloatText(ship.x, ship.y - 190f, counterScore, FLOAT_COUNTER, true);
         events.add(new GameEvent(EventType.BOSS_COUNTER,
                 boss.active ? boss.x : ship.x, boss.active ? boss.y : ship.y,
                 signatureForm.ordinal()));
+        if (counterScoreMult > multBefore) {
+            // 抬档：×2 / ×3 / ×4 的那一下单独响一声，音高跟着倍数走
+            counterChainBanner = CHAIN_BANNER_TIME;
+            counterChainMult = counterScoreMult;
+            events.add(new GameEvent(EventType.BOSS_COUNTER_CHAIN,
+                    ship.x, ship.y - 110f, counterScoreMult));
+        }
         if (tier > tierBefore) {
             // 升档：这一次读的是"看习惯了"的那型，给一声单独的确认音与一条横幅
             counterMasteryForm = signatureForm;
@@ -2333,6 +2372,20 @@ public class GameWorld {
         int n = 0;
         for (Boss.Form f : Boss.Form.values()) if (masteryTier(f) >= 1) n++;
         return n;
+    }
+
+    /**
+     * v1.66：连读到第几招时识破赏金翻几倍。每 {@link #CHAIN_STEP_READS} 招抬一档
+     * （3 招 ×2、6 招 ×3、9 招起 ×4 封顶），0 招就是原来的价。
+     */
+    public static int chainMultFor(int streak) {
+        int s = Math.max(0, streak);
+        return s < CHAIN_STEP_READS ? 1 : Math.min(CHAIN_MAX_MULT, 1 + s / CHAIN_STEP_READS);
+    }
+
+    /** v1.66：读完这一招会不会抬档（渲染与音效共用一把尺子，别各写一遍阈值）。 */
+    public static boolean chainStepUp(int streakAfter) {
+        return chainMultFor(streakAfter) > chainMultFor(streakAfter - 1);
     }
 
     /**
@@ -3378,6 +3431,9 @@ public class GameWorld {
         // v1.64：反击窗口自己收时间（先走表再判定，同帧识破仍能从满窗口开始计）
         if (counterStrikeTimer > 0f) counterStrikeTimer = Math.max(0f, counterStrikeTimer - dt);
         if (counterMasteryBanner > 0f) counterMasteryBanner = Math.max(0f, counterMasteryBanner - dt);
+        // v1.66：连读的两条提示各自收走，档位本身不看时间、只看有没有挨打
+        if (counterChainBanner > 0f) counterChainBanner = Math.max(0f, counterChainBanner - dt);
+        if (counterChainBreak > 0f) counterChainBreak = Math.max(0f, counterChainBreak - dt);
         if (pendingCounterSerial != 0) {
             counterWindow = Math.max(0f, counterWindow - dt);
             resolveCounterRead();
@@ -6767,6 +6823,15 @@ public class GameWorld {
         if (boss.active && !practice()) bossFightHits++;
         // v1.63：这一轮招牌碰到你了，识破判定当场作废
         cancelCounterRead();
+        // v1.66：连读也被这一下打断——护盾挡下的那一层不算（上面已经 return），只认真正掉血
+        if (counterStreak > 0) {
+            counterChainBreakAt = counterStreak;
+            counterChainBreak = CHAIN_BREAK_TIME;
+            counterStreak = 0;
+            counterScoreMult = 1;
+            events.add(new GameEvent(EventType.BOSS_COUNTER_BREAK, ship.x, ship.y,
+                    counterChainBreakAt));
+        }
         addShake(0.4f, 16f);
         addHitStop(0.09f);
         // 模拟战不掉命：挨打只断连杀并清掉身边弹幕，练功不因为一次失误结束
@@ -7131,6 +7196,14 @@ public class GameWorld {
         counterStrikeWindowTotal = COUNTER_STRIKE_WINDOW;
         counterMasteryBanner = 0f;
         counterMasteryTier = 0;
+        // v1.66：连读同样是"这一局的手感"，重开从第 1 招重新数
+        counterStreak = 0;
+        counterStreakBest = 0;
+        counterScoreMult = 1;
+        counterChainBanner = 0f;
+        counterChainMult = 1;
+        counterChainBreak = 0f;
+        counterChainBreakAt = 0;
         cancelCounterRead();
         bossFightHits = 0;
         campaignVictory = false;

@@ -131,6 +131,7 @@ public class Renderer {
         drawCounterStrike(c, w);  // v1.64：识破之后的反击窗口，飞船外圈一道倒计时
         drawFloatTexts(c, w);   // 伤害/得分飘字，跟随震屏一起位移
         drawCounterRead(c, w);  // v1.63：识破一轮招牌弹幕的收口提示
+        drawCounterChain(c, w);  // v1.66：连读读数——只要没挨打就一直挂在头顶
 
         // 连击边缘辉光：combo 越高，四边越亮（reducedFx 下关闭）；
         // 狂热期间换成余烬橙并加快脉动，光凭余光就能知道射速加成还在
@@ -838,21 +839,55 @@ public class Renderer {
     /**
      * v1.63 识破收口：一轮招牌弹幕散尽又没打中你，就在飞船头顶写一句"识破 · 形态"，
      * 分数由飘字负责，这里只负责把"你读懂了"这件事说出口。
+     * v1.66 破招连读：这一句后面挂上连读的倍数，×2 起才写——平时它就是原来那一行。
      */
     private void drawCounterRead(Canvas c, GameWorld w) {
         if (w.counterFlash <= 0f) return;
         float k = Math.min(1f, w.counterFlash / 0.5f);
+        String line = "识破 · " + w.counterForm.label
+                + (w.counterScoreMult >= 2 ? "  ×" + w.counterScoreMult : "");
         paint.setStyle(Paint.Style.FILL);
         paint.setShader(null);
         paint.setTextAlign(Paint.Align.CENTER);
         paint.setFakeBoldText(true);
         paint.setTextSize(25f);
         paint.setColor(((int) (0x40 * k) << 24) | 0x081018);
-        c.drawText("识破 · " + w.counterForm.label, w.ship.x + 1.5f,
-                w.ship.y - 236f + 1.5f, paint);
+        c.drawText(line, w.ship.x + 1.5f, w.ship.y - 236f + 1.5f, paint);
         paint.setColor(((int) (0xE8 * k) << 24) | (GameWorld.FLOAT_COUNTER & 0x00FFFFFF));
-        c.drawText("识破 · " + w.counterForm.label, w.ship.x, w.ship.y - 236f, paint);
+        c.drawText(line, w.ship.x, w.ship.y - 236f, paint);
         paint.setFakeBoldText(false);
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /**
+     * v1.66 破招连读：飞船头顶第二行，只要连着读懂两招以上就常驻——
+     * "连读 5 招 · 破招赏金 ×2"。抬档的那 2 秒字变大变亮并往上顶一点，
+     * 被打断后改写 1.8 秒"连读断了"，把"挨一下才会断"这条规则当场说清。
+     */
+    private void drawCounterChain(Canvas c, GameWorld w) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setShader(null);
+        paint.setTextAlign(Paint.Align.CENTER);
+        if (w.counterStreak >= 2) {
+            int mult = GameWorld.chainMultFor(w.counterStreak);
+            float up = Math.min(1f, w.counterChainBanner / 0.45f);
+            String line = "连读 " + w.counterStreak + " 招 · 破招赏金 ×" + mult;
+            float y = w.ship.y - 264f - 10f * up;
+            paint.setTextSize(19f + 9f * up);
+            paint.setFakeBoldText(up > 0.05f);
+            int rgb = mult >= 4 ? 0xFFFFD166 : mult >= 3 ? 0xFFFFB03A : 0xFF8FFFD0;
+            paint.setColor(((int) (0x40 * (1f - 0.4f * up)) << 24) | 0x081018);
+            c.drawText(line, w.ship.x + 1.5f, y + 1.5f, paint);
+            paint.setColor(((int) (0xD8 + 0x27 * up) << 24) | rgb);
+            c.drawText(line, w.ship.x, y, paint);
+            paint.setFakeBoldText(false);
+        } else if (w.counterChainBreak > 0f) {
+            float k = Math.min(1f, w.counterChainBreak / 0.5f);
+            paint.setTextSize(19f);
+            paint.setColor(((int) (0xD0 * k) << 24) | 0xFFFF8A7A);
+            c.drawText("连读断了 · 上次 " + w.counterChainBreakAt
+                    + " 招 · 掉血才会断", w.ship.x, w.ship.y - 264f, paint);
+        }
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
@@ -4583,6 +4618,7 @@ public class Renderer {
                 "旗舰招牌出手时下面跟一句破招提示 · 整轮弹幕没打到你就算识破，额外加分",
                 "识破之后开启 5 秒反击窗口 · 飞船外圈那道青弧走完之前，打旗舰的伤害 +50%",
                 "同一型旗舰读到 2 次算熟悉、4 次算读透 · 那一型的招牌慢一档，反击窗口长到 6.5/8 秒、加成抬到 +65%/+80%",
+                "识破连着数就是连读 · 3 招赏金 ×2、6 招 ×3、9 招起 ×4，只有真正掉血才会断（护盾挡下不算）",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
@@ -6477,7 +6513,7 @@ public class Renderer {
                 "EATEN", "BURST", "WELLS", "ULT", "REFLECT",
                 "BOSS", "RELICS", "MUTANTS", "HITS", "TIME",
                 "SPOTTED", "BENT", "BROOD", "ACHV", "FUSION",
-                "READS", "STRIKE", "MASTERY"};
+                "READS", "STRIKE", "MASTERY", "CHAIN"};
         String[] values = {
                 w.accuracyPct() + "%",
                 "x" + w.maxCombo,
@@ -6506,11 +6542,14 @@ public class Renderer {
                 String.valueOf(w.fusions),
                 String.valueOf(w.countersRead),
                 String.valueOf(w.counterStrikeDamage),
-                String.valueOf(w.formsMastered())
+                String.valueOf(w.formsMastered()),
+                "x" + GameWorld.chainMultFor(w.counterStreakBest)
+                        + " (" + w.counterStreakBest + ")"
         };
         // v1.18 数据涨满 25 项：5×5 网格刚好铺满，行距压到 33 才不挤到下面的排行榜
         // v1.64 再加识破两项（27 项）：行距收到 29，卡片底边推到 734，仍留 6 像素给排行榜
         // v1.65 破招精通补第 28 项，仍落在最后一行的第三列，卡片尺寸不用动
+        // v1.66 破招连读补第 29 项（最长连读 + 它的档位），落在最后一行的第四列，卡片照样不动
         float[] cx = {186f, 318f, 450f, 582f, 714f};
         float[] rowY = {564f, 593f, 622f, 651f, 680f, 709f};
         for (int i = 0; i < labels.length; i++) {
@@ -6528,7 +6567,7 @@ public class Renderer {
                     : i == 21 ? 0xFF4DA6FF : i == 22 ? 0xFFFFAE3A
                     : i == 23 ? 0xFFFFD166 : i == 24 ? 0xFF7DF9FF
                     : i == 25 ? 0xFF8FFFD0 : i == 26 ? 0xFF5FE0B8
-                    : i == 27 ? 0xFF6BFFC9 : 0xFFE8F1FF);
+                    : i == 27 ? 0xFF6BFFC9 : i == 28 ? 0xFFFFE08A : 0xFFE8F1FF);
             c.drawText(values[i], x, y + 19f, paint);
         }
         paint.setTextAlign(Paint.Align.LEFT);

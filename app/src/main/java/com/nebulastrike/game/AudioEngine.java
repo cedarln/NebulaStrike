@@ -347,6 +347,11 @@ public class AudioEngine {
                     play(SfxId.COUNTER_MASTERY, 0.66f, 0.96f + 0.07f * Math.max(0, e.code % 10),
                             panFor(e.x));
                     break;
+                case BOSS_COUNTER_CHAIN:
+                    // v1.66 连读抬档：code = 抬到的倍数（2/3/4），倍数越高音越往上顶
+                    play(SfxId.COUNTER_CHAIN, 0.72f, 0.94f + 0.08f * Math.max(0, e.code - 1),
+                            panFor(e.x));
+                    break;
                 case ULT_READY:
                     play(SfxId.ULT_READY, 0.75f, 1f, 0f);
                     break;

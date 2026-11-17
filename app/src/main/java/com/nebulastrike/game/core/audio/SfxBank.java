@@ -84,6 +84,7 @@ public final class SfxBank {
         put(SfxId.PHASE_BURST, phaseBurst(), 0.86f);
         put(SfxId.COUNTER_STRIKE, counterStrike(), 0.82f);
         put(SfxId.COUNTER_MASTERY, counterMastery(), 0.8f);
+        put(SfxId.COUNTER_CHAIN, counterChain(), 0.78f);
     }
 
     public static SfxBank create() {
@@ -1234,6 +1235,44 @@ public final class SfxBank {
             x[i] = (float) ((tone + spark + swell) * env(t, 0.66, 0.0018, 1.25));
         }
         echo(x, 0.13, 0.26);
+        return x;
+    }
+
+    /**
+     * v1.66 破招连读抬档：C5 → E5 → G5 → C6 四记递进的铃音，间距一拍比一拍紧，
+     * 第四记之后挂一记高频亮片和一记低频踩垫——"这一串没断，赏金翻倍"。
+     */
+    private static float[] counterChain() {
+        int n = frames(0.72);
+        float[] x = new float[n];
+        Random r = new Random(1666);
+        double[] f = {523.25, 659.25, 783.99, 1046.5};
+        double[] ph = new double[f.length];
+        double shimmer = 0, sub = 0, lp = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double tone = 0;
+            for (int k = 0; k < f.length; k++) {
+                // 间距 0.075 / 0.065 / 0.055 / 0.045：越往上越紧，听着像在加速
+                double start = k * (0.075 - k * 0.0075);
+                if (t < start) continue;
+                double local = t - start;
+                ph[k] += f[k] / SAMPLE_RATE;
+                tone += (0.19 * sine(ph[k]) + 0.11 * sine(ph[k] * 2.01) + 0.05 * tri(ph[k] * 4.0))
+                        * Math.exp(-local * (5.0 - k * 0.7)) / (1.0 + k * 0.1);
+            }
+            double spark = 0;
+            if (t > 0.24) {
+                shimmer += (3.4 / SAMPLE_RATE);
+                spark = sine(shimmer * 5.7) * Math.exp(-(t - 0.24) * 8.0) * 0.13 * (0.6 + 0.4 * noise(r));
+            }
+            sub += (96.0 + 40.0 * Math.min(1.0, t / 0.3)) / SAMPLE_RATE;
+            double nod = sine(sub) * Math.exp(-t * 5.5) * 0.4;
+            lp += 0.06 * (noise(r) - lp);
+            double air = lp * Math.min(1.0, t / 0.12) * Math.exp(-t * 7.0) * 0.22;
+            x[i] = (float) ((tone + spark + nod + air) * env(t, 0.72, 0.0016, 1.2));
+        }
+        echo(x, 0.12, 0.24);
         return x;
     }
 

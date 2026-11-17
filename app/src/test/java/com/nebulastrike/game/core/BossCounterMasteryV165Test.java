@@ -587,10 +587,14 @@ public class BossCounterMasteryV165Test {
         Boss.Form form = world.boss.form;
         for (int i = 0; i < 3; i++) readThisFormsSignature();
         setReads(form, GameWorld.MASTERY_MASTERED_READS);
+        // v1.66 之后赏金还会被"连读"翻倍，所以这里把串摁回 0，单独验精通这一档动不动价格
+        world.counterStreak = 0;
+        world.counterScoreMult = 1;
         int before = world.score;
         readThisFormsSignature();
-        assertEquals("精通只改窗口，不动赏金",
+        assertEquals("精通只改窗口与弹速，不动赏金",
                 GameWorld.COUNTER_SCORE_BASE + 20 * world.boss.level, world.score - before);
+        assertEquals("这一招也没有抬档", 1, world.counterScoreMult);
     }
 
     // ---- 实战与残响 ----
