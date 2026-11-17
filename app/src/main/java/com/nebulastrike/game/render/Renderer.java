@@ -2600,9 +2600,54 @@ public class Renderer {
                 default:
                     c.drawCircle(px, pipY, 5.5f, paint);
             }
+            // v1.71 攻坚路线：金圈套在"这一层该拆的"那几件上。路线不用背，抬头看条上亮谁就够了。
+            if (p.active && w.breachRigParts > 0 && p.breachRank >= 0
+                    && p.breachRank == w.breachNext) {
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2f);
+                paint.setColor(breachPipColor(w));
+                c.drawCircle(px, pipY, 10.5f, paint);
+                paint.setStyle(Paint.Style.FILL);
+            }
+        }
+        // v1.71：部件点下面一行写清楚这一型该怎么拆。模拟战那两行读数占着同一高度，练功房不叠字。
+        if (w.breachRigParts > 0 && !w.practice()) {
+            boolean grand = w.breachGrandScore > 0 && w.breachFlash > 0f;
+            if (grand) {
+                drawBreachLine(c, "舰装拆穿 · 一件没插队 +" + w.breachGrandScore,
+                        pipY + 26f, 0xFFFFD166, true, Math.min(1f, w.breachFlash / 0.8f));
+            } else if (w.breachRemaining > 0) {
+                int mult = GameWorld.breachMultFor(w.breachStreak);
+                drawBreachLine(c, "攻坚 · " + b.form.breach
+                                + " · 第 " + Math.min(w.breachNext + 1, w.breachLevels) + "/" + w.breachLevels
+                                + " 层 · 连拆 " + w.breachStreak + (mult > 1 ? " ×" + mult : ""),
+                        pipY + 26f, w.breachLastWasStep ? 0xFFFFD166 : 0xFF9FB4D8,
+                        false, Math.min(1f, w.breachFlash / (GameWorld.BREACH_BANNER_TIME * 0.5f)));
+            }
         }
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setStyle(Paint.Style.FILL);
+    }
+
+    /** 当前该拆的那几件：金圈随余辉亮一下，平时保持稳定不闪（闪太久就变成噪音）。 */
+    private int breachPipColor(GameWorld w) {
+        float k = w.breachFlash > 0f ? 0.75f + 0.25f * Math.min(1f, w.breachFlash / 0.5f) : 0.8f;
+        return ((int) (0xE0 * k) << 24) | 0xFFD166;
+    }
+
+    /** 攻坚路线那一行：居中、深色描边垫底，顺线的一瞬间加粗提亮。 */
+    private void drawBreachLine(Canvas c, String line, float y, int color, boolean bold, float flash) {
+        paint.setStyle(Paint.Style.FILL);
+        paint.setShader(null);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setFakeBoldText(bold);
+        paint.setTextSize(18f);
+        int a = (int) (0xB0 + 0x40 * Math.min(1f, flash));
+        paint.setColor((a << 24) | 0x081018);
+        c.drawText(line, VW / 2f + 1.5f, y + 1.5f, paint);
+        paint.setColor((a << 24) | (color & 0x00FFFFFF));
+        c.drawText(line, VW / 2f, y, paint);
+        paint.setFakeBoldText(false);
     }
 
     /** 侧翼装甲板（side = ±1 镜像），让高等级 Boss 的轮廓逐级变宽。 */
@@ -4325,10 +4370,11 @@ public class Renderer {
             c.drawRoundRect(VW / 2f - barW / 2f, 652f,
                     VW / 2f - barW / 2f + barW * (1f - frac), 660f, 4f, 4f, paint);
             // v1.70：舰装。同一型的部件挂在船体哪一处，八型八种排法——先报一句，
-            // 玩家进战场才知道该从哪个方向拆起。
+            // 玩家进战场才知道该从哪个方向拆起。v1.71 再补半句路线：顺着拆有连段加分。
             paint.setTextSize(20f);
             paint.setColor(((int) (0xA8 * k) << 24) | 0xFF9FB4D8);
-            c.drawText("舰装「" + w.boss.form.loadout + "」 · 部件 " + w.boss.partCount,
+            c.drawText("舰装「" + w.boss.form.loadout + "」 · " + w.boss.form.breach
+                            + " · 部件 " + w.boss.partCount,
                     VW / 2f, 688f, paint);
             // v1.62：旗舰开口。预警横幅压进度条之下，念的是这一型形态自己的台词，
             // 再下面一行预告"击沉它多掉的那件补给"——它怎么治你，它就交什么解药。
@@ -4684,6 +4730,7 @@ public class Renderer {
                 "旗舰说到三阶段那句狠话就会出「终式」· 招牌与终式交替出手，读法不一样，但读懂了记在同一型的账上",
                 "同一型读到「熟悉」以上，它刚丢的那一手会被原样回敬打回去 · 金色弹道不算你的命中率，读透了回得更密",
                 "八型旗舰八种舰装 · 部件挂在船体的哪几处每一型都不同，进场前看一眼预警横幅的「舰装」，拆法就顺着那条线走",
+                "顺着舰装的攻坚路线拆件有连段加分 · 血条上的金圈就是这一层该拆的，插队只断连段、不扣分，拆穿一整条线另有大奖",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);

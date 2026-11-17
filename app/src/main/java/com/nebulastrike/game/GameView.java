@@ -396,6 +396,9 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case BOSS_SUPPLY_DOUBLE: haptics.tick(); haptics.tick(); break;
                     // v1.69：回敬和窗口开膛在同一帧，这里只补一记轻点，别把两下震成一坨
                     case BOSS_COUNTER_VOLLEY: haptics.tick(); break;
+                    // v1.71：顺线拆件的那一下已经有部件掉落的轻点 + 专属剪断音，不再叠第二次；
+                    // 整条路线拆穿时部件轻点与解除武装的impact都在同一帧，这里补一记最重的收口
+                    case BOSS_BREACH_PERFECT: haptics.bomb(); break;
                     // 回声周目开场给一记中震；碎片到手轻点一下
                     case ECHO_START: haptics.impact(); break;
                     case ECHO_SHARD: haptics.tick(); break;

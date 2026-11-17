@@ -179,7 +179,13 @@ public class GameWorld {
         /** v1.67：读透的那一型多交一件专属解药（code = {@link Boss.Form#ordinal()}） */
         BOSS_SUPPLY_DOUBLE,
         /** v1.69：读懂的那一手被反打回去（code = 形态序号 × 2 + 是否终式） */
-        BOSS_COUNTER_VOLLEY
+        BOSS_COUNTER_VOLLEY,
+        /** v1.71：顺着舰装路线拆掉一件（code = 当前连段，从 1 开始） */
+        BOSS_BREACH_STEP,
+        /** v1.71：插队拆件，这条线断了（code = 那件所在的层号） */
+        BOSS_BREACH_BROKEN,
+        /** v1.71：整条路线拆穿，舰装被顺线清空（code = 这艘船的舰装件数） */
+        BOSS_BREACH_PERFECT
     }
     public static final class GameEvent {
         public final EventType type;
@@ -1175,6 +1181,120 @@ public class GameWorld {
     /** 回敬横幅的余辉时长（秒）。 */
     public static final float VOLLEY_BANNER_TIME = 2.0f;
 
+    // ---- v1.71 攻坚路线 BREACH ROUTE ----
+
+    // v1.71 攻坚路线：v1.70 让八型旗舰挂八种舰装，这一版给"顺着舰装拆"这件本来就会做的事记一笔账。
+    // {@link Boss.Form#breach} 是那句话，{@link Boss#breachOrder} 把它算成每件部件的层号，
+    // 这里记的是玩家走到第几层、连了几件。
+    // 设计上只奖不罚：插队拆掉的件照样碎、照样拿原来的部件分，只是连段清零——
+    // 没人会因为试错被倒扣。
+    /** 这艘船的舰装一共几层（横幅显示"第 n / N 层"）。 */
+    public int breachLevels;
+    /** 现在该拆第几层：层号等于它的部件掉下来才算顺线。 */
+    public int breachNext;
+    /** 这艘船的舰装件数（PRISM 不在此列），也是走完美路线要的连段长度。 */
+    public int breachRigParts;
+    /** 这艘船还剩几件舰装没拆（拆空了才判"整条线走完"）。 */
+    public int breachRemaining;
+    /** 当前连段：顺着路线连着拆掉几件。 */
+    public int breachStreak;
+    /** 本局最长的一条线。 */
+    public int breachBest;
+    /** 本局顺线拆掉的件数。 */
+    public int breachParts;
+    /** 本局插队拆掉的件数（只断连段，不扣分）。 */
+    public int breachBroken;
+    /** 本局把整条路线从头走到尾几次。 */
+    public int breachPerfects;
+    /** 最近一次顺线给的分数，与上一次大奖分数（横幅用）。 */
+    public int breachLastScore;
+    public int breachGrandScore;
+    /** 路线提示的余辉（秒），与回敬横幅同一族。 */
+    public float breachFlash;
+    /** 刚才那一下是不是顺线的（渲染层决定这一行字是亮还是灰）。 */
+    public boolean breachLastWasStep;
+    /** 路线横幅余辉时长：比回敬短一点，它出现得更频繁。 */
+    public static final float BREACH_BANNER_TIME = 1.4f;
+
+    /** 连段倍率：连着顺线拆 3 件起 ×2、6 件起 ×3、9 件起 ×4，封顶 4。 */
+    public static int breachMultFor(int streak) {
+        return streak >= 9 ? 4 : streak >= 6 ? 3 : streak >= 3 ? 2 : 1;
+    }
+
+    /** 单件顺线奖励：基数跟着舰级走（60 + 20×舰级），再乘连段倍率。 */
+    public static int breachStepScore(int bossLevel, int streak) {
+        return (60 + 20 * Math.max(0, bossLevel)) * breachMultFor(streak);
+    }
+
+    /** 整条路线走完的大奖：700 + 200×舰级。 */
+    public static int breachGrandScoreFor(int bossLevel) {
+        return 700 + 200 * Math.max(0, bossLevel);
+    }
+
+    /**
+     * 新旗舰入场：按它刚摆好的舰装发一遍路线层号，连段与账目全部从头开始。
+     * 层号只在 {@link Boss#layoutParts} 之后有意义，所以这一步必须排在它后面。
+     */
+    private void resetBreachRoute() {
+        int levels = 0;
+        int rigged = 0;
+        for (int i = 0; i < boss.partCount && i < boss.parts.length; i++) {
+            BossPart p = boss.parts[i];
+            if (p.breachRank < 0) continue;
+            rigged++;
+            levels = Math.max(levels, p.breachRank + 1);
+        }
+        breachLevels = levels;
+        breachNext = 0;
+        breachRigParts = rigged;
+        breachRemaining = rigged;
+        breachStreak = 0;
+        breachBroken = 0;
+        breachLastScore = 0;
+        breachGrandScore = 0;
+        breachLastWasStep = false;
+        breachFlash = 0f;
+    }
+
+    /** 还活着的舰装里最靠前的那一层；拆空了返回 {@link #breachLevels}（再没有能顺线的件）。 */
+    private int lowestLiveBreachRank() {
+        int best = breachLevels;
+        for (int i = 0; i < boss.partCount && i < boss.parts.length; i++) {
+            BossPart p = boss.parts[i];
+            if (!p.active || p.breachRank < 0) continue;
+            if (p.breachRank < best) best = p.breachRank;
+        }
+        return best;
+    }
+
+    /**
+     * 一件部件掉下来了：看它是不是顺在当前那条攻坚线上。
+     * 顺线——连段 +1、按连段倍率给分；插队——件照样算拆掉了，只是这条线断了，
+     * 线头推到"还活着的件里最靠前的那一层"。已经发出去的分不会回收。
+     */
+    private void noteBreachStep(BossPart p) {
+        if (p.breachRank < 0) return;      // PRISM 等舰装之外的件：不进这条线
+        breachRemaining = Math.max(0, breachRemaining - 1);
+        float px = p.worldX(boss), py = p.worldY(boss);
+        if (p.breachRank == breachNext) {
+            breachStreak++;
+            breachParts++;
+            breachBest = Math.max(breachBest, breachStreak);
+            breachLastScore = breachStepScore(boss.level, breachStreak);
+            addScore(breachLastScore, SCORE_PART);
+            breachLastWasStep = true;
+            breachFlash = BREACH_BANNER_TIME;
+            events.add(new GameEvent(EventType.BOSS_BREACH_STEP, px, py, breachStreak));
+        } else {
+            breachBroken++;
+            breachStreak = 0;
+            breachLastWasStep = false;
+            breachFlash = BREACH_BANNER_TIME;
+            events.add(new GameEvent(EventType.BOSS_BREACH_BROKEN, px, py, p.breachRank));
+        }
+        breachNext = lowestLiveBreachRank();
+    }
+
     /**
      * v1.66 破招连读 READ CHAIN：本局一口气连着读懂了几招。连读只会被真正的掉血打断
      * （护盾挡下的那一下不算），换船、开新局旗舰、判定超时都不清零——它奖励的是"一直在读"。
@@ -1561,7 +1681,12 @@ public class GameWorld {
                             : finalFight ? FINAL_BOSS_LEVEL : bossesDefeated;
                     boss.init(bossLevel);
                     // v1.61：最终旗舰固定为「星核」形态，七种常规形态按航段循环登场
-                    if (finalFight) boss.applyForm(Boss.Form.SENTINEL);
+                    if (finalFight) {
+                        boss.applyForm(Boss.Form.SENTINEL);
+                        // v1.71 补 v1.70 漏的一角：init 里已经按循环形态摆过一次舰装了，
+                        // 临时换成星核就得重摆一遍——否则横幅写着「护心弧墙」、身上却是别的型的排布。
+                        boss.layoutParts();
+                    }
                     // 练功固定招式：词缀会把同一艘船改成另一场，失去"反复练这一招"的意义
                     if (!practice()) rollBossAffix(bossLevel);
                     if (echo()) {
@@ -1581,6 +1706,8 @@ public class GameWorld {
                 // v1.65：窗口长度跟着形态走，换船时一并归零（精通本身留在本局账上）
                 counterStrikeTier = 0;
                 counterStrikeWindowTotal = COUNTER_STRIKE_WINDOW;
+                // v1.71：舰装是跟着船来的，攻坚路线也只属于这一艘船
+                resetBreachRoute();
                 if (boss.affix != BossAffix.NONE) {
                     events.add(new GameEvent(EventType.BOSS_AFFIX, boss.x, boss.y,
                             boss.affix.ordinal()));
@@ -3009,6 +3136,8 @@ public class GameWorld {
         addScore(80 + boss.level * 20 + (p.kind == BossPart.Kind.SHIELD ? 150 : 0), SCORE_PART);
         ultCharge(ULT_GAIN_BOSS_PART, px, py);
         events.add(new GameEvent(EventType.BOSS_PART_DESTROYED, px, py, p.kind.ordinal()));
+        // v1.71：这一件拆得顺不顺线，就在这一下判
+        noteBreachStep(p);
         if (p.kind == BossPart.Kind.SHIELD) {
             // 护盾发生器下线：减伤消失，给一次明显的视觉与手感反馈
             bombFlash = Math.max(bombFlash, 0.45f);
@@ -3027,6 +3156,17 @@ public class GameWorld {
             addHitStop(0.1f);
             spawnPowerUp(PowerUp.Kind.POWER, boss.x, boss.y + 30f);
             events.add(new GameEvent(EventType.BOSS_DISARMED, boss.x, boss.y));
+            // v1.71：一件都没插队，把整条舰装路线拆空了——这才叫把这艘船拆明白了
+            if (breachRigParts > 0 && breachRemaining == 0 && breachBroken == 0) {
+                breachGrandScore = breachGrandScoreFor(boss.level);
+                breachPerfects++;
+                addScore(breachGrandScore, SCORE_PART);
+                breachFlash = BREACH_BANNER_TIME * 2f;
+                breachLastWasStep = true;
+                addShake(0.3f, 10f);
+                events.add(new GameEvent(EventType.BOSS_BREACH_PERFECT,
+                        boss.x, boss.y, breachRigParts));
+            }
         } else if (RNG.get().nextFloat() < 0.22f) {
             spawnPowerUp(dropKind(RNG.get().nextFloat()), px, py);
         }
@@ -3844,6 +3984,8 @@ public class GameWorld {
         // v1.66：连读的两条提示各自收走，档位本身不看时间、只看有没有挨打
         if (counterChainBanner > 0f) counterChainBanner = Math.max(0f, counterChainBanner - dt);
         if (counterVolleyFlash > 0f) counterVolleyFlash = Math.max(0f, counterVolleyFlash - dt);
+        // v1.71：攻坚路线的提示自己收走，路线本身只看还剩几件没拆
+        if (breachFlash > 0f) breachFlash = Math.max(0f, breachFlash - dt);
         if (counterChainBreak > 0f) counterChainBreak = Math.max(0f, counterChainBreak - dt);
         if (pendingCounterSerial != 0) {
             counterWindow = Math.max(0f, counterWindow - dt);
@@ -7621,6 +7763,20 @@ public class GameWorld {
         counterVolleyFlash = 0f;
         counterVolleyWasFinale = false;
         counterVolleyForm = Boss.Form.SPECTER;
+        // v1.71：路线跟着船走，重开之后连"这艘船几层"都不该留下来
+        breachLevels = 0;
+        breachNext = 0;
+        breachRigParts = 0;
+        breachRemaining = 0;
+        breachStreak = 0;
+        breachBest = 0;
+        breachParts = 0;
+        breachBroken = 0;
+        breachPerfects = 0;
+        breachLastScore = 0;
+        breachGrandScore = 0;
+        breachFlash = 0f;
+        breachLastWasStep = false;
         // v1.66：连读同样是"这一局的手感"，重开从第 1 招重新数
         counterStreak = 0;
         counterStreakBest = 0;

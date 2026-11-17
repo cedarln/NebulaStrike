@@ -76,42 +76,42 @@ public class Boss {
         SPECTER("静默", "闪现换位 · 高速针雨", MOVE_GLIDE, 0.2f, -6f,
                 "你连我在哪儿都没记住。", "我在这儿。不在这儿。在这儿。",
                 PowerUp.Kind.REFLECT, "针出厂就锁死了位置 · 出手那刻横向一让",
-                "三重针幕", "三层针错开落点 · 躲过第一层还得往里收半步", "两翼拉开"),
+                "三重针幕", "三层针错开落点 · 躲过第一层还得往里收半步", "两翼拉开", "先拆翼尖"),
         /** 灰烬：压得最低的巡逻舰，招牌是把全场盖住的落灰。 */
         CINDER("灰烬", "贴顶巡逻 · 落灰覆盖", MOVE_PATROL, 0.3f, -14f,
                 "灰烬会落满你所有的空隙。", "灰烬底下还是火。",
                 PowerUp.Kind.NOVA, "落灰之间留着空巷 · 挑最宽那道走",
-                "灰烬塌陷", "灰烬塌两层 · 第一层底下压着更快的第二层", "前压一字"),
+                "灰烬塌陷", "灰烬塌两层 · 第一层底下压着更快的第二层", "前压一字", "自右向左"),
         /** 船坞：几乎停在原地，靠一波波僚机和护航弹压人。 */
         DOCKYARD("船坞", "定点放机 · 护航弹幕", MOVE_HOLD, 0.15f, 26f,
                 "我不需要亲自动手。", "全部出击。",
                 PowerUp.Kind.ARC, "扇面慢得来得及绕 · 先清僚机再说",
-                "全甲板出击", "快扇从慢扇背后穿出 · 让开慢的未必让得开快的", "双层甲板"),
+                "全甲板出击", "快扇从慢扇背后穿出 · 让开慢的未必让得开快的", "双层甲板", "先拆下甲板"),
         /** 蜂巢：8 字环绕 + 自旋，招牌是切通道的水雷带。 */
         HIVE("蜂巢", "八字自旋 · 漂流水雷", MOVE_FIGURE8, 1.1f, 10f,
                 "通道正在合上。", "巢破了，蜂还在。",
                 PowerUp.Kind.BOOMERANG, "水雷往中间合 · 顺它让开的那条缝走",
-                "巢门合拢", "两道水雷一先一后 · 等第一道让开再走同一条缝", "六格巢环"),
+                "巢门合拢", "两道水雷一先一后 · 等第一道让开再走同一条缝", "六格巢环", "顺环而拆"),
         /** 裂谷：短距高速横跳，招牌是贯穿全屏的交叉束。 */
         RIFT("裂谷", "高速横跳 · 交叉光束", MOVE_DASH, 0.4f, 0f,
                 "别眨眼，我在你身后。", "追得上我吗？",
                 PowerUp.Kind.TIME, "交叉束只从两侧射 · 守中线最稳",
-                "三面裂束", "三束里中线那束最慢 · 交叉过了再回中线", "斜交叉架"),
+                "三面裂束", "三束里中线那束最慢 · 交叉过了再回中线", "斜交叉架", "顺斜线拆"),
         /** 磁暴：上下浮动的极板舰，招牌是慢速追踪磁球。 */
         MAGNET("磁暴", "纵向浮动 · 追踪磁球", MOVE_BOB, 0.5f, 72f,
                 "你会自己把弹送过来。", "你的弹现在听我的。",
                 PowerUp.Kind.MAGNET, "磁球追得慢 · 绕大圈把它拖出屏幕",
-                "磁极旋涡", "漩涡球绕大圈才收口 · 往边角拖，别在中央转身", "双极团簇"),
+                "磁极旋涡", "漩涡球绕大圈才收口 · 往边角拖，别在中央转身", "双极团簇", "先拆一极"),
         /** 镜面：中心悬停自旋，招牌是左右完全对称的镜像环。 */
         MIRROR("镜面", "悬停自旋 · 镜像双环", MOVE_SPIN, 0.75f, 18f,
                 "你打的每一个我，都是真的。", "碎一片，照出两片。",
                 PowerUp.Kind.BOUNCE, "镜像环左右同相 · 沿中线直穿就行",
-                "千镜叠影", "四层环仍是同相 · 中线一次穿过去，别回头补躲", "内外双环"),
+                "千镜叠影", "四层环仍是同相 · 中线一次穿过去，别回头补躲", "内外双环", "先外后内"),
         /** 星核：最终旗舰，棱镜 + 星核爆裂，招式最杂。 */
         SENTINEL("星核", "棱镜护环 · 星核爆裂", MOVE_PATROL, 0.35f, -8f,
                 "回溯到此为止，星火号。", "我是最后一道回声。",
                 PowerUp.Kind.LIFE, "星核散得匀 · 侧移半个弹距就漏过去",
-                "星核崩塌", "崩塌一圈套一圈 · 贴着舰影横移比后退快", "护心弧墙");
+                "星核崩塌", "崩塌一圈套一圈 · 贴着舰影横移比后退快", "护心弧墙", "先破墙心");
 
         public final String label;
         /** 图鉴与横幅用的一句话：它怎么动 + 它的招牌招式。 */
@@ -146,10 +146,16 @@ public class Boss {
          * 形态只改"这些件摆在哪儿"——八型八种攻坚顺序，先拆哪一件、哪件挡在核心前面各不一样。
          */
         public final String loadout;
+        /**
+         * v1.71 攻坚路线：这一型的舰装该按什么顺序拆。路线只是把 {@link #loadout}
+         * 那句排布话翻成一句动作指令——真正好不好走由 {@link #breachOrder} 从站位坐标算出来，
+         * 玩家顺着拆一路有加分，插队只会把连段清零，不会扣掉已经到手的东西。
+         */
+        public final String breach;
 
         Form(String label, String signature, int moveMode, float spinRate, float lane,
              String taunt, String rage, PowerUp.Kind supply, String counter,
-             String finale, String finaleCounter, String loadout) {
+             String finale, String finaleCounter, String loadout, String breach) {
             this.label = label;
             this.signature = signature;
             this.moveMode = moveMode;
@@ -162,6 +168,7 @@ public class Boss {
             this.finale = finale;
             this.finaleCounter = finaleCounter;
             this.loadout = loadout;
+            this.breach = breach;
         }
     }
 
@@ -318,12 +325,77 @@ public class Boss {
             at++;
         }
         float[][] station = formStations(form, at);
+        int[] rank = breachOrder(form, at);
         for (int i = 0; i < parts.length; i++) parts[i].active = false;
         partCount = 0;
         for (int i = 0; i < at && i < parts.length; i++) {
             parts[i].init(kind[i], station[i][0] * r, station[i][1] * r,
                     rad[i], hp[i], cd[i]);
+            // v1.71：站位定下来顺手把拆卸层号也发下去。棱镜舱（PRISM）是开打后追加的，
+            // 不在这本舰装账上，层号留 -1——拆它既不算顺线也不算插队。
+            parts[i].breachRank = rank[i];
             partCount = i + 1;
+        }
+    }
+
+    /**
+     * v1.71 攻坚路线：把 {@link #formStations} 摆好的站位排成一个拆卸顺序，返回每个部件的<b>层号</b>
+     * （0 = 最先该拆的那一层）。
+     *
+     * <p>同一层的件不分先后：静默的镜像双翼、船坞的同一条甲板，玩家同时够得着，
+     * 逼他二选一只是罚错人。所以这里发的是"层"而不是"名次"，同键（差在 1e-4 内）算一层。
+     * 排布是确定的，层号自然也是——每一艘船的路线开打前就已经定了。
+     */
+    static int[] breachOrder(Form form, int n) {
+        float[][] p = formStations(form, n);
+        int m = p.length;
+        float[] key = new float[m];
+        for (int i = 0; i < m; i++) key[i] = breachKey(form, p[i][0], p[i][1]);
+        int[] order = new int[m];
+        for (int i = 0; i < m; i++) order[i] = i;
+        // 件数封顶 16，直接选择排序：同键的按下标定序，不依赖任何排序实现
+        for (int a = 0; a < m; a++) {
+            int best = a;
+            for (int b = a + 1; b < m; b++) {
+                int x = order[b], y = order[best];
+                boolean takes = key[x] < key[y] - 1e-4f
+                        || (Math.abs(key[x] - key[y]) <= 1e-4f && x < y);
+                if (takes) best = b;
+            }
+            int t = order[a];
+            order[a] = order[best];
+            order[best] = t;
+        }
+        int[] rank = new int[m];
+        int level = -1;
+        for (int a = 0; a < m; a++) {
+            if (a == 0 || key[order[a]] > key[order[a - 1]] + 1e-4f) level++;
+            rank[order[a]] = level;
+        }
+        return rank;
+    }
+
+    /** 各型的拆卸键，键小的先拆——这条键就是 {@link Form#breach} 那句话的数学写法。 */
+    private static float breachKey(Form form, float x, float y) {
+        switch (form) {
+            case SPECTER:                                  // 两翼拉开 → 从翼尖往中线收
+                return -Math.abs(x);
+            case CINDER:                                   // 前压一字 → 自右向左一路刮过去
+                return -x;
+            case DOCKYARD:                                 // 双层甲板 → 贴近玩家的下甲板先刮平
+                return -y;
+            case HIVE:                                     // 六格巢环 → 顺着环挨件拆
+                return (float) Math.atan2(y, x);
+            case RIFT:                                     // 斜交叉架 → 沿斜线一件接一件
+                return -(x + y);
+            case MAGNET:                                   // 双极团簇 → 整极拆完再换另一极
+                return -x;
+            case MIRROR:                                   // 内外双环 → 外环剥完才轮得到内环
+                return -(float) Math.hypot(x, y);
+            case SENTINEL:                                 // 护心弧墙 → 从正对玩家的墙心凿开
+                return Math.abs(x);
+            default:
+                return 0f;
         }
     }
 
@@ -400,8 +472,9 @@ public class Boss {
                 // 前压一字：所有件摊在舰体下缘一条弧上，正面能同时够着三件
                 return new float[]{0.18f + 0.72f * u, 0.82f - 0.24f * u};
             case DOCKYARD:
-                // 双层甲板：件按由内到外分给两条线——靠中线的上半排在上甲板（y=0.52），
-                // 往外那一半落到下甲板（y=-0.06），舰级越高两条线各 6 件
+                // 双层甲板：件按由内到外分给两条线——靠中线的那半排在下甲板（y=0.52，冲玩家这侧，
+                // 也就是 v1.71「先拆下甲板」那条路线的第一层），往外那半退到上甲板（y=-0.06，
+                // 贴着舰影上沿），舰级越高两条线各 6 件
                 return u < 0.5f
                         ? new float[]{0.3f + 0.66f * (u * 2f), 0.52f}
                         : new float[]{0.3f + 0.66f * ((u - 0.5f) * 2f), -0.06f};

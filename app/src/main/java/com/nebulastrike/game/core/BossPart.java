@@ -28,6 +28,11 @@ public class BossPart {
     /** PRISM 环绕舰体的当前角度与角速度（正负方向各一个）。 */
     public float orbit;
     public float spin;
+    /**
+     * v1.71 攻坚路线层号：0 是这一型舰装最先该拆的那一层，数字越大越靠后；
+     * -1 表示不在这本账上（开打后追加的 PRISM 棱镜就是）。由 {@link Boss#layoutParts} 发号。
+     */
+    public int breachRank = -1;
 
     public void init(Kind kind, float ox, float oy, float radius, float hp, float fireCd) {
         this.kind = kind;
@@ -43,6 +48,8 @@ public class BossPart {
         this.aim = (float) (Math.PI / 2);
         this.orbit = 0f;
         this.spin = 0f;
+        // 池化的部件身上还带着上一艘船的路线，init 一律清掉，再由 layoutParts 重新发号
+        this.breachRank = -1;
     }
 
     public void update(float dt) {

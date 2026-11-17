@@ -88,6 +88,8 @@ public final class SfxBank {
         put(SfxId.SUPPLY_DOUBLE, supplyDouble(), 0.68f);
         put(SfxId.FINALE, finaleSting(), 0.9f);
         put(SfxId.COUNTER_VOLLEY, counterVolley(), 0.74f);
+        put(SfxId.BREACH_STEP, breachStep(), 0.5f);
+        put(SfxId.BREACH_PERFECT, breachPerfect(), 0.86f);
     }
 
     public static SfxBank create() {
@@ -1340,6 +1342,66 @@ public final class SfxBank {
             x[i] = (float) ((tone + whoosh) * env(t, 0.44, 0.0018, 1.15));
         }
         echo(x, 0.075, 0.2);
+        return x;
+    }
+
+    /**
+     * v1.71 顺线拆件：一记短促的金属剪断——高通噪声"嚓"一下，跟两粒高泛音的"叮"。
+     * 尾音刻意留得干净：一艘船要响十几声，拖泥带水很快就变噪音。
+     */
+    private static float[] breachStep() {
+        int n = frames(0.22);
+        float[] x = new float[n];
+        Random r = new Random(1711);
+        double[] f = {1568.0, 2093.0};
+        double[] ph = new double[f.length];
+        double snip = 0, sizzle = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double tone = 0;
+            for (int k = 0; k < f.length; k++) {
+                double start = k * 0.028;
+                if (t < start) continue;
+                ph[k] += f[k] / SAMPLE_RATE;
+                tone += (0.26 * sine(ph[k]) + 0.14 * tri(ph[k] * 2.01))
+                        * Math.exp(-(t - start) * 20.0);
+            }
+            // 剪断：把噪声高通出去（先减一层低通），只留最亮的那层毛刺
+            snip += 0.62 * (noise(r) - snip);
+            sizzle += 0.25 * (snip - sizzle);
+            double cut = (snip - sizzle) * Math.exp(-t * 34.0) * 1.1;
+            x[i] = (float) ((tone + cut) * env(t, 0.22, 0.0016, 1.15));
+        }
+        return x;
+    }
+
+    /**
+     * v1.71 整条路线拆穿：C6 → E6 → G6 → C7 四记往上叠的金属和音，底下垫一层舰体解体的低频轰，
+     * 末了挂一道回声——比 v1.66 连读那声更宽，因为它一艘船最多只响一次。
+     */
+    private static float[] breachPerfect() {
+        int n = frames(0.62);
+        float[] x = new float[n];
+        Random r = new Random(1712);
+        double[] f = {1046.5, 1318.5, 1568.0, 2093.0};
+        double[] ph = new double[f.length];
+        double rumble = 0, sub = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double tone = 0;
+            for (int k = 0; k < f.length; k++) {
+                double start = k * 0.075;
+                if (t < start) continue;
+                ph[k] += f[k] / SAMPLE_RATE;
+                tone += (0.2 * sine(ph[k]) + 0.1 * tri(ph[k] * 2.02) + 0.05 * sine(ph[k] * 5.03))
+                        * Math.exp(-(t - start) * 6.5) * (1.0 + k * 0.06);
+            }
+            rumble += 0.06 * (noise(r) - rumble);
+            sub += 62.0 / SAMPLE_RATE;
+            double body = rumble * Math.exp(-t * 3.2) * 1.5 + 0.22 * sine(sub) * Math.exp(-t * 2.4);
+            x[i] = (float) ((tone + body) * env(t, 0.62, 0.002, 1.1));
+        }
+        echo(x, 0.1, 0.2);
         return x;
     }
 

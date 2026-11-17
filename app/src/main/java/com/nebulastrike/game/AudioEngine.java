@@ -367,6 +367,17 @@ public class AudioEngine {
                             0.97f + 0.02f * Math.max(0, e.code / 2) + (e.code % 2 == 1 ? 0.06f : 0f),
                             panFor(e.x));
                     break;
+                case BOSS_BREACH_STEP:
+                    // v1.71 顺线拆件：code = 连段，越连越往上抬，抬到 9 件封顶
+                    play(SfxId.BREACH_STEP, 0.5f + 0.03f * Math.min(9, Math.max(1, e.code)),
+                            0.98f + 0.035f * Math.min(9, Math.max(0, e.code - 1)),
+                            panFor(e.x));
+                    break;
+                case BOSS_BREACH_PERFECT:
+                    // v1.71 整条路线拆穿：code = 舰装件数，件数多的那艘声音再厚一点
+                    play(SfxId.BREACH_PERFECT, 0.82f,
+                            0.97f + 0.012f * Math.min(12, Math.max(0, e.code)), panFor(e.x));
+                    break;
                 case ULT_READY:
                     play(SfxId.ULT_READY, 0.75f, 1f, 0f);
                     break;
