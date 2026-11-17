@@ -48,6 +48,11 @@ public class Bullet {
     public float spin;
     /** v1.53：锁定激光的光柱——从屏幕顶端落到被点名的目标身上。 */
     public boolean lockOn;
+    /**
+     * v1.69 破招回敬：这一发是"读懂的那一手"原样反打回去的，不是玩家自己瞄的——
+     * 所以它不进命中率（既不算开枪也不算命中），渲染上走一条金色弹道。
+     */
+    public boolean volley;
 
     public void init(float x, float y, float vy) {
         init(x, y, 0f, vy, 1, false);
@@ -72,6 +77,7 @@ public class Bullet {
         this.ult = false;
         this.bent = false;
         this.reflected = false;
+        this.volley = false;
         this.arc = false;
         this.arcJumps = 0;
         this.boomerang = false;

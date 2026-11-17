@@ -132,6 +132,7 @@ public class Renderer {
         drawFloatTexts(c, w);   // 伤害/得分飘字，跟随震屏一起位移
         drawCounterRead(c, w);  // v1.63：识破一轮招牌弹幕的收口提示
         drawCounterChain(c, w);  // v1.66：连读读数——只要没挨打就一直挂在头顶
+        drawCounterVolley(c, w);  // v1.69：读懂的那一手被打回去时，头顶报一句回敬
 
         // 连击边缘辉光：combo 越高，四边越亮（reducedFx 下关闭）；
         // 狂热期间换成余烬橙并加快脉动，光凭余光就能知道射速加成还在
@@ -329,6 +330,21 @@ public class Renderer {
                             b.y + (float) Math.sin(a0 + 0.9f) * (rr2 + 5f), paint);
                 }
                 paint.setStyle(Paint.Style.FILL);
+            } else if (b.volley) {
+                // v1.69 破招回敬：它那一手被打回去，金弹 + 短尾痕，和玩家自己的白弹一眼分得开
+                float ang = (float) Math.atan2(b.vy, b.vx);
+                glow.setColor(0x77FFC85A);
+                c.drawCircle(b.x, b.y, b.radius + 8f, glow);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(3f);
+                paint.setColor(0x99FFD166);
+                c.drawLine(b.x, b.y, b.x - (float) Math.cos(ang) * 18f,
+                        b.y - (float) Math.sin(ang) * 18f, paint);
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(0xFFFFC94A);
+                c.drawCircle(b.x, b.y, b.radius, paint);
+                paint.setColor(0xFFFFF4D0);
+                c.drawCircle(b.x, b.y, b.radius * 0.42f, paint);
             } else if (b.reflected) {
                 // 反射弹：相位紫弹体 + 反向飞出的尾焰，和敌方弹幕明确区分
                 paint.setStyle(Paint.Style.FILL);
@@ -890,6 +906,29 @@ public class Renderer {
             c.drawText("连读断了 · 上次 " + w.counterChainBreakAt
                     + " 招 · 掉血才会断", w.ship.x, w.ship.y - 264f, paint);
         }
+        paint.setTextAlign(Paint.Align.LEFT);
+    }
+
+    /**
+     * v1.69 破招回敬：读到「熟悉」以上，它刚丢的那一手当场反打回去。
+     * 头顶第三行挂 2 秒"回敬 · 静默 · 15 发"，金色——玩家得知道这波不是自己瞄的。
+     */
+    private void drawCounterVolley(Canvas c, GameWorld w) {
+        if (w.counterVolleyFlash <= 0f) return;
+        float k = Math.min(1f, w.counterVolleyFlash / 0.6f);
+        String line = "回敬 · " + w.counterVolleyForm.label
+                + (w.counterVolleyWasFinale ? "（终式）" : "")
+                + " · " + w.counterVolleyLast + " 发";
+        paint.setStyle(Paint.Style.FILL);
+        paint.setShader(null);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setFakeBoldText(true);
+        paint.setTextSize(21f);
+        paint.setColor(((int) (0x40 * k) << 24) | 0x081018);
+        c.drawText(line, w.ship.x + 1.5f, w.ship.y - 293f + 1.5f, paint);
+        paint.setColor(((int) (0xD0 * k) << 24) | 0xFFFFC94A);
+        c.drawText(line, w.ship.x, w.ship.y - 293f, paint);
+        paint.setFakeBoldText(false);
         paint.setTextAlign(Paint.Align.LEFT);
     }
 
@@ -4637,6 +4676,7 @@ public class Renderer {
                 "识破连着数就是连读 · 3 招赏金 ×2、6 招 ×3、9 招起 ×4，只有真正掉血才会断（护盾挡下不算）",
                 "把同一型旗舰读到「读透」（4 次）再击沉，它会交双份专属解药 · 双份照样叠加，不会把你换掉",
                 "旗舰说到三阶段那句狠话就会出「终式」· 招牌与终式交替出手，读法不一样，但读懂了记在同一型的账上",
+                "同一型读到「熟悉」以上，它刚丢的那一手会被原样回敬打回去 · 金色弹道不算你的命中率，读透了回得更密",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);

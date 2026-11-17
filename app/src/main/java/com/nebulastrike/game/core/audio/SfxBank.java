@@ -87,6 +87,7 @@ public final class SfxBank {
         put(SfxId.COUNTER_CHAIN, counterChain(), 0.78f);
         put(SfxId.SUPPLY_DOUBLE, supplyDouble(), 0.68f);
         put(SfxId.FINALE, finaleSting(), 0.9f);
+        put(SfxId.COUNTER_VOLLEY, counterVolley(), 0.74f);
     }
 
     public static SfxBank create() {
@@ -1307,6 +1308,38 @@ public final class SfxBank {
             x[i] = (float) ((tone + snarl + sweep) * env(t, 0.78, 0.002, 1.2));
         }
         echo(x, 0.11, 0.22);
+        return x;
+    }
+
+    /**
+     * v1.69 破招回敬：A5 → D6 → G6 三记往上叠的明亮弹音，头 0.2 秒挂一道越抬越高的破空嘶声——
+     * 终式那声是往下压的重锤，这一声是往上打回去的箭头，一听就知道方向反了。
+     */
+    private static float[] counterVolley() {
+        int n = frames(0.44);
+        float[] x = new float[n];
+        Random r = new Random(1699);
+        double[] f = {880.0, 1174.66, 1567.98};
+        double[] ph = new double[f.length];
+        double air = 0, hiss = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            double tone = 0;
+            for (int k = 0; k < f.length; k++) {
+                double start = k * 0.062;
+                if (t < start) continue;
+                double local = t - start;
+                ph[k] += f[k] / SAMPLE_RATE;
+                tone += (0.2 * sine(ph[k]) + 0.12 * tri(ph[k] * 2.01) + 0.05 * sine(ph[k] * 4.97))
+                        * Math.exp(-local * 12.0) * (1.0 + k * 0.1);
+            }
+            // 破空：低通噪声的中心频率随时间往上抬，做出"一串东西飞出去"的方向感
+            air += (0.12 + t * 0.5) * (noise(r) - air);
+            hiss += 0.3 * (air - hiss);
+            double whoosh = hiss * Math.exp(-t * 7.0) * 1.6;
+            x[i] = (float) ((tone + whoosh) * env(t, 0.44, 0.0018, 1.15));
+        }
+        echo(x, 0.075, 0.2);
         return x;
     }
 

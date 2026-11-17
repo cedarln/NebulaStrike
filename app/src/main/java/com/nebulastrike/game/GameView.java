@@ -394,6 +394,8 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case BOSS_COUNTER_BREAK: haptics.tick(); break;
                     // v1.67：双份解药到手那一下给两记轻点，听得见也摸得到"多了一支"
                     case BOSS_SUPPLY_DOUBLE: haptics.tick(); haptics.tick(); break;
+                    // v1.69：回敬和窗口开膛在同一帧，这里只补一记轻点，别把两下震成一坨
+                    case BOSS_COUNTER_VOLLEY: haptics.tick(); break;
                     // 回声周目开场给一记中震；碎片到手轻点一下
                     case ECHO_START: haptics.impact(); break;
                     case ECHO_SHARD: haptics.tick(); break;

@@ -361,6 +361,12 @@ public class AudioEngine {
                     play(SfxId.SUPPLY_DOUBLE, 0.46f, 0.97f + 0.02f * Math.max(0, e.code),
                             panFor(e.x));
                     break;
+                case BOSS_COUNTER_VOLLEY:
+                    // v1.69 破招回敬：code = 形态序号 × 2 + 是否终式，读懂终式那一手回敬得更亮一档
+                    play(SfxId.COUNTER_VOLLEY, 0.44f,
+                            0.97f + 0.02f * Math.max(0, e.code / 2) + (e.code % 2 == 1 ? 0.06f : 0f),
+                            panFor(e.x));
+                    break;
                 case ULT_READY:
                     play(SfxId.ULT_READY, 0.75f, 1f, 0f);
                     break;

@@ -177,7 +177,9 @@ public class GameWorld {
         /** v1.66：连读被真正的掉血打断（code = 断在第几招） */
         BOSS_COUNTER_BREAK,
         /** v1.67：读透的那一型多交一件专属解药（code = {@link Boss.Form#ordinal()}） */
-        BOSS_SUPPLY_DOUBLE
+        BOSS_SUPPLY_DOUBLE,
+        /** v1.69：读懂的那一手被反打回去（code = 形态序号 × 2 + 是否终式） */
+        BOSS_COUNTER_VOLLEY
     }
     public static final class GameEvent {
         public final EventType type;
@@ -1160,6 +1162,18 @@ public class GameWorld {
     public int counterMasteryTier;
     /** v1.67：本局靠"读透"多交出去几件解药（结算卡 ELIXIR 一格）。 */
     public int supplyDoubles;
+    /**
+     * v1.69 破招回敬 COUNTER VOLLEY：某一型读到"熟悉"以上之后，识破那一刻它刚丢出来的那一手
+     * 会原样反打回去。这里记的是回敬了几次、一共打回去多少发、最近一次是哪一型哪一手。
+     */
+    public int counterVolleys;
+    public int counterVolleyShots;
+    public int counterVolleyLast;
+    public float counterVolleyFlash;
+    public Boss.Form counterVolleyForm = Boss.Form.SPECTER;
+    public boolean counterVolleyWasFinale;
+    /** 回敬横幅的余辉时长（秒）。 */
+    public static final float VOLLEY_BANNER_TIME = 2.0f;
 
     /**
      * v1.66 破招连读 READ CHAIN：本局一口气连着读懂了几招。连读只会被真正的掉血打断
@@ -2386,6 +2400,8 @@ public class GameWorld {
             counterStrikes++;
             events.add(new GameEvent(EventType.BOSS_COUNTER_STRIKE,
                     ship.x, ship.y, signatureForm.ordinal()));
+            // v1.69 破招回敬：读到"熟悉"以上，它刚才丢的那一手当场原样反打回去
+            counterVolleyLast = fireCounterVolley(signatureForm, signatureFinale, tier);
         }
     }
 
@@ -2806,6 +2822,151 @@ public class GameWorld {
         }
         addShake(0.34f, 10f);
         return made;
+    }
+
+    // ===== v1.69 破招回敬 · COUNTER VOLLEY =====
+
+    /** v1.69：回敬的单发伤害。生疏不回敬（0），熟悉 3 点，读透 5 点。 */
+    public static int counterVolleyDamage(int masteryTier) {
+        return masteryTier >= 2 ? 5 : masteryTier == 1 ? 3 : 0;
+    }
+
+    /**
+     * v1.69 破招回敬：同一型读到「熟悉」以上，它刚丢的那一手当场原样反打回去。
+     *
+     * <p>形状照它自己的招式摆——静默回三层针、星核回三层叠波、裂界回三道裂束，
+     * 密度跟着精通档位走（熟悉两排、读透三排）。回敬弹带 {@code volley} 标记：
+     * 它算它的账、玩家打玩家的准星，两头都不进命中率，也不动赏金、连读、掉落与任何既有节拍。
+     *
+     * @return 真的打回去的弹数（0 = 档位不够、旗舰已不在场，或玩家弹池已满）
+     */
+    int fireCounterVolley(Boss.Form form, boolean finale, int masteryTier) {
+        int damage = counterVolleyDamage(masteryTier);
+        if (damage <= 0 || !boss.active) return 0;
+        float sx = ship.x;
+        float sy = ship.y - 42f;
+        float aim = (float) Math.atan2(boss.y - sy, boss.x - sx);
+        int rows = masteryTier >= 2 ? 3 : 2;
+        int per = 3 + 2 * Math.max(0, Math.min(2, masteryTier));
+        int made = 0;
+        switch (form) {
+            case SPECTER: {
+                // 静默·针幕：三排错开的小角度细针，一排比一排往里收
+                for (int r = 0; r < rows; r++) {
+                    for (int i = 0; i < per; i++) {
+                        made += launchVolley(sx + (r - 1) * 26f, sy,
+                                aim + (i - (per - 1) / 2f) * 0.042f + (r - 1) * 0.03f,
+                                800f, damage, 7f, false);
+                    }
+                }
+                break;
+            }
+            case CINDER: {
+                // 熔烬·灰烬塌陷：外层慢而铺开的灰扇，内层快而集中的芯柱
+                for (int i = 0; i < per * 2 + 1; i++) {
+                    made += launchVolley(sx, sy, aim + (i - per) * 0.085f, 520f, damage, 10f, false);
+                }
+                for (int r = 0; r < rows; r++) {
+                    made += launchVolley(sx + (r - 1) * 14f, sy, aim, 960f, damage, 8f, false);
+                }
+                break;
+            }
+            case DOCKYARD: {
+                // 船坞·全甲板出击：一层宽翼扇，再加一排压顶的高速穿甲
+                for (int r = 0; r < rows; r++) {
+                    for (int i = 0; i < per + 2; i++) {
+                        made += launchVolley(sx + (i - (per + 1) / 2f) * 16f, sy - r * 10f,
+                                aim + (i - (per + 1) / 2f) * 0.11f, 560f, damage, 9f, false);
+                    }
+                }
+                for (int i = 0; i < 3; i++) {
+                    made += launchVolley(sx + (i - 1) * 20f, sy, aim, 1020f, damage, 7f, false);
+                }
+                break;
+            }
+            case HIVE: {
+                // 蜂巢·巢门合拢：两列缓速绕行的雷，自己往它身上收
+                for (int r = 0; r < rows; r++) {
+                    for (int i = 0; i < per; i++) {
+                        made += launchVolley(sx + (r - 1) * 38f, sy,
+                                aim + (i - (per - 1) / 2f) * 0.16f, 470f, damage, 12f, true);
+                    }
+                }
+                break;
+            }
+            case RIFT: {
+                // 裂界·三面裂束：左中右三道笔直射出去的光柱
+                float[] off = {-52f, 0f, 52f};
+                int beams = masteryTier >= 2 ? 3 : 2;
+                for (int bIdx = 0; bIdx < beams; bIdx++) {
+                    for (int i = 0; i < 4; i++) {
+                        made += launchVolley(sx + off[Math.min(bIdx, off.length - 1)],
+                                sy - i * 26f, aim, 900f, damage, 10f, false);
+                    }
+                }
+                break;
+            }
+            case MAGNET: {
+                // 磁暴·磁极旋涡：几颗咬住不放旋过去的高速磁球
+                int orbs = 2 + rows;
+                for (int i = 0; i < orbs; i++) {
+                    made += launchVolley(sx + (i - (orbs - 1) / 2f) * 30f, sy,
+                            aim + (i - (orbs - 1) / 2f) * 0.5f, 540f, damage, 11f, true);
+                }
+                break;
+            }
+            case MIRROR: {
+                // 折射·千镜叠影：左右两串互为镜像的扇面，慢一层快一层
+                float[] speeds = {620f, 900f};
+                for (int side = 0; side < 2; side++) {
+                    float dx = side == 0 ? -40f : 40f;
+                    for (int layer = 0; layer < speeds.length; layer++) {
+                        for (int i = 0; i < per; i++) {
+                            float spread = (side == 0 ? -1f : 1f) * (0.05f + layer * 0.02f);
+                            made += launchVolley(sx + dx, sy - layer * 14f,
+                                    aim + (i - (per - 1) / 2f) * spread * 2f,
+                                    speeds[layer], damage, 8f, false);
+                        }
+                    }
+                }
+                break;
+            }
+            default: {
+                // 星核·崩塌：三圈同心的冲击弧，一圈比一圈快，一圈压一圈
+                float[] speeds = {560f, 760f, 980f};
+                for (int r = 0; r < rows; r++) {
+                    for (int i = 0; i < per + 2; i++) {
+                        made += launchVolley(sx, sy,
+                                aim + (i - (per + 1) / 2f) * (0.42f / Math.max(1, per)),
+                                speeds[Math.min(r, speeds.length - 1)], damage, 10f, false);
+                    }
+                }
+                break;
+            }
+        }
+        if (made <= 0) return 0;
+        counterVolleys++;
+        counterVolleyShots += made;
+        counterVolleyLast = made;
+        counterVolleyFlash = VOLLEY_BANNER_TIME;
+        counterVolleyForm = form;
+        counterVolleyWasFinale = finale;
+        events.add(new GameEvent(EventType.BOSS_COUNTER_VOLLEY, sx, sy - 20f,
+                form.ordinal() * 2 + (finale ? 1 : 0)));
+        spark(sx, sy - 16f, 10, 0x66FFE0);
+        addShake(0.16f, 5f);
+        return made;
+    }
+
+    /** 打回去的一发：走玩家弹池，但只记在回敬的账上，不碰开火数与命中率。 */
+    private int launchVolley(float x, float y, float ang, float speed, int damage,
+                             float radius, boolean homing) {
+        Bullet b = freeBullet();
+        if (b == null) return 0;
+        b.init(x, y, (float) Math.cos(ang) * speed, (float) Math.sin(ang) * speed, damage, homing);
+        b.volley = true;
+        b.radius = radius;
+        return 1;
     }
 
     private static float lerpAngle(float from, float to, float t) {
@@ -3305,6 +3466,8 @@ public class GameWorld {
     /** 命中统计：每颗子弹只记一次（穿透激光不重复）。 */
     private void registerHit(Bullet b) {
         if (b.landed) return;
+        // v1.69：回敬弹是它自己的招被打回去，不替玩家的准星负责——命中率两头都不计
+        if (b.volley) return;
         b.landed = true;
         shotsHit++;
     }
@@ -3680,6 +3843,7 @@ public class GameWorld {
         if (counterMasteryBanner > 0f) counterMasteryBanner = Math.max(0f, counterMasteryBanner - dt);
         // v1.66：连读的两条提示各自收走，档位本身不看时间、只看有没有挨打
         if (counterChainBanner > 0f) counterChainBanner = Math.max(0f, counterChainBanner - dt);
+        if (counterVolleyFlash > 0f) counterVolleyFlash = Math.max(0f, counterVolleyFlash - dt);
         if (counterChainBreak > 0f) counterChainBreak = Math.max(0f, counterChainBreak - dt);
         if (pendingCounterSerial != 0) {
             counterWindow = Math.max(0f, counterWindow - dt);
@@ -7450,6 +7614,13 @@ public class GameWorld {
         counterMasteryBanner = 0f;
         counterMasteryTier = 0;
         supplyDoubles = 0;
+        // v1.69：回敬的账也一起清零
+        counterVolleys = 0;
+        counterVolleyShots = 0;
+        counterVolleyLast = 0;
+        counterVolleyFlash = 0f;
+        counterVolleyWasFinale = false;
+        counterVolleyForm = Boss.Form.SPECTER;
         // v1.66：连读同样是"这一局的手感"，重开从第 1 招重新数
         counterStreak = 0;
         counterStreakBest = 0;
