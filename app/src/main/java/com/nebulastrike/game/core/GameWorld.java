@@ -917,8 +917,8 @@ public class GameWorld {
     public float coreLeadFlash;
     /** 窗口开着时兑现的哑火：提前量先欠着，合拢那一帧再排队。 */
     private boolean coreLeadPending;
-    /** 这一个窗口已经补过一记了没有——补过的不再叠加。 */
-    private boolean coreEchoPaid;
+    /** 这一个窗口已经补过一记了没有——补过的不再叠加，HUD 也据此分两行字。 */
+    public boolean coreEchoPaid;
 
     // ---- v1.47：Boss 词缀 AFFIX ----
     /** 第几艘 Boss 起带词缀（0 基：level 2 就是第三艘）。 */
@@ -4268,6 +4268,9 @@ public class GameWorld {
         if (breachFlash > 0f) breachFlash = Math.max(0f, breachFlash - dt);
         // v1.72：哑火那一行的余辉自己收走；攒着的那一记不看时间，只看它有没有被兑现
         if (breachSilenceFlash > 0f) breachSilenceFlash = Math.max(0f, breachSilenceFlash - dt);
+        // v1.74：共鸣与弱点提前那两行提示的余辉各自收走；账本身不看时间，只看这一窗还打没打进去
+        if (coreEchoFlash > 0f) coreEchoFlash = Math.max(0f, coreEchoFlash - dt);
+        if (coreLeadFlash > 0f) coreLeadFlash = Math.max(0f, coreLeadFlash - dt);
         if (counterChainBreak > 0f) counterChainBreak = Math.max(0f, counterChainBreak - dt);
         if (pendingCounterSerial != 0) {
             counterWindow = Math.max(0f, counterWindow - dt);

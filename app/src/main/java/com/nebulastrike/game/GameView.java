@@ -401,6 +401,11 @@ public class GameView extends SurfaceView implements SurfaceHolder.Callback, Run
                     case BOSS_BREACH_PERFECT: haptics.bomb(); break;
                     // v1.72：哑火是"该来的一掌没来"，给一记中等震动——比部件掉落重，比拆穿收口轻
                     case BOSS_BREACH_SILENCE: haptics.impact(); break;
+                    // v1.74：共鸣的每一记只轻点（一窗最多四下，别把手感震麻），
+                    // 补上识破那一下才给中震；弱点提前是哑火的余韵，轻点把视线带回舰体正中
+                    case BOSS_CORE_ECHO_STEP: haptics.tick(); break;
+                    case BOSS_CORE_ECHO: haptics.impact(); break;
+                    case BOSS_CORE_LEAD: haptics.tick(); break;
                     // 回声周目开场给一记中震；碎片到手轻点一下
                     case ECHO_START: haptics.impact(); break;
                     case ECHO_SHARD: haptics.tick(); break;

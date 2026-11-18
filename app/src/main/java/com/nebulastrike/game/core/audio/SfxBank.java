@@ -91,6 +91,8 @@ public final class SfxBank {
         put(SfxId.BREACH_STEP, breachStep(), 0.5f);
         put(SfxId.BREACH_PERFECT, breachPerfect(), 0.86f);
         put(SfxId.BREACH_SILENCE, breachSilence(), 0.62f);
+        put(SfxId.CORE_ECHO, coreEcho(), 0.52f);
+        put(SfxId.CORE_LEAD, coreLead(), 0.6f);
     }
 
     public static SfxBank create() {
@@ -1434,6 +1436,62 @@ public final class SfxBank {
             }
             puff += 0.05 * (sputter - puff);
             x[i] = (float) ((body + sputter * 0.5 + puff) * env(t, 0.42, 0.0018, 0.95));
+        }
+        return x;
+    }
+
+    /**
+     * v1.74 共鸣的一记：一记收进核心里的亮音（G6  sine + 一点泛音），底下压一层 96Hz 的余烬低频，
+     * 0.19 秒就收——它要连着响四记，太长就会糊成一片，节奏感靠 AudioEngine 抬音高做递进。
+     */
+    private static float[] coreEcho() {
+        int n = frames(0.19);
+        float[] x = new float[n];
+        double ph = 0, harm = 0, sub = 0;
+        Random r = new Random(1741);
+        double hiss = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            ph += 1568.0 / SAMPLE_RATE;
+            harm += 1568.0 * 3.01 / SAMPLE_RATE;
+            sub += 96.0 / SAMPLE_RATE;
+            hiss += 0.35 * (noise(r) - hiss);
+            double bell = (0.4 * sine(ph) + 0.12 * sine(harm)) * Math.exp(-t * 22.0);
+            double ember = (0.26 * sine(sub) + hiss * 0.1) * Math.exp(-t * 12.0);
+            x[i] = (float) ((bell + ember) * env(t, 0.19, 0.0012, 1.0));
+        }
+        return x;
+    }
+
+    /**
+     * v1.74 弱点提前：一记从 120Hz 抽到 900Hz 的吸气（0.26 秒），末尾挂两粒上行的亮音——
+     * 意思是"那口气泄了、壳跟着松"，比开核的亮铃早半步，所以峰值刻意低一些。
+     */
+    private static float[] coreLead() {
+        int n = frames(0.3);
+        float[] x = new float[n];
+        Random r = new Random(1742);
+        double ph = 0, breath = 0;
+        double[] tickPh = {0.0, 0.0};
+        double[] start = {0.17, 0.225};
+        double[] freq = {1175.0, 1568.0};
+        for (int i = 0; i < n; i++) {
+            double t = i / (double) SAMPLE_RATE;
+            // 吸气：120Hz 在 0.22 秒里抽到 900Hz，噪声层跟着抬，末尾一刀掐断
+            double f = 120.0 * Math.pow(7.5, Math.min(1.0, t / 0.22));
+            ph += f / SAMPLE_RATE;
+            breath += 0.4 * (noise(r) - breath);
+            double swell = (0.16 * saw(ph / 4.0) + 0.3 * breath)
+                    * Math.min(1.0, t / 0.05) * Math.exp(-Math.max(0.0, t - 0.21) * 30.0);
+            // 末尾两粒上行亮音：一记比一记高，落在"壳松了"那一瞬
+            double spark = 0;
+            for (int k = 0; k < 2; k++) {
+                if (t < start[k]) continue;
+                tickPh[k] += freq[k] / SAMPLE_RATE;
+                spark += (0.3 * sine(tickPh[k]) + 0.08 * sine(tickPh[k] * 2.01))
+                        * Math.exp(-(t - start[k]) * 42.0);
+            }
+            x[i] = (float) ((swell + spark) * env(t, 0.3, 0.002, 0.8));
         }
         return x;
     }

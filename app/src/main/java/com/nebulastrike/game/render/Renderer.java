@@ -2642,6 +2642,21 @@ public class Renderer {
             drawBreachLine(c, "终章 · " + fin.note, pipY + 48f, tint,
                     w.coreFinaleFlash > 0.6f, w.coreFinaleFlash / GameWorld.CORE_FINALE_FLASH_TIME);
         }
+        // v1.74 共鸣与提前：再往下挪一格。共鸣优先——它只在两个窗口叠着的那几秒出现，
+        // 而"弱点提前"是一记哑火的余韵，晚一拍看到也不亏。
+        if (!w.practice() && (w.coreEchoFlash > 0f || w.coreLeadFlash > 0f)) {
+            if (w.coreEchoFlash > 0f) {
+                drawBreachLine(c, w.coreEchoPaid
+                                ? "共鸣 · " + w.coreEchoForm.label + "又被读透一层"
+                                : "共鸣 · 核心又吃下一记 " + w.coreEchoProgress() + "/"
+                                        + GameWorld.CORE_ECHO_HITS,
+                        pipY + 70f, w.coreEchoPaid ? 0xFFFFD166 : 0xFFC7A9FF,
+                        w.coreEchoPaid, Math.min(1f, w.coreEchoFlash / 0.8f));
+            } else {
+                drawBreachLine(c, "弱点提前 · 哑火把核心掀开了", pipY + 70f, 0xFF9FE7C8,
+                        true, Math.min(1f, w.coreLeadFlash / 0.8f));
+            }
+        }
         paint.setTextAlign(Paint.Align.LEFT);
         paint.setStyle(Paint.Style.FILL);
     }
@@ -4783,6 +4798,7 @@ public class Renderer {
                 "顺着舰装的攻坚路线拆件有连段加分 · 血条上的金圈就是这一层该拆的，插队只断连段、不扣分，拆穿一整条线另有大奖",
                 "整条攻坚路线一件没插队地拆穿，它下一手招牌当场哑火 · 那一拍真的什么都没有，趁这口气打核心",
                 "核心摊开那几秒每型旗舰的挣扎都不一样 · 有的全体憋火、有的被钉在原地、有的把你的弹拽进圈、有的核心裂成两片，HUD 那行会写清楚",
+                "反击窗口里把子弹收进摊开的核心 · 攒够四记就给这一型补一次识破进度，整条舰装拆穿换来的哑火还会让下一次开核提前",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);

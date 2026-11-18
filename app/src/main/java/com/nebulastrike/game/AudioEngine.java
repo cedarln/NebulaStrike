@@ -383,6 +383,19 @@ public class AudioEngine {
                     play(SfxId.BREACH_SILENCE, 0.78f,
                             0.94f + 0.02f * Math.min(7, Math.max(0, e.code)), panFor(e.x));
                     break;
+                case BOSS_CORE_ECHO_STEP:
+                    // v1.74 共鸣第几记（code 1..4）：一记比一记高，攒满那一下听得出"快到了"
+                    play(SfxId.CORE_ECHO, 0.42f + 0.05f * Math.min(4, Math.max(1, e.code)),
+                            1.0f + 0.07f * (Math.min(4, Math.max(1, e.code)) - 1), panFor(e.x));
+                    break;
+                case BOSS_CORE_ECHO:
+                    // 共鸣补上识破那一档：借识破升档的音色，说明记的是同一本账，音量压低一档
+                    play(SfxId.COUNTER_MASTERY, 0.5f, 1.06f, panFor(e.x));
+                    break;
+                case BOSS_CORE_LEAD:
+                    // 哑火把下一次开核掀提前：一记上抽的吸气，比开核那声亮铃更早、更轻
+                    play(SfxId.CORE_LEAD, 0.58f, vary(0.04f), panFor(e.x));
+                    break;
                 case ULT_READY:
                     play(SfxId.ULT_READY, 0.75f, 1f, 0f);
                     break;
