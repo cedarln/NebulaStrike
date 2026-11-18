@@ -239,6 +239,147 @@ public class Boss {
         return CORE_FINALES.length;
     }
 
+    /**
+     * v1.75 阶段骨架 PHASE FRAME：一型三相，一副轮廓。
+     *
+     * <p>v1.61 让八型旗舰有了八种剪影，但同一艘船从满血打到残血还是那一个形状——
+     * 二阶段只是变个颜色，三阶段只是多两枚棱镜。这一版把"打到第几段了"写进轮廓本身：
+     * <b>一阶段收着（reach 缩）、二阶段展开（flare 把最宽的几顶顶点推出去）、
+     * 三阶段破甲（carve 把交替顶点往里咬成锯齿）</b>，再各配一个静态姿态角。
+     * 渲染层只读这一张表，所以战斗里看到的和图鉴里看到的是同一副骨架。
+     *
+     * <p>纯粹的观感：<b>判定半径、部件站位、伤害与弹幕都不从这里取值</b>，
+     * 轮廓再怎么展、怎么咬，碰撞盒还是原来那个。
+     */
+    public static final class PhaseFrame {
+        /** 横向伸缩（1 = 本型原轮廓）。 */
+        public final float reachX;
+        /** 纵向伸缩。 */
+        public final float reachY;
+        /** 静态姿态角（度）：破甲那副总是歪的。 */
+        public final float tilt;
+        /** 展开系数：把最靠舷侧的顶点往外推（一阶段恒为 0）。 */
+        public final float flare;
+        /** 破甲系数：交替顶点往里咬，轮廓成锯齿（一二阶段为 0）。 */
+        public final float carve;
+        /** 换段横幅第二行那句：这一副骨架是怎么回事。 */
+        public final String note;
+
+        PhaseFrame(float reachX, float reachY, float tilt, float flare, float carve, String note) {
+            this.reachX = reachX;
+            this.reachY = reachY;
+            this.tilt = tilt;
+            this.flare = flare;
+            this.carve = carve;
+            this.note = note;
+        }
+
+        /** 识别串：测试用它核对"一型三相"和"八型同相"都没重样。 */
+        public String signature() {
+            return reachX + "/" + reachY + "/" + tilt + "/" + flare + "/" + carve;
+        }
+    }
+
+    /** 外层按 Form 声明顺序，内层按相位 1..3。 */
+    private static final PhaseFrame[][] PHASE_FRAMES = {
+            {   // 静默：细长梭形，靠翼展与断针区分三段
+                    new PhaseFrame(0.92f, 1.02f, 0f, 0f, 0f, "梭形 · 两翼还收在甲板上"),
+                    new PhaseFrame(1.00f, 1.00f, -4f, 0.22f, 0f, "两翼拉开 · 翼尖伸进你的弹道"),
+                    new PhaseFrame(1.06f, 0.94f, -9f, 0.10f, 0.24f, "断针 · 尾段烧穿，舷侧咬了口")
+            },
+            {   // 灰烬：压得很扁的宽体驳船，三段从矮舷摊到烧穿龙骨
+                    new PhaseFrame(1.00f, 0.90f, 2f, 0f, 0f, "压底 · 贴顶巡逻的那道矮舷"),
+                    new PhaseFrame(1.12f, 0.96f, 0f, 0.18f, 0f, "落灰舱全开 · 舷侧摊到最宽"),
+                    new PhaseFrame(0.96f, 1.06f, 6f, 0.06f, 0.28f, "烧穿 · 下缘那道缺口扩到龙骨")
+            },
+            {   // 船坞：方正飞行甲板，从一条弹射道摊到两舷全伸
+                    new PhaseFrame(0.94f, 1.00f, 0f, 0f, 0f, "折叠 · 只留一条弹射道"),
+                    new PhaseFrame(1.14f, 1.04f, 0f, 0.20f, 0f, "双甲板展开 · 两舷全伸出去"),
+                    new PhaseFrame(1.02f, 1.10f, -5f, 0.08f, 0.22f, "断裂 · 右舷弹射槽塌进舰体")
+            },
+            {   // 蜂巢：六齿巢盘，缩成一团 / 齿尖让道 / 一角塌下去
+                    new PhaseFrame(0.90f, 0.90f, 0f, 0f, 0f, "合口 · 六格巢房缩成一团"),
+                    new PhaseFrame(1.06f, 1.06f, 0f, 0.26f, 0f, "巢环外扩 · 齿尖让出通道"),
+                    new PhaseFrame(1.12f, 0.98f, 8f, 0.12f, 0.30f, "破巢 · 一角塌下去，蜂还在飞")
+            },
+            {   // 裂谷：下指箭头，收尖 / 两角张开 / 裂缝撕到舰尾
+                    new PhaseFrame(0.96f, 1.00f, 0f, 0f, 0f, "收尖 · 箭头压得很窄"),
+                    new PhaseFrame(1.10f, 0.96f, 0f, 0.24f, 0f, "两角张开 · 横跳前先把舷甩出来"),
+                    new PhaseFrame(1.00f, 1.10f, -10f, 0.10f, 0.26f, "贯裂 · 裂缝从箭头撕到舰尾")
+            },
+            {   // 磁暴：胶囊舰，极板贴合 / 撑到最远 / 吸出锯齿
+                    new PhaseFrame(1.00f, 0.86f, 0f, 0f, 0f, "贴合 · 极板收在舰体两侧"),
+                    new PhaseFrame(1.08f, 1.20f, 0f, 0.16f, 0f, "极板拉开 · 上下两板撑到最远"),
+                    new PhaseFrame(0.98f, 1.10f, 6.5f, 0.06f, 0.20f, "失控 · 磁力把舷侧吸出锯齿")
+            },
+            {   // 镜面：八角星，八棱合拢 / 八面对映 / 碎成参差两半
+                    new PhaseFrame(0.92f, 0.92f, 0f, 0f, 0f, "合拢 · 八棱贴在核心外圈"),
+                    new PhaseFrame(1.04f, 1.04f, 0f, 0.20f, 0f, "外展 · 八面对映出八道棱"),
+                    new PhaseFrame(1.10f, 1.00f, -5.5f, 0.08f, 0.32f, "具裂 · 镜面具碎成参差两半")
+            },
+            {   // 星核：最终旗舰，护环合在一起 / 十二棱立起 / 星核直接摊开
+                    new PhaseFrame(1.00f, 1.00f, 0f, 0f, 0f, "初铸 · 六面护环合在一起"),
+                    new PhaseFrame(1.12f, 1.12f, 0f, 0.22f, 0f, "齐展 · 十二棱王冠全部立起"),
+                    new PhaseFrame(1.04f, 1.04f, 0f, 0.10f, 0.34f, "外露 · 护环碎尽，星核摊开")
+            }
+    };
+
+    /**
+     * 这一型在第几段是哪副骨架（相位越界就钳到 1..3，无形态按静默兜底）。
+     * 渲染层、换段横幅与图鉴都读这里，别再各自发明形状。
+     */
+    public static PhaseFrame frameFor(Form f, int phase) {
+        PhaseFrame[] rows = PHASE_FRAMES[f == null ? Form.SPECTER.ordinal() : f.ordinal()];
+        return rows[Math.min(Math.max(phase, 1), rows.length) - 1];
+    }
+
+    /** 骨架总数（形态数 × 相位数），测试用它核对表跟 Form 还一对一对得上。 */
+    public static int phaseFrameCount() {
+        int n = 0;
+        for (PhaseFrame[] row : PHASE_FRAMES) n += row.length;
+        return n;
+    }
+
+    /**
+     * v1.75：一处战损——某件部件被拆掉后留在舰体上的疤。
+     * 角度是这件部件的站位角（弧度，0 = 正右方，世界坐标），
+     * 秒数是它拆下来到现在多久（渲染层用它把余烬压暗）。
+     */
+    public static final class BreachScar {
+        public final float angle;
+        public final float age;
+        public final BossPart.Kind kind;
+
+        BreachScar(BossPart p) {
+            this.angle = (float) Math.atan2(p.oy, p.ox);
+            this.age = p.destroyedAge;
+            this.kind = p.kind;
+        }
+    }
+
+    /**
+     * 舰体上被拆出来的疤：<b>顺序与部件清单一致</b>，同一次拆两件也不会撞在一起。
+     *
+     * <p>渲染层照着这个角度在轮廓上咬一道缺口，所以"少了哪一件"是看得见的——
+     * 顺线拆开的那条攻坚路线，会在船身上留下一条路线的形状。PRISM 棱镜是开打后才绕出来的，
+     * 站位本来就随轨道走，不留疤。<b>判定半径、部件火力、伤害都不读这里</b>，纯观感。
+     */
+    public BreachScar[] destroyedStations() {
+        int n = 0;
+        for (int i = 0; i < partCount; i++) {
+            BossPart p = parts[i];
+            if (!p.active && p.kind != BossPart.Kind.PRISM) n++;
+        }
+        BreachScar[] out = new BreachScar[n];
+        int at = 0;
+        for (int i = 0; i < partCount; i++) {
+            BossPart p = parts[i];
+            if (p.active || p.kind == BossPart.Kind.PRISM) continue;
+            out[at++] = new BreachScar(p);
+        }
+        return out;
+    }
+
     /** 常规旗舰的形态循环：七种形态对应前七段航程，第八段由 {@link Form#SENTINEL} 压阵。 */
     private static final Form[] FORM_CYCLE = {
             Form.SPECTER, Form.CINDER, Form.DOCKYARD, Form.HIVE,

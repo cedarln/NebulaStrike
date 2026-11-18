@@ -2708,24 +2708,32 @@ public class Renderer {
 
     /**
      * v1.61 旗舰剪影：舰级管"多大"，形态管"长什么样"。
-     * 三层结构沿用老逻辑（暗色装甲底 / 阶段色舰体 / 形态色描边），
-     * 所以阶段色照旧可读，但八艘旗舰再也不会是同一个六边形。
-     * 剪影本身不转：部件与激光吊舱的世界坐标都挂在舰体上，转了就和碰撞盒错位；
-     * 旋转感交给 {@link #drawFormDetail} 里那圈真会转的转子。
+     * v1.75 再加一条：相位管"这一副是哪具骨架"——一阶段收着、二阶段展开、三阶段破甲，
+     * 拆掉的部件还在舷侧留下缺口。三层结构（暗色装甲底 / 阶段色舰体 / 形态色描边）沿用老逻辑，
+     * 所以阶段色照旧可读。
+     *
+     * <p>姿态角只转<b>舰体壳这一层</b>：部件、激光吊舱与核心判定圈仍按世界坐标画，
+     * 所以歪的是"侧着飞的姿态"，不是把碰撞盒一起拧走。真正转个不停的转子交给
+     * {@link #drawFormDetail} 里那些自己会转的构件。
      */
     private void drawFormHull(Canvas c, Boss b, float r, int hullColor) {
+        // v1.75：这一副骨架由形态和相位共同决定——同一艘船，满血和一档血不再是同一个形状
+        Boss.PhaseFrame fr = Boss.frameFor(b.form, b.phase);
+        float[][] outline = formOutline(b.form);
         if (b.blink > 0.01f) {
             // 静默闪现：一层错位的冷蓝重影，落点一眼能找到
-            formHullPath(b.form, r);
             c.save();
             c.translate(b.x - 36f * b.blink, b.y + 13f * b.blink);
+            c.rotate(fr.tilt);
+            frameOutlinePath(outline, r, fr);
             paint.setColor(((int) (0x50 * b.blink) << 24) | 0x00B9F0FF);
             c.drawPath(shapePath, paint);
             c.restore();
         }
-        formHullPath(b.form, r);
         c.save();
         c.translate(b.x, b.y);
+        c.rotate(fr.tilt);
+        frameOutlinePath(outline, r, fr);
         paint.setColor(0xFF2A2350);
         c.save();
         c.scale(1.14f, 1.14f);
@@ -2738,8 +2746,42 @@ public class Renderer {
         paint.setColor((0xB0 << 24) | (formAccent(b.form) & 0x00FFFFFF));
         c.drawPath(shapePath, paint);
         paint.setStyle(Paint.Style.FILL);
+        drawBattleScars(c, b, r, fr);
         c.restore();
         drawFormDetail(c, b, r);
+    }
+
+    /**
+     * v1.75：把拆掉的每一件刻在舰体上。角度取自 {@link Boss#destroyedStationAngles()}，
+     * 也就是这件部件自己的站位——顺线拆下来的路线，会在船身上留出一条路线的形状。
+     * 只在 {@link #drawFormHull} 那个已经平移并转过姿态角的坐标系里画，跟判定无关。
+     */
+    private void drawBattleScars(Canvas c, Boss b, float r, Boss.PhaseFrame fr) {
+        Boss.BreachScar[] scars = b.destroyedStations();
+        if (scars.length == 0) return;
+        float depth = 0.30f + 0.55f * fr.carve;   // 破甲之后，缺口咬得更深
+        float wide = r * 0.2f;
+        float back = (float) Math.toRadians(fr.tilt);
+        for (Boss.BreachScar s : scars) {
+            float a = s.angle - back;             // 站位是世界角，这里画在转动过的舰体系里
+            float cos = (float) Math.cos(a), sin = (float) Math.sin(a);
+            float nx = -sin, ny = cos;
+            float inner = r * (1f - depth), outer = r * 1.02f;
+            shapePath.rewind();
+            shapePath.moveTo(cos * inner + nx * wide * 0.45f, sin * inner + ny * wide * 0.45f);
+            shapePath.lineTo(cos * outer + nx * wide, sin * outer + ny * wide);
+            shapePath.lineTo(cos * outer - nx * wide, sin * outer - ny * wide);
+            shapePath.lineTo(cos * inner - nx * wide * 0.45f, sin * inner - ny * wide * 0.45f);
+            shapePath.close();
+            paint.setColor(0xE6070A14);
+            c.drawPath(shapePath, paint);
+            // 缺口底下一粒余烬：刚拆的亮，放久了就只剩冷疤
+            int ember = 0x70 - (int) Math.min(0x58f, s.age * 0x30f);
+            ember = Math.max(0x18, ember);
+            glow.setColor((ember << 24) | (b.phase >= 3 ? 0x00FF5C7A : 0x00FFB84D));
+            c.drawCircle(cos * (inner + r * 0.08f), sin * (inner + r * 0.08f), r * 0.1f, glow);
+        }
+        paint.setStyle(Paint.Style.FILL);
     }
 
     /** 形态描边色：八种形态八个色相，负责"认船"，阶段色负责"认相位"。 */
@@ -2756,49 +2798,88 @@ public class Renderer {
         }
     }
 
-    /** 以舰心为原点填形态多边形（调用方自己 translate 到 b.x / b.y）。 */
-    private void formHullPath(Boss.Form form, float r) {
+    /**
+     * 八型的单位轮廓（系数 × 舰体半径）。v1.75 起它是数据而不是画弧：
+     * 阶段骨架 {@link Boss#frameFor} 在这份顶点上撑开（reach）、外展（flare）、
+     * 咬缺（carve），所以一型三相看到的是同一艘船换了三副样子。
+     */
+    private static final float[][] OUTLINE_SPECTER = {{0f, -1.18f}, {0.46f, -0.42f},
+            {0.98f, 0.30f}, {0.42f, 0.78f}, {-0.42f, 0.78f}, {-0.98f, 0.30f}, {-0.46f, -0.42f}};
+    private static final float[][] OUTLINE_CINDER = {{-1.30f, -0.30f}, {-0.72f, -0.68f},
+            {0.72f, -0.68f}, {1.30f, -0.30f}, {1.02f, 0.34f}, {0.54f, 0.72f}, {0f, 0.44f},
+            {-0.54f, 0.72f}, {-1.02f, 0.34f}};
+    private static final float[][] OUTLINE_DOCKYARD = {{-1.06f, -0.64f}, {1.06f, -0.64f},
+            {1.20f, 0.32f}, {0.68f, 0.86f}, {-0.68f, 0.86f}, {-1.20f, 0.32f}};
+    private static final float[][] OUTLINE_HIVE = starOutline(6, 1.14f, 0.72f, 0);
+    private static final float[][] OUTLINE_RIFT = {{0f, 1.08f}, {0.98f, -0.44f}, {0.34f, -0.20f},
+            {0f, -0.88f}, {-0.34f, -0.20f}, {-0.98f, -0.44f}};
+    /** 磁暴：极板胶囊舰，八边形倒角逼近原来的圆角矩形。 */
+    private static final float[][] OUTLINE_MAGNET = {{-0.70f, -0.64f}, {0.70f, -0.64f},
+            {1.12f, -0.30f}, {1.12f, 0.30f}, {0.70f, 0.64f}, {-0.70f, 0.64f},
+            {-1.12f, 0.30f}, {-1.12f, -0.30f}};
+    private static final float[][] OUTLINE_MIRROR = starOutline(8, 1.20f, 0.54f, Math.PI / 8.0);
+    /** 星核：最终旗舰保留最经典的多层六边形。 */
+    private static final float[][] OUTLINE_SENTINEL = hexOutline();
+
+    private static float[][] formOutline(Boss.Form form) {
         switch (form) {
-            case SPECTER:
-                // 静默：细长的梭形，舰首一根针，两侧后掠翼
-                polyPath(new float[][]{{0f, -1.18f}, {0.46f, -0.42f}, {0.98f, 0.30f},
-                        {0.42f, 0.78f}, {-0.42f, 0.78f}, {-0.98f, 0.30f}, {-0.46f, -0.42f}}, r);
-                break;
-            case CINDER:
-                // 灰烬：压得很扁的宽体驳船，下缘一道烧蚀的缺口
-                polyPath(new float[][]{{-1.30f, -0.30f}, {-0.72f, -0.68f}, {0.72f, -0.68f},
-                        {1.30f, -0.30f}, {1.02f, 0.34f}, {0.54f, 0.72f}, {0f, 0.44f},
-                        {-0.54f, 0.72f}, {-1.02f, 0.34f}}, r);
-                break;
-            case DOCKYARD:
-                // 船坞：方正的飞行甲板舰，前舷外扩、后舷收成斜坡
-                polyPath(new float[][]{{-1.06f, -0.64f}, {1.06f, -0.64f}, {1.20f, 0.32f},
-                        {0.68f, 0.86f}, {-0.68f, 0.86f}, {-1.20f, 0.32f}}, r);
-                break;
-            case HIVE:
-                // 蜂巢：六齿巢盘
-                starPath(6, 1.14f, 0.72f, r, 0);
-                break;
-            case RIFT:
-                // 裂谷：指向下方的箭头，横跳时箭头正对着玩家
-                polyPath(new float[][]{{0f, 1.08f}, {0.98f, -0.44f}, {0.34f, -0.20f},
-                        {0f, -0.88f}, {-0.34f, -0.20f}, {-0.98f, -0.44f}}, r);
-                break;
-            case MAGNET:
-                // 磁暴：上下极板的胶囊舰
-                shapePath.rewind();
-                shapePath.addRoundRect(new android.graphics.RectF(-1.12f * r, -0.64f * r,
-                        1.12f * r, 0.64f * r), 0.42f * r, 0.42f * r,
-                        android.graphics.Path.Direction.CW);
-                break;
-            case MIRROR:
-                // 镜面：八角星形，左右上下完全对称
-                starPath(8, 1.20f, 0.54f, r, Math.PI / 8.0);
-                break;
-            default:
-                // 星核：最终旗舰保留最经典的多层六边形
-                hexPath(0f, 0f, r);
+            case SPECTER:  return OUTLINE_SPECTER;
+            case CINDER:   return OUTLINE_CINDER;
+            case DOCKYARD: return OUTLINE_DOCKYARD;
+            case HIVE:     return OUTLINE_HIVE;
+            case RIFT:     return OUTLINE_RIFT;
+            case MAGNET:   return OUTLINE_MAGNET;
+            case MIRROR:   return OUTLINE_MIRROR;
+            default:       return OUTLINE_SENTINEL;
         }
+    }
+
+    /** points 角星的单位顶点（与 {@link #starPath} 同一套角度，只是不落到画布上）。 */
+    private static float[][] starOutline(int points, float outer, float inner, double phase) {
+        float[][] out = new float[points * 2][];
+        for (int i = 0; i < points * 2; i++) {
+            double a = phase + i * Math.PI / points;
+            float rad = (i % 2 == 0) ? outer : inner;
+            out[i] = new float[]{(float) Math.cos(a) * rad, (float) Math.sin(a) * rad};
+        }
+        return out;
+    }
+
+    /** 六边形的单位顶点（与 {@link #hexPath} 同一套角度）。 */
+    private static float[][] hexOutline() {
+        float[][] out = new float[6][];
+        for (int i = 0; i < 6; i++) {
+            double a = Math.PI / 3.0 * i + Math.PI / 6.0;
+            out[i] = new float[]{(float) Math.cos(a), (float) Math.sin(a)};
+        }
+        return out;
+    }
+
+    /**
+     * 把单位轮廓按这一副骨架填进 {@code shapePath}：先按 reach 缩放，再把最靠舷侧的
+     * 顶点按 flare 外推（二阶段展开），最后按 carve 把奇数顶点往舰心咬一口（三阶段破甲）。
+     * 调用方负责把自己平移到舰心并转过姿态角。
+     */
+    private void frameOutlinePath(float[][] unit, float r, Boss.PhaseFrame fr) {
+        shapePath.rewind();
+        float widest = 0f;
+        for (int i = 0; i < unit.length; i++) {
+            widest = Math.max(widest, Math.abs(unit[i][0]));
+        }
+        for (int i = 0; i < unit.length; i++) {
+            float ux = unit[i][0];
+            float uy = unit[i][1];
+            if (fr.flare > 0f && Math.abs(ux) >= widest - 1e-3f) ux *= 1f + fr.flare;
+            float bite = (i & 1) == 1 ? 1f - fr.carve : 1f;
+            float px = ux * fr.reachX * r * bite;
+            float py = uy * fr.reachY * r * bite;
+            if (i == 0) {
+                shapePath.moveTo(px, py);
+            } else {
+                shapePath.lineTo(px, py);
+            }
+        }
+        shapePath.close();
     }
 
     /** 形态自己的装饰：转子、甲板槽、巢房、裂缝、极板、镜像缝、余烬、王冠。 */
@@ -2938,17 +3019,6 @@ public class Renderer {
                 break;
             }
         }
-    }
-
-    /** 单位多边形（系数乘半径）→ shapePath。 */
-    private void polyPath(float[][] unit, float r) {
-        shapePath.rewind();
-        for (int i = 0; i < unit.length; i++) {
-            float px = unit[i][0] * r;
-            float py = unit[i][1] * r;
-            if (i == 0) shapePath.moveTo(px, py); else shapePath.lineTo(px, py);
-        }
-        shapePath.close();
     }
 
     /** points 角星，内外半径按系数缩放。 */
@@ -3880,6 +3950,12 @@ public class Renderer {
             paint.setTextSize(24f);
             paint.setColor(((int) (0xD8 * k) << 24) | 0xFFE8F1FF);
             c.drawText("换段 · 增援入场", VW / 2f, y + 34f, paint);
+            // v1.75：换的不只是颜色——这一段的舰体换了哪副骨架，横幅里直接念出来
+            Boss.PhaseFrame frame = Boss.frameFor(w.boss.form, w.bossPhaseBreakPhase);
+            paint.setTextSize(22f);
+            paint.setColor(((int) (0xC8 * k) << 24) | 0xFF9FB6D8);
+            c.drawText("骨架 · " + frame.note, VW / 2f,
+                    w.bossPhaseBreakPhase >= 3 ? y + 138f : y + 66f, paint);
             // v1.62：只有真到了三阶段才换这句话——它认真起来时每型形态说的都不一样
             if (w.bossPhaseBreakPhase >= 3) {
                 paint.setTextSize(26f);
@@ -4799,6 +4875,7 @@ public class Renderer {
                 "整条攻坚路线一件没插队地拆穿，它下一手招牌当场哑火 · 那一拍真的什么都没有，趁这口气打核心",
                 "核心摊开那几秒每型旗舰的挣扎都不一样 · 有的全体憋火、有的被钉在原地、有的把你的弹拽进圈、有的核心裂成两片，HUD 那行会写清楚",
                 "反击窗口里把子弹收进摊开的核心 · 攒够四记就给这一型补一次识破进度，整条舰装拆穿换来的哑火还会让下一次开核提前",
+                "同一艘旗舰打到二阶段会展开舷侧、三阶段会破甲露出骨架 · 拆掉的每一件都在舰体上留一道疤，看轮廓就知道还差哪几件",
         };
         float cycle = w.stateTimer % (hints.length * 4.5f);
         int hintIndex = (int) (cycle / 4.5f);
